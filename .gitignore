@@ -1,0 +1,5 @@
+*.lbl
+*.lst
+*.d81
+target/
+.claude/settings.local.json
