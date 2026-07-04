@@ -15,8 +15,8 @@
 ; GO TO, GOSUB, RETURN, END/STOP, SYS, POKE, and REM comments. Token values
 ; follow docs/basic65-tokens.md, including the CE xx and FE xx two-byte
 ; families.
-; Unsupported statements become assembly comments so the generated output
-; remains inspectable and assemblable.
+; Unsupported or malformed statements become fatal line-numbered compiler
+; diagnostics, and OUT.ASM is only replaced after a clean compile.
 ;=======================================================================================
 
         .cpu "45gs02"
@@ -49,10 +49,33 @@ SOURCE_BANK             = $04
 SOURCE_BUF              = $0000
 SOURCE_BODY             = SOURCE_BUF + 2
 
+ASSET_LOAD_RETRIES      = 3
+ASSET_STAGE_BANK        = $05
+ASSET_STAGE_ADDR        = $0000
+OVR_WINDOW_ADDR         = $A000
+OVR_WINDOW_SIZE         = $2000
+OVR_ASSET_SIZE          = OVR_WINDOW_SIZE
+ATTIC_OVR_RTSTR1_MB     = $80
+ATTIC_OVR_RTSTR1_BANK   = $04
+ATTIC_OVR_RTSTR1_ADDR   = $0000
+ATTIC_OVR_RTSTR2_MB     = $80
+ATTIC_OVR_RTSTR2_BANK   = $04
+ATTIC_OVR_RTSTR2_ADDR   = $2000
+ATTIC_OVR_RTCORE_MB     = $80
+ATTIC_OVR_RTCORE_BANK   = $04
+ATTIC_OVR_RTCORE_ADDR   = $4000
+ATTIC_OVR_RTIO_MB       = $80
+ATTIC_OVR_RTIO_BANK     = $04
+ATTIC_OVR_RTIO_ADDR     = $6000
+ATTIC_OVR_RTGC_MB       = $80
+ATTIC_OVR_RTGC_BANK     = $04
+ATTIC_OVR_RTGC_ADDR     = $8000
+
 TOK_END                 = $80
 TOK_FOR                 = $81
 TOK_NEXT                = $82
 TOK_DATA                = $83
+TOK_INPUT               = $85
 TOK_READ                = $87
 TOK_DIM                 = $86
 TOK_LET                 = $88
@@ -63,23 +86,47 @@ TOK_GOSUB               = $8D
 TOK_RETURN              = $8E
 TOK_REM                 = $8F
 TOK_STOP                = $90
+TOK_ON                  = $91
 TOK_POKE                = $97
 TOK_PRINT_HASH          = $98
 TOK_PRINT               = $99
 TOK_SYS                 = $9E
+TOK_GET                 = $A1
+TOK_PEEK                = $C2
+TOK_LEN                 = $C3
+TOK_STR_STR             = $C4
+TOK_VAL                 = $C5
+TOK_SGN                 = $B4
+TOK_INT                 = $B5
+TOK_ABS                 = $B6
+TOK_CHR_STR             = $C7
+TOK_LEFT_STR            = $C8
+TOK_RIGHT_STR           = $C9
+TOK_MID_STR             = $CA
 TOK_TO                  = $A4
 TOK_THEN                = $A7
+TOK_NOT                 = $A8
 TOK_STEP                = $A9
 TOK_PLUS                = $AA
 TOK_MINUS               = $AB
 TOK_MUL                 = $AC
 TOK_DIV                 = $AD
+TOK_AND                 = $AF
+TOK_OR                  = $B0
 TOK_GT                  = $B1
 TOK_EQUAL               = $B2
 TOK_LT                  = $B3
 TOK_GO                  = $CB
+TOK_ELSE                = $D5
+TOK_DO                  = $EB
+TOK_LOOP                = $EC
+TOK_EXIT                = $ED
+TOK_UNTIL               = $FC
+TOK_WHILE               = $FD
 TOK_EXT_CE              = $CE
 TOK_EXT_FE              = $FE
+TOK_CE_WPEEK            = $10
+TOK_FE_WPOKE            = $1D
 
 COND_EQ                 = 1
 COND_NE                 = 2
@@ -87,6 +134,9 @@ COND_LT                 = 3
 COND_LE                 = 4
 COND_GT                 = 5
 COND_GE                 = 6
+COND_TRUTH              = 7
+ON_MODE_GOTO            = 1
+ON_MODE_GOSUB           = 2
 
 ASCII_UPPER_A           = $41
 ASCII_UPPER_F           = $46
@@ -95,20 +145,32 @@ ASCII_LOWER_A           = $61
 ASCII_LOWER_F           = $66
 
 LINE_BUF_MAX            = 240
+FILENAME_MAX            = 31
 LINE_MAX                = 240
 BRANCH_MAX              = 128
 FOR_STACK_MAX           = 16
 IF_STACK_MAX            = 16
+DO_STACK_MAX            = 16
 FOR_MAX                 = 64
+DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 DATA_MAX                = 128
+DATA_LINE_MAX           = LINE_MAX
+DATA_TYPE_INT           = 0
+DATA_TYPE_STRING        = 1
+STRING_MAX              = 240
+STRING_POOL_MAX         = $1000
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
 VAR_KIND_ARRAY1         = 1
 VAR_TYPE_INT            = 1
+; Plain numeric variables are tracked as FLOAT so A and A% are distinct.
+; Until the float runtime lands, FLOAT is emitted by the 16-bit integer backend.
 VAR_TYPE_FLOAT          = 2
 VAR_TYPE_STRING         = 3
+STRING_REF_HEAP         = 0
+STRING_REF_LITERAL      = 1
 VAR_BANK                = $01
 VAR_MB                  = $00
 ; Bank 1 reserved: $0000-$1fff for C65 KERNAL/DOS, $f800-$ffff for color RAM.
@@ -143,17 +205,42 @@ main:
         jsr close_work_files
         lda #0
         sta compile_error
+        sta error_count
         sta sym_count
         sta line_count
         sta branch_count
         sta data_count
+        sta data_line_count
+        sta string_count
+        sta string_pool_next_lo
+        sta string_pool_next_hi
         sta if_label_next_lo
         sta if_label_next_hi
         sta array_label_next_lo
         sta array_label_next_hi
+        sta on_label_next_lo
+        sta on_label_next_hi
         sta for_label_next
+        sta do_label_next
         sta for_sp
+        sta do_sp
         sta if_sp
+        sta asset_ovr_rtstr1_ready
+        sta asset_ovr_rtstr2_ready
+        sta asset_ovr_rtcore_ready
+        sta asset_ovr_rtio_ready
+        sta asset_ovr_rtgc_ready
+        sta runtime_need_string
+        sta runtime_need_string_heap
+        sta runtime_need_print
+        sta runtime_need_input
+        sta runtime_need_math
+        sta runtime_need_cmp
+        sta runtime_need_strtemp
+        sta runtime_need_data
+        sta runtime_need_array
+        sta runtime_need_get
+        sta runtime_need_decparse
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
         lda #>VAR_HEAP_START
@@ -163,9 +250,21 @@ main:
         ldy #>msg_banner
         jsr screen_zstr
 
-        lda #<msg_opening_in
+        lda #<msg_loading_overlays
+        ldy #>msg_loading_overlays
+        jsr screen_zstr
+        jsr load_runtime_overlays
+        bcc +
+        lda #<msg_overlay_fail
+        ldy #>msg_overlay_fail
+        jsr screen_zstr
+        rts
+
++       lda #<msg_opening_in
         ldy #>msg_opening_in
         jsr screen_zstr
+        jsr prompt_source_name
+        jsr show_loading_source
         jsr load_source
         bcc +
         lda #<msg_open_in_fail
@@ -179,7 +278,11 @@ main:
         jsr read_prg_header
         jsr init_source_reader
         jsr scan_program
+        lda compile_error
+        bne _main_compile_failed
         jsr validate_branch_targets
+        lda compile_error
+        bne _main_compile_failed
 
         lda #<msg_opening_out
         ldy #>msg_opening_out
@@ -198,25 +301,48 @@ main:
         jsr show_compile_start
         jsr init_source_reader
         jsr compile_program
+        lda compile_error
+        bne _main_output_failed
         jsr emit_generated_tail
+        lda compile_error
+        bne _main_output_failed
 
         jsr KERNAL_CLRCHN
         lda #LFN_OUT
         jsr KERNAL_CLOSE
         jsr KERNAL_CLRCHN
-        lda #13
-        jsr KERNAL_CHROUT
-
-        lda compile_error
-        beq _main_done_ok
-        lda #<msg_compile_warn
-        ldy #>msg_compile_warn
+        jsr finalize_output
+        bcc +
+        lda #<msg_finalize_fail
+        ldy #>msg_finalize_fail
         jsr screen_zstr
         rts
+
++       lda #13
+        jsr KERNAL_CHROUT
 
 _main_done_ok:
         lda #<msg_done
         ldy #>msg_done
+        jsr screen_zstr
+        rts
+
+_main_compile_failed:
+        lda #<msg_compile_failed
+        ldy #>msg_compile_failed
+        jsr screen_zstr
+        rts
+
+_main_output_failed:
+        jsr KERNAL_CLRCHN
+        lda #LFN_OUT
+        jsr KERNAL_CLOSE
+        jsr scratch_output
+        jsr KERNAL_CLRCHN
+        lda #13
+        jsr KERNAL_CHROUT
+        lda #<msg_compile_failed
+        ldy #>msg_compile_failed
         jsr screen_zstr
         rts
 
@@ -242,6 +368,39 @@ show_compile_start:
         jsr screen_zstr
         ldx #LFN_OUT
         jsr KERNAL_CHKOUT
+        rts
+
+fatal_error_zstr:
+        sta diag_msg_lo
+        sty diag_msg_hi
+        lda #1
+        sta compile_error
+        inc error_count
+        jsr KERNAL_CLRCHN
+        lda #<msg_error_line
+        ldy #>msg_error_line
+        jsr screen_zstr
+        lda line_no_lo
+        sta screen_num_lo
+        lda line_no_hi
+        sta screen_num_hi
+        jsr screen_uint
+        lda #<msg_error_colon
+        ldy #>msg_error_colon
+        jsr screen_zstr
+        lda diag_msg_lo
+        ldy diag_msg_hi
+        jsr screen_zstr
+        rts
+
+fatal_statement_error:
+        jsr fatal_error_zstr
+        jsr line_skip_to_stmt_end
+        rts
+
+fatal_line_error:
+        jsr fatal_error_zstr
+        jsr line_skip_to_end
         rts
 
 screen_uint:
@@ -318,6 +477,66 @@ select_output:
 ; File I/O
 ;=======================================================================================
 
+prompt_source_name:
+        jsr KERNAL_CLRCHN
+        lda #<msg_source_prompt
+        ldy #>msg_source_prompt
+        jsr screen_zstr
+        lda #0
+        sta source_filename_len
+        ldx #0
+
+_prompt_source_loop:
+        jsr KERNAL_CHRIN
+        cmp #13
+        beq _prompt_source_done
+        cpx #FILENAME_MAX
+        bcs _prompt_source_loop
+        sta source_filename_buf,x
+        inx
+        stx source_filename_len
+        bra _prompt_source_loop
+
+_prompt_source_done:
+        lda #13
+        jsr KERNAL_CHROUT
+        lda source_filename_len
+        bne _prompt_source_terminate
+        jsr use_default_source_name
+
+_prompt_source_terminate:
+        ldx source_filename_len
+        lda #0
+        sta source_filename_buf,x
+        rts
+
+use_default_source_name:
+        ldx #0
+
+_default_source_loop:
+        cpx #source_name_end - source_name
+        beq _default_source_done
+        lda source_name,x
+        sta source_filename_buf,x
+        inx
+        bra _default_source_loop
+
+_default_source_done:
+        stx source_filename_len
+        rts
+
+show_loading_source:
+        jsr KERNAL_CLRCHN
+        lda #<msg_loading_source_prefix
+        ldy #>msg_loading_source_prefix
+        jsr screen_zstr
+        lda #<source_filename_buf
+        ldy #>source_filename_buf
+        jsr screen_zstr
+        lda #13
+        jsr KERNAL_CHROUT
+        rts
+
 load_source:
         lda #SOURCE_BANK
         ldx #0
@@ -328,9 +547,9 @@ load_source:
         ldy #0
         jsr KERNAL_SETLFS
 
-        lda #source_name_end - source_name
-        ldx #<source_name
-        ldy #>source_name
+        lda source_filename_len
+        ldx #<source_filename_buf
+        ldy #>source_filename_buf
         jsr KERNAL_SETNAM
 
         lda #$40                         ; raw load to X/Y, PRG header included
@@ -395,6 +614,32 @@ close_work_files:
         rts
 
 scratch_output:
+        lda #<scratch_name
+        ldy #>scratch_name
+        ldx #scratch_name_end - scratch_name
+        jsr disk_command
+        rts
+
+finalize_output:
+        lda #<scratch_final_name
+        ldy #>scratch_final_name
+        ldx #scratch_final_name_end - scratch_final_name
+        jsr disk_command
+        bcs _finalize_fail
+        lda #<rename_name
+        ldy #>rename_name
+        ldx #rename_name_end - rename_name
+        jsr disk_command
+        rts
+
+_finalize_fail:
+        sec
+        rts
+
+disk_command:
+        sta str_ptr
+        sty str_ptr+1
+        stx byte_value
         jsr KERNAL_CLRCHN
         lda #LFN_CMD
         ldx #DEVICE_DISK
@@ -411,23 +656,42 @@ scratch_output:
         jsr KERNAL_SETNAM
 
         jsr KERNAL_OPEN
-        bcs _scratch_output_done
+        bcs _disk_command_fail
         ldx #LFN_CMD
         jsr KERNAL_CHKOUT
-        bcs _scratch_output_done
+        bcs _disk_command_fail
         ldy #0
-_scratch_cmd_loop:
-        lda scratch_name,y
+_disk_command_loop:
+        cpy byte_value
+        beq _disk_command_sent
+        lda (str_ptr),y
         jsr KERNAL_CHROUT
         iny
-        cpy #scratch_name_end - scratch_name
-        bne _scratch_cmd_loop
+        bra _disk_command_loop
 
-_scratch_output_done:
+_disk_command_sent:
+        jsr KERNAL_READST
+        bne _disk_command_fail
+        lda #0
+        sta disk_status
+        bra _disk_command_done
+
+_disk_command_fail:
+        lda #1
+        sta disk_status
+
+_disk_command_done:
         jsr KERNAL_CLRCHN
         lda #LFN_CMD
         jsr KERNAL_CLOSE
         jsr KERNAL_CLRCHN
+        lda disk_status
+        beq _disk_command_ok
+        sec
+        rts
+
+_disk_command_ok:
+        clc
         rts
 
 read_byte:
@@ -460,6 +724,326 @@ init_source_reader:
         sta source_ptr+2
         lda #0
         sta source_ptr+3
+        rts
+
+;=======================================================================================
+; Runtime emitter overlays
+;=======================================================================================
+
+load_runtime_overlays:
+        jsr load_ovr_rtstr1
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtstr1_ready
+
+        jsr load_ovr_rtstr2
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtstr2_ready
+
+        jsr load_ovr_rtcore
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtcore_ready
+
+        jsr load_ovr_rtio
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtio_ready
+
+        jsr load_ovr_rtgc
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtgc_ready
+        clc
+        rts
+
+_load_runtime_overlays_fail:
+        sec
+        rts
+
+load_ovr_rtstr1:
+        lda #<ovr_rtstr1_name
+        sta asset_name_ptr
+        lda #>ovr_rtstr1_name
+        sta asset_name_ptr+1
+        lda #ovr_rtstr1_name_end - ovr_rtstr1_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTSTR1_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTSTR1_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTSTR1_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTSTR1_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
+load_ovr_rtstr2:
+        lda #<ovr_rtstr2_name
+        sta asset_name_ptr
+        lda #>ovr_rtstr2_name
+        sta asset_name_ptr+1
+        lda #ovr_rtstr2_name_end - ovr_rtstr2_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTSTR2_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTSTR2_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTSTR2_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTSTR2_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
+load_ovr_rtcore:
+        lda #<ovr_rtcore_name
+        sta asset_name_ptr
+        lda #>ovr_rtcore_name
+        sta asset_name_ptr+1
+        lda #ovr_rtcore_name_end - ovr_rtcore_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTCORE_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTCORE_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTCORE_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTCORE_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
+load_ovr_rtio:
+        lda #<ovr_rtio_name
+        sta asset_name_ptr
+        lda #>ovr_rtio_name
+        sta asset_name_ptr+1
+        lda #ovr_rtio_name_end - ovr_rtio_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTIO_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTIO_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTIO_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTIO_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
+load_ovr_rtgc:
+        lda #<ovr_rtgc_name
+        sta asset_name_ptr
+        lda #>ovr_rtgc_name
+        sta asset_name_ptr+1
+        lda #ovr_rtgc_name_end - ovr_rtgc_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTGC_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTGC_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTGC_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTGC_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
+asset_load_to_attic:
+        lda #ASSET_LOAD_RETRIES
+        sta asset_retries
+
+_asset_load_attempt:
+        lda #ASSET_STAGE_BANK
+        ldx #0
+        jsr KERNAL_SETBNK
+
+        lda #0
+        ldx #DEVICE_DISK
+        ldy #0
+        jsr KERNAL_SETLFS
+
+        lda asset_name_len
+        ldx asset_name_ptr
+        ldy asset_name_ptr+1
+        jsr KERNAL_SETNAM
+
+        lda #$40
+        ldx #<ASSET_STAGE_ADDR
+        ldy #>ASSET_STAGE_ADDR
+        jsr KERNAL_LOAD
+        bcc _asset_load_loaded
+        dec asset_retries
+        bne _asset_load_attempt
+        jsr KERNAL_CLRCHN
+        sec
+        rts
+
+_asset_load_loaded:
+        jsr KERNAL_CLRCHN
+        lda asset_size
+        sta _asset_dma_count
+        lda asset_size+1
+        sta _asset_dma_count+1
+        lda asset_dst_addr
+        sta _asset_dma_dst
+        lda asset_dst_addr+1
+        sta _asset_dma_dst+1
+        lda asset_dst_bank
+        sta _asset_dma_dst_bank
+        lda asset_dst_mb
+        sta _asset_dma_dst_mb
+
+        lda #$00
+        sta $D707
+        .byte $80, $00
+        .byte $81
+_asset_dma_dst_mb:
+        .byte $00
+        .byte $00
+        .byte $00
+_asset_dma_count:
+        .word 0
+        .word ASSET_STAGE_ADDR + 2
+        .byte ASSET_STAGE_BANK
+_asset_dma_dst:
+        .word 0
+_asset_dma_dst_bank:
+        .byte 0
+        .byte $00
+        .word $0000
+        clc
+        rts
+
+ovr_rtstr1_emit:
+        lda asset_ovr_rtstr1_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTSTR1_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTSTR1_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTSTR1_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTSTR1_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+ovr_rtstr2_emit:
+        lda asset_ovr_rtstr2_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTSTR2_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTSTR2_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTSTR2_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTSTR2_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+ovr_rtcore_emit:
+        lda asset_ovr_rtcore_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTCORE_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTCORE_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTCORE_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTCORE_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+ovr_rtio_emit:
+        lda asset_ovr_rtio_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTIO_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTIO_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTIO_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTIO_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+ovr_rtgc_emit:
+        lda asset_ovr_rtgc_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTGC_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTGC_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTGC_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTGC_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+runtime_overlay_missing:
+        lda #1
+        sta compile_error
+        jsr KERNAL_CLRCHN
+        lda #<msg_overlay_missing
+        ldy #>msg_overlay_missing
+        jsr screen_zstr
+        jmp select_output
+
+ovr_dma_from_attic:
+        lda asset_dst_addr
+        sta _ovr_dma_src
+        lda asset_dst_addr+1
+        sta _ovr_dma_src+1
+        lda asset_dst_bank
+        sta _ovr_dma_src_bank
+        lda asset_dst_mb
+        sta _ovr_dma_src_mb
+
+        lda #$00
+        sta $D707
+        .byte $80
+_ovr_dma_src_mb:
+        .byte $00
+        .byte $81, $00
+        .byte $00
+        .byte $00
+        .word OVR_ASSET_SIZE
+_ovr_dma_src:
+        .word 0
+_ovr_dma_src_bank:
+        .byte 0
+        .word OVR_WINDOW_ADDR
+        .byte $00
+        .byte $00
+        .word $0000
         rts
 
 ;=======================================================================================
@@ -507,6 +1091,8 @@ _compile_program_next:
         jsr show_compile_line
         jsr emit_line_label
         jsr compile_line
+        lda compile_error
+        bne _compile_program_done
         bra _compile_program_next
 
 _compile_program_done:
@@ -537,6 +1123,71 @@ _read_line_done:
         rts
 
 ;=======================================================================================
+; Runtime feature linker flags
+;=======================================================================================
+
+mark_runtime_string:
+        lda #1
+        sta runtime_need_string
+        sta runtime_need_decparse
+        jsr mark_runtime_print
+        rts
+
+mark_runtime_string_heap:
+        jsr mark_runtime_string
+        lda #1
+        sta runtime_need_string_heap
+        sta runtime_need_decparse
+        rts
+
+mark_runtime_print:
+        lda #1
+        sta runtime_need_print
+        rts
+
+mark_runtime_input:
+        jsr mark_runtime_print
+        jsr mark_runtime_string_heap
+        lda #1
+        sta runtime_need_input
+        sta runtime_need_decparse
+        rts
+
+mark_runtime_math:
+        lda #1
+        sta runtime_need_math
+        rts
+
+mark_runtime_cmp:
+        lda #1
+        sta runtime_need_cmp
+        rts
+
+mark_runtime_strtemp:
+        lda #1
+        sta runtime_need_strtemp
+        rts
+
+mark_runtime_data:
+        jsr mark_runtime_print
+        jsr mark_runtime_string_heap
+        lda #1
+        sta runtime_need_data
+        rts
+
+mark_runtime_array:
+        jsr mark_runtime_print
+        lda #1
+        sta runtime_need_array
+        rts
+
+mark_runtime_get:
+        jsr mark_runtime_string_heap
+        lda #1
+        sta runtime_need_get
+        rts
+
+;=======================================================================================
 ; Pass 1 scanner
 ;=======================================================================================
 
@@ -558,11 +1209,13 @@ _scan_program_next:
         jsr read_line_body
         lda line_overflow
         beq +
-        lda #1
-        sta compile_error
+        lda #<msg_error_line_overflow
+        ldy #>msg_error_line_overflow
+        jsr fatal_error_zstr
 +       jsr record_line_number
         jsr scan_line_variables
         jsr scan_line_branches
+        jsr scan_line_runtime
         bra _scan_program_next
 
 _scan_program_done:
@@ -681,6 +1334,8 @@ _scan_branch_loop:
         beq _scan_branch_go
         cmp #TOK_THEN
         beq _scan_branch_then
+        cmp #TOK_ON
+        beq _scan_branch_on
         bra _scan_branch_loop
 
 _scan_branch_direct:
@@ -723,6 +1378,10 @@ _scan_branch_then_go:
         jsr line_get
         bra _scan_branch_go
 
+_scan_branch_on:
+        jsr scan_on_branch_targets
+        bra _scan_branch_loop
+
 _scan_branch_string:
         jsr scan_skip_string
         bra _scan_branch_loop
@@ -738,6 +1397,133 @@ _scan_branch_extended:
 _scan_branch_done:
         rts
 
+scan_line_runtime:
+        lda #0
+        sta line_idx
+
+_scan_runtime_loop:
+        jsr line_at_end
+        bcs _scan_runtime_done
+        jsr line_get
+        cmp #'"'
+        beq _scan_runtime_string_literal
+        cmp #TOK_REM
+        beq _scan_runtime_done
+        cmp #TOK_DATA
+        beq _scan_runtime_data_stmt
+        cmp #TOK_EXT_CE
+        beq _scan_runtime_extended
+        cmp #TOK_EXT_FE
+        beq _scan_runtime_extended
+        cmp #TOK_PRINT
+        beq _scan_runtime_print
+        cmp #TOK_INPUT
+        beq _scan_runtime_input
+        cmp #TOK_GET
+        beq _scan_runtime_get
+        cmp #TOK_READ
+        beq _scan_runtime_data
+        cmp #TOK_RESTORE
+        beq _scan_runtime_data
+        cmp #TOK_FOR
+        beq _scan_runtime_cmp
+        cmp #TOK_NEXT
+        beq _scan_runtime_cmp
+        cmp #TOK_MUL
+        beq _scan_runtime_math
+        cmp #TOK_DIV
+        beq _scan_runtime_math
+        cmp #TOK_EQUAL
+        beq _scan_runtime_cmp
+        cmp #TOK_LT
+        beq _scan_runtime_cmp
+        cmp #TOK_GT
+        beq _scan_runtime_cmp
+        cmp #TOK_CHR_STR
+        beq _scan_runtime_print
+        cmp #TOK_LEN
+        beq _scan_runtime_string
+        cmp #TOK_VAL
+        beq _scan_runtime_string_heap
+        cmp #TOK_STR_STR
+        beq _scan_runtime_string_heap
+        cmp #TOK_LEFT_STR
+        beq _scan_runtime_string_heap
+        cmp #TOK_RIGHT_STR
+        beq _scan_runtime_string_heap
+        cmp #TOK_MID_STR
+        beq _scan_runtime_string_heap
+
+        sta token_value
+        lda token_value
+        bmi _scan_runtime_loop
+        jsr is_var_start
+        bcs _scan_runtime_loop
+        lda token_value
+        jsr parse_variable_with_first_char
+        bcs _scan_runtime_loop
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _scan_runtime_check_array
+        jsr mark_runtime_string
+
+_scan_runtime_check_array:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _scan_runtime_loop
+        jsr line_peek
+        cmp #'('
+        bne _scan_runtime_loop
+        jsr mark_runtime_array
+        bra _scan_runtime_loop
+
+_scan_runtime_string_literal:
+        jsr scan_skip_string
+        bra _scan_runtime_loop
+
+_scan_runtime_data_stmt:
+        jsr line_skip_to_stmt_end
+        bra _scan_runtime_loop
+
+_scan_runtime_extended:
+        jsr scan_skip_token_argument
+        bra _scan_runtime_loop
+
+_scan_runtime_print:
+        jsr mark_runtime_print
+        bra _scan_runtime_loop
+
+_scan_runtime_input:
+        jsr mark_runtime_input
+        bra _scan_runtime_loop
+
+_scan_runtime_get:
+        jsr mark_runtime_get
+        bra _scan_runtime_loop
+
+_scan_runtime_data:
+        jsr mark_runtime_data
+        bra _scan_runtime_loop
+
+_scan_runtime_cmp:
+        jsr mark_runtime_cmp
+        bra _scan_runtime_loop
+
+_scan_runtime_math:
+        jsr mark_runtime_math
+        bra _scan_runtime_loop
+
+_scan_runtime_string:
+        jsr mark_runtime_string
+        bra _scan_runtime_loop
+
+_scan_runtime_string_heap:
+        jsr mark_runtime_string_heap
+        bra _scan_runtime_loop
+
+_scan_runtime_done:
+        rts
+
 scan_dim_statement:
 _scan_dim_next:
         jsr line_skip_spaces
@@ -749,8 +1535,11 @@ _scan_dim_next:
         jsr parse_variable_with_first_char
         bcs _scan_dim_bad
         lda var_type
-        cmp #VAR_TYPE_INT
+        jsr var_type_is_numeric
+        bcc +
+        cmp #VAR_TYPE_STRING
         bne _scan_dim_bad
++
 
         jsr line_skip_spaces
         jsr line_at_end
@@ -822,27 +1611,26 @@ _scan_data_next:
         bcs _scan_data_done
         jsr line_peek
         cmp #','
-        beq _scan_data_empty
+        beq _scan_data_bad_item
         cmp #'"'
         beq _scan_data_string
 
-        jsr line_parse_signed_number
-        bcs _scan_data_skip_item
+        jsr line_parse_signed_decimal_number
+        bcs _scan_data_bad_item
+        jsr record_data_line_if_needed
+        bcs _scan_data_too_many
         jsr record_data_number
-        bcs _scan_data_bad
+        bcs _scan_data_too_many
         bra _scan_data_after_item
-
-_scan_data_empty:
-        jsr line_get
-        bra _scan_data_next
 
 _scan_data_string:
         jsr line_get
-        jsr scan_skip_string
-        bra _scan_data_after_item
-
-_scan_data_skip_item:
-        jsr scan_skip_data_item
+        jsr add_string_literal
+        bcs _scan_data_bad_item
+        jsr record_data_line_if_needed
+        bcs _scan_data_too_many
+        jsr record_data_string
+        bcs _scan_data_too_many
 
 _scan_data_after_item:
         jsr line_skip_spaces
@@ -852,40 +1640,28 @@ _scan_data_after_item:
         cmp #','
         beq _scan_data_next
 
-_scan_data_bad:
-        lda #1
-        sta compile_error
+_scan_data_bad_item:
+        lda #<msg_error_bad_data
+        ldy #>msg_error_bad_data
+        jsr fatal_error_zstr
+        jsr line_skip_to_stmt_end
+        bra _scan_data_done
+
+_scan_data_too_many:
+        lda #<msg_error_too_many_data
+        ldy #>msg_error_too_many_data
+        jsr fatal_error_zstr
         jsr line_skip_to_stmt_end
 
 _scan_data_done:
         rts
 
-scan_skip_data_item:
-_scan_skip_data_loop:
-        jsr line_at_end
-        bcs _scan_skip_data_done
-        jsr line_peek
-        cmp #':'
-        beq _scan_skip_data_done
-        cmp #','
-        beq _scan_skip_data_done
-        cmp #'"'
-        beq _scan_skip_data_string
-        inc line_idx
-        bra _scan_skip_data_loop
-
-_scan_skip_data_string:
-        jsr line_get
-        jsr scan_skip_string
-        bra _scan_skip_data_loop
-
-_scan_skip_data_done:
-        rts
-
 record_data_number:
         ldx data_count
         cpx #DATA_MAX
-        bcs _record_data_fail
+        bcs record_data_fail
+        lda #DATA_TYPE_INT
+        sta data_table_type,x
         lda number_lo
         sta data_table_lo,x
         lda number_hi
@@ -894,8 +1670,108 @@ record_data_number:
         clc
         rts
 
-_record_data_fail:
+record_data_string:
+        ldx data_count
+        cpx #DATA_MAX
+        bcs record_data_fail
+        lda #DATA_TYPE_STRING
+        sta data_table_type,x
+        lda current_string_id
+        sta data_table_lo,x
+        lda #0
+        sta data_table_hi,x
+        inc data_count
+        clc
+        rts
+
+record_data_fail:
         sec
+        rts
+
+record_data_line_if_needed:
+        ldx #0
+_record_data_line_find:
+        cpx data_line_count
+        beq _record_data_line_create
+        lda data_line_lo,x
+        cmp line_no_lo
+        bne _record_data_line_next
+        lda data_line_hi,x
+        cmp line_no_hi
+        beq _record_data_line_done
+_record_data_line_next:
+        inx
+        bra _record_data_line_find
+
+_record_data_line_create:
+        cpx #DATA_LINE_MAX
+        bcs _record_data_line_fail
+        lda line_no_lo
+        sta data_line_lo,x
+        lda line_no_hi
+        sta data_line_hi,x
+        lda data_count
+        sta data_line_index,x
+        inc data_line_count
+
+_record_data_line_done:
+        clc
+        rts
+
+_record_data_line_fail:
+        sec
+        rts
+
+scan_on_branch_targets:
+_scan_on_find_branch:
+        jsr line_at_end_or_colon
+        bcs _scan_on_done
+        jsr line_get
+        cmp #'"'
+        beq _scan_on_string
+        cmp #TOK_REM
+        beq _scan_on_done
+        cmp #TOK_DATA
+        beq _scan_on_done
+        cmp #TOK_GOTO
+        beq _scan_on_list
+        cmp #TOK_GOSUB
+        beq _scan_on_list
+        cmp #TOK_GO
+        beq _scan_on_go
+        bra _scan_on_find_branch
+
+_scan_on_go:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_on_done
+        jsr line_get
+        cmp #TOK_TO
+        beq _scan_on_list
+        bra _scan_on_find_branch
+
+_scan_on_string:
+        jsr scan_skip_string
+        bra _scan_on_find_branch
+
+_scan_on_list:
+        jsr line_parse_number
+        bcs _scan_on_done
+        jsr record_branch_target
+
+_scan_on_list_next:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_on_done
+        jsr line_get
+        cmp #','
+        bne _scan_on_done
+        jsr line_parse_number
+        bcs _scan_on_done
+        jsr record_branch_target
+        bra _scan_on_list_next
+
+_scan_on_done:
         rts
 
 scan_parse_branch_target:
@@ -1090,6 +1966,29 @@ _line_exists_no:
         sec
         rts
 
+data_line_number_exists:
+        ldx #0
+_data_line_exists_loop:
+        cpx data_line_count
+        beq _data_line_exists_no
+        lda data_line_lo,x
+        cmp number_lo
+        bne _data_line_exists_next
+        lda data_line_hi,x
+        cmp number_hi
+        beq _data_line_exists_yes
+_data_line_exists_next:
+        inx
+        bra _data_line_exists_loop
+
+_data_line_exists_yes:
+        clc
+        rts
+
+_data_line_exists_no:
+        sec
+        rts
+
 ;=======================================================================================
 ; Line compiler
 ;=======================================================================================
@@ -1097,11 +1996,10 @@ _line_exists_no:
 compile_line:
         lda line_overflow
         beq +
-        lda #1
-        sta compile_error
-        lda #<out_line_overflow
-        ldy #>out_line_overflow
-        jsr out_zstr
+        lda #<msg_error_line_overflow
+        ldy #>msg_error_line_overflow
+        jsr fatal_line_error
+        rts
 +       lda #0
         sta line_idx
         jsr compile_line_statements
@@ -1110,6 +2008,8 @@ compile_line:
 
 compile_line_statements:
 _compile_line_loop:
+        lda compile_error
+        bne _compile_line_done
         jsr line_skip_spaces_colons
         jsr line_at_end
         bcs _compile_line_done
@@ -1119,8 +2019,18 @@ _compile_line_loop:
         beq _compile_for
         cmp #TOK_NEXT
         beq _compile_next
+        cmp #TOK_DO
+        beq _compile_do
+        cmp #TOK_LOOP
+        beq _compile_loop
+        cmp #TOK_EXIT
+        beq _compile_exit
         cmp #TOK_PRINT
         beq _compile_print
+        cmp #TOK_INPUT
+        beq _compile_input
+        cmp #TOK_GET
+        beq _compile_get
         cmp #TOK_GOTO
         beq _compile_goto
         cmp #TOK_GOSUB
@@ -1139,6 +2049,8 @@ _compile_line_loop:
         beq _compile_poke
         cmp #TOK_GO
         beq _compile_go
+        cmp #TOK_ON
+        beq _compile_on
         cmp #TOK_DATA
         beq _compile_data
         cmp #TOK_DIM
@@ -1151,12 +2063,14 @@ _compile_line_loop:
         beq _compile_let
         cmp #TOK_IF
         beq _compile_if
+        cmp #TOK_ELSE
+        beq _compile_else
         cmp #TOK_PRINT_HASH
         beq _compile_unsupported_token
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
-        beq _compile_unsupported_extended_token
+        beq _compile_extended_fe
 
         sta token_value
         lda token_value
@@ -1173,8 +2087,28 @@ _compile_next:
         jsr compile_next
         bra _compile_line_loop
 
+_compile_do:
+        jsr compile_do
+        bra _compile_line_loop
+
+_compile_loop:
+        jsr compile_loop
+        bra _compile_line_loop
+
+_compile_exit:
+        jsr compile_exit
+        bra _compile_line_loop
+
 _compile_print:
         jsr compile_print
+        bra _compile_line_loop
+
+_compile_input:
+        jsr compile_input
+        bra _compile_line_loop
+
+_compile_get:
+        jsr compile_get
         bra _compile_line_loop
 
 _compile_goto:
@@ -1214,6 +2148,10 @@ _compile_go:
         jsr compile_go
         bra _compile_line_loop
 
+_compile_on:
+        jsr compile_on
+        bra _compile_line_loop
+
 _compile_data:
         lda #<out_data_comment
         ldy #>out_data_comment
@@ -1244,6 +2182,21 @@ _compile_if:
         jsr compile_if
         bra _compile_line_loop
 
+_compile_else:
+        lda compile_stop_on_else
+        beq _compile_else_bad
+        lda line_had_colon
+        beq _compile_else_bad
+        lda #1
+        sta compile_found_else
+        rts
+
+_compile_else_bad:
+        lda #<msg_error_bad_else
+        ldy #>msg_error_bad_else
+        jsr fatal_statement_error
+        bra _compile_line_loop
+
 _compile_assignment_from_token:
         lda token_value
         jsr compile_assignment_with_first_char
@@ -1252,15 +2205,9 @@ _compile_assignment_from_token:
 _compile_unsupported_token:
         sta token_value
 _compile_unsupported_token_stored:
-        lda #1
-        sta compile_error
-        lda #<out_unsupported_token
-        ldy #>out_unsupported_token
-        jsr out_zstr
-        lda token_value
-        jsr out_hex_byte
-        jsr out_cr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_unsupported_token
+        ldy #>msg_error_unsupported_token
+        jsr fatal_statement_error
         bra _compile_line_loop
 
 _compile_unsupported_extended_token:
@@ -1273,26 +2220,31 @@ _compile_unsupported_extended_token:
         sta token_value
 
 _compile_unsupported_extended_emit:
-        lda #1
-        sta compile_error
-        lda #<out_unsupported_token
-        ldy #>out_unsupported_token
-        jsr out_zstr
-        lda token_prefix
-        jsr out_hex_byte
-        lda token_value
-        jsr out_hex_byte
-        jsr out_cr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_unsupported_token
+        ldy #>msg_error_unsupported_token
+        jsr fatal_statement_error
+        bra _compile_line_loop
+
+_compile_extended_fe:
+        jsr line_at_end
+        bcs _compile_unsupported_extended_fe
+        jsr line_peek
+        cmp #TOK_FE_WPOKE
+        beq _compile_wpoke
+
+_compile_unsupported_extended_fe:
+        lda #TOK_EXT_FE
+        bra _compile_unsupported_extended_token
+
+_compile_wpoke:
+        jsr line_get
+        jsr compile_wpoke
         bra _compile_line_loop
 
 _compile_unsupported_statement:
-        lda #1
-        sta compile_error
-        lda #<out_unsupported_statement
-        ldy #>out_unsupported_statement
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_unsupported_statement
+        ldy #>msg_error_unsupported_statement
+        jsr fatal_statement_error
         bra _compile_line_loop
 
 _compile_line_done:
@@ -1309,14 +2261,17 @@ compile_assignment_with_first_char:
         jsr parse_variable_with_first_char
         bcs compile_assignment_bad
         lda var_type
-        cmp #VAR_TYPE_INT
-        bne compile_assignment_bad
+        cmp #VAR_TYPE_STRING
+        beq _compile_string_assignment
+        lda var_type
+        jsr var_type_is_numeric
+        bcs compile_assignment_bad
         jsr line_skip_spaces
         jsr line_at_end
         bcs compile_assignment_bad
         jsr line_peek
         cmp #'('
-        beq _compile_array_assignment
+        beq compile_array_assignment
 
         jsr resolve_var
         bcs compile_assignment_bad
@@ -1336,7 +2291,355 @@ _compile_assignment_expr:
         jsr emit_store_var
         rts
 
-_compile_array_assignment:
+_compile_string_assignment:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs compile_assignment_bad
+        jsr line_peek
+        cmp #'('
+        beq compile_string_array_assignment
+
+        jsr resolve_var
+        bcs compile_assignment_bad
+        lda current_var_data_lo
+        sta assign_var_data_lo
+        lda current_var_data_hi
+        sta assign_var_data_hi
+        jsr line_get
+        cmp #TOK_EQUAL
+        beq _compile_string_assignment_value
+        cmp #'='
+        bne compile_assignment_bad
+
+_compile_string_assignment_value:
+        jsr compile_string_expression
+        bcs compile_assignment_bad
+        jsr emit_store_var
+        rts
+
+compile_string_array_assignment:
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr resolve_existing_var
+        bcs compile_assignment_bad
+        lda current_var_data_lo
+        sta array_base_lo
+        lda current_var_data_hi
+        sta array_base_hi
+        jsr compile_array_index
+        bcs compile_assignment_bad
+        lda array_base_lo
+        sta current_var_data_lo
+        lda array_base_hi
+        sta current_var_data_hi
+        jsr emit_set_arrayptr_current
+        jsr emit_save_arrayptr
+
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs compile_assignment_bad
+        jsr line_get
+        cmp #TOK_EQUAL
+        beq _compile_string_array_assignment_value
+        cmp #'='
+        bne compile_assignment_bad
+
+_compile_string_array_assignment_value:
+        jsr compile_string_expression
+        bcs compile_assignment_bad
+        jsr emit_restore_arrayptr
+        jsr emit_store_ptr
+        rts
+
+compile_string_expression:
+        jsr compile_string_factor
+        bcc _string_expr_loop
+        rts
+
+_string_expr_loop:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _string_expr_done
+        jsr line_peek
+        cmp #TOK_PLUS
+        bne _string_expr_done
+        jsr line_get
+        jsr emit_push_expr
+        jsr compile_string_factor
+        bcs _string_expr_fail
+        jsr emit_pop_lhs
+        jsr emit_concat_strings
+        bra _string_expr_loop
+
+_string_expr_done:
+        clc
+        rts
+
+_string_expr_fail:
+        sec
+        rts
+
+compile_string_factor:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _string_factor_fail
+        jsr line_get
+        cmp #'"'
+        bne _string_factor_var
+        jsr add_string_literal
+        bcs _string_factor_fail
+        jsr emit_string_literal_to_heap_expr
+        clc
+        rts
+
+_string_factor_var:
+        cmp #TOK_STR_STR
+        beq _string_factor_str
+        cmp #TOK_LEFT_STR
+        beq _string_factor_left
+        cmp #TOK_RIGHT_STR
+        beq _string_factor_right
+        cmp #TOK_MID_STR
+        beq _string_factor_mid
+        jsr is_var_start
+        bcs _string_factor_fail
+        jsr parse_variable_with_first_char
+        bcs _string_factor_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _string_factor_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _string_factor_scalar_var
+        jsr line_peek
+        cmp #'('
+        beq _string_factor_array_var
+
+_string_factor_scalar_var:
+        jsr resolve_existing_var
+        bcs _string_factor_fail
+        jsr emit_load_var
+        jsr emit_copy_string_expr
+        clc
+        rts
+
+_string_factor_array_var:
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr resolve_existing_var
+        bcs _string_factor_fail
+        lda current_var_data_lo
+        sta array_base_lo
+        lda current_var_data_hi
+        sta array_base_hi
+        jsr compile_array_index
+        bcs _string_factor_fail
+        lda array_base_lo
+        sta current_var_data_lo
+        lda array_base_hi
+        sta current_var_data_hi
+        jsr emit_set_arrayptr_current
+        jsr emit_load_ptr
+        jsr emit_copy_string_expr
+        clc
+        rts
+
+_string_factor_fail:
+        sec
+        rts
+
+_string_factor_str:
+        jsr compile_str_string_function
+        rts
+
+_string_factor_left:
+        jsr compile_left_string_function
+        rts
+
+_string_factor_right:
+        jsr compile_right_string_function
+        rts
+
+_string_factor_mid:
+        jsr compile_mid_string_function
+        rts
+
+string_expression_starts:
+        lda line_idx
+        sta line_idx_save
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _string_expr_starts_no
+        jsr line_peek
+        cmp #'"'
+        beq _string_expr_starts_yes
+        cmp #TOK_STR_STR
+        beq _string_expr_starts_yes
+        cmp #TOK_LEFT_STR
+        beq _string_expr_starts_yes
+        cmp #TOK_RIGHT_STR
+        beq _string_expr_starts_yes
+        cmp #TOK_MID_STR
+        beq _string_expr_starts_yes
+        jsr is_var_start
+        bcs _string_expr_starts_no
+        jsr line_get
+        jsr parse_variable_with_first_char
+        bcs _string_expr_starts_no
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        beq _string_expr_starts_yes
+
+_string_expr_starts_no:
+        lda line_idx_save
+        sta line_idx
+        sec
+        rts
+
+_string_expr_starts_yes:
+        lda line_idx_save
+        sta line_idx
+        clc
+        rts
+
+compile_str_string_function:
+        jsr parse_open_paren
+        bcs _compile_str_fail
+        jsr compile_expression
+        bcs _compile_str_fail
+        jsr parse_close_paren
+        bcs _compile_str_fail
+        jsr emit_string_from_int
+        clc
+        rts
+
+_compile_str_fail:
+        sec
+        rts
+
+compile_left_string_function:
+        jsr parse_open_paren
+        bcs _compile_left_fail
+        jsr compile_string_expression
+        bcs _compile_left_fail
+        jsr emit_push_expr
+        jsr parse_comma
+        bcs _compile_left_fail
+        jsr compile_expression
+        bcs _compile_left_fail
+        jsr parse_close_paren
+        bcs _compile_left_fail
+        jsr emit_pop_lhs
+        jsr emit_string_left
+        clc
+        rts
+
+_compile_left_fail:
+        sec
+        rts
+
+compile_right_string_function:
+        jsr parse_open_paren
+        bcs _compile_right_fail
+        jsr compile_string_expression
+        bcs _compile_right_fail
+        jsr emit_push_expr
+        jsr parse_comma
+        bcs _compile_right_fail
+        jsr compile_expression
+        bcs _compile_right_fail
+        jsr parse_close_paren
+        bcs _compile_right_fail
+        jsr emit_pop_lhs
+        jsr emit_string_right
+        clc
+        rts
+
+_compile_right_fail:
+        sec
+        rts
+
+compile_mid_string_function:
+        jsr parse_open_paren
+        bcs _compile_mid_fail
+        jsr compile_string_expression
+        bcs _compile_mid_fail
+        jsr emit_push_expr
+        jsr parse_comma
+        bcs _compile_mid_fail
+        jsr compile_expression
+        bcs _compile_mid_fail
+        jsr emit_save_expr_to_strarg1
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _compile_mid_fail
+        jsr line_get
+        cmp #','
+        beq _compile_mid_with_len
+        cmp #')'
+        bne _compile_mid_fail
+        jsr emit_pop_lhs
+        jsr emit_string_mid_tail
+        clc
+        rts
+
+_compile_mid_with_len:
+        jsr compile_expression
+        bcs _compile_mid_fail
+        jsr parse_close_paren
+        bcs _compile_mid_fail
+        jsr emit_pop_lhs
+        jsr emit_string_mid
+        clc
+        rts
+
+_compile_mid_fail:
+        sec
+        rts
+
+parse_open_paren:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_open_paren_fail
+        jsr line_get
+        cmp #'('
+        bne _parse_open_paren_fail
+        clc
+        rts
+
+_parse_open_paren_fail:
+        sec
+        rts
+
+parse_close_paren:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_close_paren_fail
+        jsr line_get
+        cmp #')'
+        bne _parse_close_paren_fail
+        clc
+        rts
+
+_parse_close_paren_fail:
+        sec
+        rts
+
+parse_comma:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_comma_fail
+        jsr line_get
+        cmp #','
+        bne _parse_comma_fail
+        clc
+        rts
+
+_parse_comma_fail:
+        sec
+        rts
+
+compile_array_assignment:
         lda #VAR_KIND_ARRAY1
         sta var_kind
         jsr resolve_existing_var
@@ -1371,15 +2674,13 @@ _compile_array_assignment_expr:
         rts
 
 compile_assignment_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_assignment
-        ldy #>out_bad_assignment
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_assignment
+        ldy #>msg_error_bad_assignment
+        jsr fatal_statement_error
         rts
 
 compile_for:
+        jsr mark_runtime_cmp
         jsr alloc_for_label
         bcs compile_for_bad
 
@@ -1390,8 +2691,8 @@ compile_for:
         jsr parse_variable_with_first_char
         bcs compile_for_bad
         lda var_type
-        cmp #VAR_TYPE_INT
-        bne compile_for_bad
+        jsr var_type_is_numeric
+        bcs compile_for_bad
         jsr resolve_var
         bcs compile_for_bad
         lda current_var_data_lo
@@ -1453,15 +2754,13 @@ _compile_for_store_step:
         rts
 
 compile_for_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_for
-        ldy #>out_bad_for
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_for
+        ldy #>msg_error_bad_for
+        jsr fatal_statement_error
         rts
 
 compile_next:
+        jsr mark_runtime_cmp
         jsr pop_for_frame
         bcs compile_next_bad
 
@@ -1472,8 +2771,8 @@ compile_next:
         jsr parse_variable_with_first_char
         bcs compile_next_bad
         lda var_type
-        cmp #VAR_TYPE_INT
-        bne compile_next_bad
+        jsr var_type_is_numeric
+        bcs compile_next_bad
         jsr resolve_var
         bcs compile_next_bad
         lda current_var_data_lo
@@ -1551,30 +2850,160 @@ _compile_next_emit:
         rts
 
 compile_next_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_next
-        ldy #>out_bad_next
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_next
+        ldy #>msg_error_bad_next
+        jsr fatal_statement_error
+        rts
+
+compile_do:
+        jsr alloc_do_label
+        bcs compile_do_bad
+        jsr emit_do_top_label_def
+
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_do_push
+        jsr line_peek
+        cmp #TOK_WHILE
+        beq _compile_do_while
+        cmp #TOK_UNTIL
+        beq _compile_do_until
+        bra compile_do_bad
+
+_compile_do_while:
+        jsr line_get
+        jsr compile_loop_condition_lhs
+        bcs compile_do_bad
+        jsr emit_do_pretest_while
+        bra _compile_do_check_tail
+
+_compile_do_until:
+        jsr line_get
+        jsr compile_loop_condition_lhs
+        bcs compile_do_bad
+        jsr emit_do_pretest_until
+
+_compile_do_check_tail:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcc compile_do_bad
+
+_compile_do_push:
+        jsr push_do_frame
+        bcs compile_do_bad
+        rts
+
+compile_do_bad:
+        lda #<msg_error_bad_do
+        ldy #>msg_error_bad_do
+        jsr fatal_statement_error
+        rts
+
+compile_loop:
+        jsr pop_do_frame
+        bcs compile_loop_bad
+
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_loop_plain
+        jsr line_peek
+        cmp #TOK_UNTIL
+        beq _compile_loop_until
+        cmp #TOK_WHILE
+        beq _compile_loop_while
+        bra compile_loop_bad
+
+_compile_loop_until:
+        jsr line_get
+        jsr compile_loop_condition_lhs
+        bcs compile_loop_bad
+        jsr emit_do_posttest_until
+        bra _compile_loop_check_tail
+
+_compile_loop_while:
+        jsr line_get
+        jsr compile_loop_condition_lhs
+        bcs compile_loop_bad
+        jsr emit_do_posttest_while
+        bra _compile_loop_check_tail
+
+_compile_loop_plain:
+        jsr emit_jmp_dotop
+        jsr emit_do_done_label_def
+        rts
+
+_compile_loop_check_tail:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcc compile_loop_bad
+        jsr emit_do_done_label_def
+        rts
+
+compile_loop_bad:
+        lda #<msg_error_bad_loop
+        ldy #>msg_error_bad_loop
+        jsr fatal_statement_error
+        rts
+
+compile_exit:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_exit_do
+        jsr line_peek
+        cmp #TOK_FOR
+        beq _compile_exit_for
+        cmp #TOK_ELSE
+        beq _compile_exit_do
+        bra compile_exit_bad
+
+_compile_exit_do:
+        jsr peek_do_frame
+        bcs compile_exit_bad
+        jsr emit_jmp_dodone
+        rts
+
+_compile_exit_for:
+        jsr line_get
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_exit_for_emit
+        jsr line_peek
+        cmp #TOK_ELSE
+        bne compile_exit_bad
+
+_compile_exit_for_emit:
+        jsr peek_for_frame
+        bcs compile_exit_bad
+        jsr emit_jmp_fordone
+        rts
+
+compile_exit_bad:
+        lda #<msg_error_bad_exit
+        ldy #>msg_error_bad_exit
+        jsr fatal_statement_error
+        rts
+
+compile_loop_condition_lhs:
+        jsr compile_condition_expression
+        bcs _compile_loop_condition_fail
+        jsr emit_push_expr
+        jsr emit_pop_lhs
+        clc
+        rts
+
+_compile_loop_condition_fail:
+        sec
         rts
 
 compile_if:
         jsr alloc_if_labels
-        jsr compile_expression
+        jsr compile_condition_expression
         bcs compile_if_bad
         jsr emit_push_expr
-        jsr parse_if_compare_op
+        lda #COND_TRUTH
+        sta cond_op
+        jsr parse_then_token
         bcs compile_if_bad
-        jsr compile_expression
-        bcs compile_if_bad
-
-        jsr line_skip_spaces
-        jsr line_at_end
-        bcs compile_if_bad
-        jsr line_get
-        cmp #TOK_THEN
-        bne compile_if_bad
 
         jsr line_skip_spaces
         jsr line_at_end
@@ -1587,10 +3016,48 @@ compile_if:
 
 _compile_if_inline:
         jsr emit_pop_lhs
-        jsr emit_if_comparison
+        jsr emit_if_comparison_inline_start
         jsr push_if_labels
+        bcs compile_if_bad
+        lda compile_stop_on_else
+        pha
+        lda compile_found_else
+        pha
+        lda #1
+        sta compile_stop_on_else
+        lda #0
+        sta compile_found_else
         jsr compile_line_statements
+        lda compile_found_else
+        sta if_else_found
+        pla
+        sta compile_found_else
+        pla
+        sta compile_stop_on_else
+        lda compile_error
+        beq +
         jsr pop_if_labels
+        rts
++       jsr pop_if_labels
+        bcs compile_if_bad
+        lda if_else_found
+        beq _compile_if_no_else
+        jsr emit_jmp_if_end
+        jsr emit_if_else_label_def
+        jsr push_if_labels
+        bcs compile_if_bad
+        jsr compile_line_statements
+        lda compile_error
+        beq +
+        jsr pop_if_labels
+        rts
++       jsr pop_if_labels
+        bcs compile_if_bad
+        jsr emit_if_end_label_def
+        rts
+
+_compile_if_no_else:
+        jsr emit_if_else_label_def
         jsr emit_if_end_label_def
         rts
 
@@ -1611,19 +3078,32 @@ _compile_if_line_target:
         rts
 
 compile_if_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_if
-        ldy #>out_bad_if
-        jsr out_zstr
-        jsr line_skip_to_end
+        lda #<msg_error_bad_if
+        ldy #>msg_error_bad_if
+        jsr fatal_line_error
+        rts
+
+parse_then_token:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_then_fail
+        jsr line_get
+        cmp #TOK_THEN
+        beq _parse_then_done
+
+_parse_then_fail:
+        sec
+        rts
+
+_parse_then_done:
+        clc
         rts
 
 parse_if_compare_op:
         jsr line_skip_spaces
         jsr line_at_end
         bcs _parse_if_compare_fail
-        jsr line_get
+        jsr line_peek
         cmp #TOK_EQUAL
         beq _parse_if_compare_eq
         cmp #'='
@@ -1642,12 +3122,14 @@ _parse_if_compare_fail:
         rts
 
 _parse_if_compare_eq:
+        jsr line_get
         lda #COND_EQ
         sta cond_op
         clc
         rts
 
 _parse_if_compare_lt:
+        jsr line_get
         lda #COND_LT
         sta cond_op
         jsr line_at_end
@@ -1676,6 +3158,7 @@ _parse_if_compare_ne:
         bra _parse_if_compare_done
 
 _parse_if_compare_gt:
+        jsr line_get
         lda #COND_GT
         sta cond_op
         jsr line_at_end
@@ -1694,6 +3177,399 @@ _parse_if_compare_ge:
 
 _parse_if_compare_done:
         clc
+        rts
+
+compile_condition_expression:
+        jsr compile_condition_or
+        rts
+
+compile_condition_or:
+        jsr compile_condition_and
+        bcc _cond_or_loop
+        rts
+
+_cond_or_loop:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cond_or_done
+        jsr line_peek
+        cmp #TOK_OR
+        beq _cond_or_take
+
+_cond_or_done:
+        clc
+        rts
+
+_cond_or_take:
+        jsr line_get
+        jsr emit_push_expr
+        jsr compile_condition_and
+        bcs _cond_or_fail
+        jsr emit_pop_lhs
+        jsr emit_bool_or_lhs_expr
+        bra _cond_or_loop
+
+_cond_or_fail:
+        sec
+        rts
+
+compile_condition_and:
+        jsr compile_condition_not
+        bcc _cond_and_loop
+        rts
+
+_cond_and_loop:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cond_and_done
+        jsr line_peek
+        cmp #TOK_AND
+        beq _cond_and_take
+
+_cond_and_done:
+        clc
+        rts
+
+_cond_and_take:
+        jsr line_get
+        jsr emit_push_expr
+        jsr compile_condition_not
+        bcs _cond_and_fail
+        jsr emit_pop_lhs
+        jsr emit_bool_and_lhs_expr
+        bra _cond_and_loop
+
+_cond_and_fail:
+        sec
+        rts
+
+compile_condition_not:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cond_not_fail
+        jsr line_peek
+        cmp #TOK_NOT
+        beq _cond_not_take
+        jsr compile_condition_compare
+        rts
+
+_cond_not_take:
+        jsr line_get
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cond_not_fail
+        jsr line_peek
+        cmp #'('
+        beq _cond_not_paren
+        jsr compile_condition_not
+        bcs _cond_not_fail
+        jsr emit_not_expr
+        clc
+        rts
+
+_cond_not_paren:
+        jsr line_get
+        jsr compile_condition_expression
+        bcs _cond_not_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cond_not_fail
+        jsr line_get
+        cmp #')'
+        bne _cond_not_fail
+        jsr emit_not_expr
+        clc
+        rts
+
+_cond_not_fail:
+        sec
+        rts
+
+compile_condition_compare:
+        jsr string_expression_starts
+        bcc _cond_compare_string
+        jsr compile_expression
+        bcs _cond_compare_fail
+        jsr parse_if_compare_op
+        bcs _cond_compare_done
+        jsr emit_push_expr
+        jsr compile_expression
+        bcs _cond_compare_fail
+        jsr emit_pop_lhs
+        jsr emit_compare_expr_to_bool
+
+_cond_compare_done:
+        clc
+        rts
+
+_cond_compare_string:
+        jsr try_compile_empty_string_compare
+        bcc _cond_compare_done
+        jsr try_compile_string_ref_compare
+        bcc _cond_compare_done
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _cond_compare_fail
+        jsr parse_if_compare_op
+        bcs _cond_compare_fail
+        jsr emit_push_expr
+        jsr compile_string_expression
+        bcs _cond_compare_fail
+        jsr emit_pop_lhs
+        jsr emit_string_compare_to_bool
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_cond_compare_fail:
+        sec
+        rts
+
+try_compile_empty_string_compare:
+        lda line_idx
+        sta line_idx_save
+        jsr parse_scalar_string_var_probe
+        bcs _try_empty_left_literal
+        jsr parse_if_compare_op
+        bcs _try_empty_restore_fail
+        jsr parse_empty_string_literal
+        bcs _try_empty_restore_fail
+        lda #0
+        sta byte_value
+        jsr emit_empty_string_compare
+        bcs _try_empty_restore_fail
+        clc
+        rts
+
+_try_empty_left_literal:
+        lda line_idx_save
+        sta line_idx
+        jsr parse_empty_string_literal
+        bcs _try_empty_restore_fail
+        jsr parse_if_compare_op
+        bcs _try_empty_restore_fail
+        jsr parse_scalar_string_var_probe
+        bcs _try_empty_restore_fail
+        lda #1
+        sta byte_value
+        jsr emit_empty_string_compare
+        bcs _try_empty_restore_fail
+        clc
+        rts
+
+_try_empty_restore_fail:
+        lda line_idx_save
+        sta line_idx
+
+_try_empty_fail:
+        sec
+        rts
+
+parse_scalar_string_var_probe:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_scalar_string_fail
+        jsr line_get
+        jsr is_var_start
+        bcs _parse_scalar_string_fail
+        jsr parse_variable_with_first_char
+        bcs _parse_scalar_string_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _parse_scalar_string_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_scalar_string_ok
+        jsr line_peek
+        cmp #'('
+        beq _parse_scalar_string_fail
+        cmp #TOK_PLUS
+        beq _parse_scalar_string_fail
+
+_parse_scalar_string_ok:
+        clc
+        rts
+
+_parse_scalar_string_fail:
+        sec
+        rts
+
+parse_empty_string_literal:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_empty_string_fail
+        jsr line_get
+        cmp #'"'
+        bne _parse_empty_string_fail
+        jsr line_at_end
+        bcs _parse_empty_string_fail
+        jsr line_get
+        cmp #'"'
+        bne _parse_empty_string_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_empty_string_ok
+        jsr line_peek
+        cmp #TOK_PLUS
+        beq _parse_empty_string_fail
+
+_parse_empty_string_ok:
+        clc
+        rts
+
+_parse_empty_string_fail:
+        sec
+        rts
+
+try_compile_string_ref_compare:
+        lda line_idx
+        sta line_idx_save
+        jsr parse_simple_string_ref_probe
+        bcs _try_strref_restore_fail
+        lda string_ref_type
+        sta string_ref_left_type
+        jsr parse_if_compare_op
+        bcs _try_strref_restore_fail
+        jsr parse_simple_string_ref_probe
+        bcs _try_strref_restore_fail
+        lda string_ref_type
+        sta string_ref_right_type
+
+        lda line_idx_save
+        sta line_idx
+        jsr compile_simple_string_ref_operand
+        bcs _try_strref_fail
+        lda string_ref_type
+        sta string_ref_left_type
+        jsr emit_expr_to_lhs
+        lda string_ref_left_type
+        jsr emit_set_strarg1lo_imm
+        jsr parse_if_compare_op
+        bcs _try_strref_fail
+        jsr compile_simple_string_ref_operand
+        bcs _try_strref_fail
+        lda string_ref_type
+        sta string_ref_right_type
+        jsr emit_set_strarg1hi_imm
+        jsr emit_string_ref_compare_to_bool
+        clc
+        rts
+
+_try_strref_restore_fail:
+        lda line_idx_save
+        sta line_idx
+
+_try_strref_fail:
+        sec
+        rts
+
+parse_simple_string_ref_probe:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _parse_strref_probe_fail
+        jsr line_peek
+        cmp #'"'
+        beq _parse_strref_probe_literal
+        jsr line_get
+        jsr is_var_start
+        bcs _parse_strref_probe_fail
+        jsr parse_variable_with_first_char
+        bcs _parse_strref_probe_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _parse_strref_probe_fail
+        jsr simple_string_ref_check_var_tail
+        bcs _parse_strref_probe_fail
+        lda #STRING_REF_HEAP
+        sta string_ref_type
+        clc
+        rts
+
+_parse_strref_probe_literal:
+        jsr line_get
+        jsr add_string_literal
+        bcs _parse_strref_probe_fail
+        jsr simple_string_ref_check_tail
+        bcs _parse_strref_probe_fail
+        lda #STRING_REF_LITERAL
+        sta string_ref_type
+        clc
+        rts
+
+_parse_strref_probe_fail:
+        sec
+        rts
+
+compile_simple_string_ref_operand:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _compile_strref_operand_fail
+        jsr line_peek
+        cmp #'"'
+        beq _compile_strref_literal
+        jsr line_get
+        jsr is_var_start
+        bcs _compile_strref_operand_fail
+        jsr parse_variable_with_first_char
+        bcs _compile_strref_operand_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _compile_strref_operand_fail
+        jsr simple_string_ref_check_var_tail
+        bcs _compile_strref_operand_fail
+        lda #VAR_KIND_SCALAR
+        sta var_kind
+        jsr resolve_var
+        bcs _compile_strref_operand_fail
+        jsr emit_load_var
+        lda #STRING_REF_HEAP
+        sta string_ref_type
+        clc
+        rts
+
+_compile_strref_literal:
+        jsr line_get
+        jsr add_string_literal
+        bcs _compile_strref_operand_fail
+        jsr simple_string_ref_check_tail
+        bcs _compile_strref_operand_fail
+        jsr emit_load_string_ref_to_expr
+        lda #STRING_REF_LITERAL
+        sta string_ref_type
+        clc
+        rts
+
+_compile_strref_operand_fail:
+        sec
+        rts
+
+simple_string_ref_check_var_tail:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs simple_strref_tail_ok
+        jsr line_peek
+        cmp #'('
+        beq simple_strref_tail_fail
+        bra simple_string_ref_check_tail_peeked
+
+simple_string_ref_check_tail:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs simple_strref_tail_ok
+        jsr line_peek
+
+simple_string_ref_check_tail_peeked:
+        cmp #TOK_PLUS
+        beq simple_strref_tail_fail
+        cmp #'+'
+        beq simple_strref_tail_fail
+
+simple_strref_tail_ok:
+        clc
+        rts
+
+simple_strref_tail_fail:
+        sec
         rts
 
 compile_expression:
@@ -1793,6 +3669,22 @@ _factor_not_number:
         beq _factor_paren
         cmp #TOK_MINUS
         beq _factor_unary_minus
+        cmp #TOK_NOT
+        beq _factor_unary_not
+        cmp #TOK_ABS
+        beq _factor_abs
+        cmp #TOK_SGN
+        beq _factor_sgn
+        cmp #TOK_INT
+        beq _factor_int
+        cmp #TOK_LEN
+        beq _factor_len
+        cmp #TOK_VAL
+        beq _factor_val
+        cmp #TOK_PEEK
+        beq _factor_peek
+        cmp #TOK_EXT_CE
+        beq _factor_ext_ce
         jsr is_var_start
         bcc _factor_variable
 _factor_fail:
@@ -1811,8 +3703,8 @@ _factor_variable:
         jsr parse_variable_with_first_char
         bcs _factor_fail
         lda var_type
-        cmp #VAR_TYPE_INT
-        bne _factor_fail
+        jsr var_type_is_numeric
+        bcs _factor_fail
         jsr line_skip_spaces
         jsr line_at_end
         bcs _factor_scalar_variable
@@ -1865,6 +3757,114 @@ _factor_unary_minus:
         jsr compile_factor
         bcs _factor_fail
         jsr emit_neg_expr
+        clc
+        rts
+
+_factor_unary_not:
+        jsr line_get
+        jsr compile_factor
+        bcs _factor_fail
+        jsr emit_not_expr
+        clc
+        rts
+
+_factor_len:
+        jsr line_get
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _factor_fail
+        jsr line_get
+        cmp #'('
+        bne _factor_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _factor_fail
+        jsr line_get
+        cmp #')'
+        bne _factor_fail
+        jsr emit_string_len_expr
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_factor_val:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        jsr emit_val_string_expr
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_factor_abs:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        jsr emit_abs_expr
+        clc
+        rts
+
+_factor_sgn:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        jsr emit_sgn_expr
+        clc
+        rts
+
+_factor_int:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        clc
+        rts
+
+_factor_peek:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        jsr emit_peek_expr
+        clc
+        rts
+
+_factor_ext_ce:
+        jsr line_get
+        jsr line_at_end
+        bcs _factor_fail
+        jsr line_get
+        cmp #TOK_CE_WPEEK
+        bne _factor_fail
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        jsr emit_wpeek_expr
         clc
         rts
 
@@ -2000,7 +4000,7 @@ compile_print:
 
 _print_loop:
         jsr line_skip_spaces
-        jsr line_at_end_or_colon
+        jsr line_at_print_end
         bcs _print_finish
 
         jsr line_peek
@@ -2010,39 +4010,49 @@ _print_loop:
         beq _print_semicolon
         cmp #','
         beq _print_comma
+        cmp #TOK_CHR_STR
+        beq _print_chr
         bra _print_expression
 
 _print_expression:
+        jsr try_compile_print_string_var
+        bcc _print_string_var_done
+        jsr string_expression_starts
+        bcs _print_numeric_expression
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _print_expression_bad
+        jsr emit_print_string_expr
+        jsr emit_string_temp_release
+        bra _print_string_var_done
+
+_print_numeric_expression:
         jsr compile_expression
         bcs _print_expression_bad
+        jsr mark_runtime_print
         lda #<out_jsr_printuint
         ldy #>out_jsr_printuint
         jsr out_zstr
+
+_print_string_var_done:
         lda #0
         sta print_suppress_cr
         bra _print_loop
 
 _print_expression_bad:
-        lda #1
-        sta compile_error
-        lda #<out_unsupported_print
-        ldy #>out_unsupported_print
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
-        bra _print_finish
+        lda #<msg_error_unsupported_print
+        ldy #>msg_error_unsupported_print
+        jsr fatal_statement_error
+        rts
 
 _print_string:
         jsr line_get                         ; opening quote
         lda #0
         sta print_suppress_cr
-_print_string_loop:
-        jsr line_at_end
-        bcs _print_finish
-        jsr line_get
-        cmp #'"'
-        beq _print_loop
-        jsr emit_chout_imm
-        bra _print_string_loop
+        jsr add_string_literal
+        bcs _print_expression_bad
+        jsr emit_print_string_current
+        bra _print_loop
 
 _print_semicolon:
         jsr line_get
@@ -2057,12 +4067,324 @@ _print_comma:
         sta print_suppress_cr
         bra _print_loop
 
+_print_chr:
+        jsr line_get                         ; CHR$
+        jsr line_skip_spaces
+        jsr line_get
+        cmp #'('
+        bne _print_expression_bad
+        jsr compile_expression
+        bcs _print_expression_bad
+        jsr line_skip_spaces
+        jsr line_get
+        cmp #')'
+        bne _print_expression_bad
+        jsr emit_print_char_expr
+        lda #0
+        sta print_suppress_cr
+        bra _print_loop
+
 _print_finish:
         lda print_suppress_cr
         bne _print_done
         lda #13
         jsr emit_chout_imm
 _print_done:
+        rts
+
+compile_input:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_bad
+        jsr line_peek
+        cmp #'"'
+        bne _compile_input_emit_line
+
+        jsr line_get                         ; opening quote
+        jsr add_string_literal
+        bcs _compile_input_bad
+        jsr emit_print_string_current
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_bad
+        jsr line_get
+        cmp #';'
+        beq _compile_input_emit_line
+        cmp #','
+        bne _compile_input_bad
+
+_compile_input_emit_line:
+        jsr emit_input_line
+
+_compile_input_target_loop:
+        jsr compile_input_target
+        bcs _compile_input_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_done
+        jsr line_get
+        cmp #','
+        beq _compile_input_target_loop
+
+_compile_input_bad:
+        lda #<msg_error_bad_input
+        ldy #>msg_error_bad_input
+        jsr fatal_statement_error
+
+_compile_input_done:
+        rts
+
+compile_input_target:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_target_bad
+        jsr line_get
+        jsr is_var_start
+        bcs _compile_input_target_bad
+        jsr parse_variable_with_first_char
+        bcs _compile_input_target_bad
+        lda var_type
+        jsr var_type_is_numeric
+        bcc _compile_input_type_ok
+        cmp #VAR_TYPE_STRING
+        bne _compile_input_target_bad
+_compile_input_type_ok:
+        sta read_target_type
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _compile_input_scalar
+        jsr line_peek
+        cmp #'('
+        beq _compile_input_array
+
+_compile_input_scalar:
+        jsr resolve_var
+        bcs _compile_input_target_bad
+        lda current_var_data_lo
+        sta assign_var_data_lo
+        lda current_var_data_hi
+        sta assign_var_data_hi
+        lda read_target_type
+        cmp #VAR_TYPE_STRING
+        beq _compile_input_string_scalar
+        jsr emit_input_int
+        jsr emit_store_var
+        clc
+        rts
+
+_compile_input_string_scalar:
+        jsr emit_input_string
+        jsr emit_store_var
+        clc
+        rts
+
+_compile_input_array:
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr resolve_existing_var
+        bcs _compile_input_target_bad
+        lda current_var_data_lo
+        sta array_base_lo
+        lda current_var_data_hi
+        sta array_base_hi
+        jsr compile_array_index
+        bcs _compile_input_target_bad
+        lda array_base_lo
+        sta current_var_data_lo
+        lda array_base_hi
+        sta current_var_data_hi
+        jsr emit_set_arrayptr_current
+        jsr emit_save_arrayptr
+        lda read_target_type
+        cmp #VAR_TYPE_STRING
+        beq _compile_input_string_array
+        jsr emit_input_int
+        bra _compile_input_array_store
+
+_compile_input_string_array:
+        jsr emit_input_string
+
+_compile_input_array_store:
+        jsr emit_restore_arrayptr
+        jsr emit_store_ptr
+        clc
+        rts
+
+_compile_input_target_bad:
+        sec
+        rts
+
+compile_get:
+_compile_get_target_loop:
+        jsr compile_get_target
+        bcs _compile_get_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_get_done
+        jsr line_get
+        cmp #','
+        beq _compile_get_target_loop
+
+_compile_get_bad:
+        lda #<msg_error_bad_get
+        ldy #>msg_error_bad_get
+        jsr fatal_statement_error
+
+_compile_get_done:
+        rts
+
+compile_get_target:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_get_target_bad
+        jsr line_get
+        jsr is_var_start
+        bcs _compile_get_target_bad
+        jsr parse_variable_with_first_char
+        bcs _compile_get_target_bad
+        lda var_type
+        jsr var_type_is_numeric
+        bcc _compile_get_type_ok
+        cmp #VAR_TYPE_STRING
+        bne _compile_get_target_bad
+_compile_get_type_ok:
+        sta read_target_type
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _compile_get_scalar
+        jsr line_peek
+        cmp #'('
+        beq _compile_get_array
+
+_compile_get_scalar:
+        jsr resolve_var
+        bcs _compile_get_target_bad
+        lda current_var_data_lo
+        sta assign_var_data_lo
+        lda current_var_data_hi
+        sta assign_var_data_hi
+        lda read_target_type
+        cmp #VAR_TYPE_STRING
+        beq _compile_get_string_scalar
+        jsr emit_get_key
+        jsr emit_store_var
+        clc
+        rts
+
+_compile_get_string_scalar:
+        jsr emit_get_string
+        jsr emit_store_var
+        clc
+        rts
+
+_compile_get_array:
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr resolve_existing_var
+        bcs _compile_get_target_bad
+        lda current_var_data_lo
+        sta array_base_lo
+        lda current_var_data_hi
+        sta array_base_hi
+        jsr compile_array_index
+        bcs _compile_get_target_bad
+        lda array_base_lo
+        sta current_var_data_lo
+        lda array_base_hi
+        sta current_var_data_hi
+        jsr emit_set_arrayptr_current
+        jsr emit_save_arrayptr
+        lda read_target_type
+        cmp #VAR_TYPE_STRING
+        beq _compile_get_string_array
+        jsr emit_get_key
+        bra _compile_get_array_store
+
+_compile_get_string_array:
+        jsr emit_get_string
+
+_compile_get_array_store:
+        jsr emit_restore_arrayptr
+        jsr emit_store_ptr
+        clc
+        rts
+
+_compile_get_target_bad:
+        sec
+        rts
+
+try_compile_print_string_var:
+        lda line_idx
+        sta line_idx_save
+        jsr line_at_end
+        bcs _try_print_string_var_fail
+        jsr line_peek
+        jsr is_var_start
+        bcs _try_print_string_var_fail
+        jsr line_get
+        jsr parse_variable_with_first_char
+        bcs _try_print_string_var_restore_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _try_print_string_var_restore_fail
+        jsr line_skip_spaces
+        jsr try_print_item_end
+        bcc _try_print_string_var_scalar
+        jsr line_peek
+        cmp #'('
+        beq _try_print_string_var_array
+        bra _try_print_string_var_restore_fail
+
+_try_print_string_var_scalar:
+        jsr resolve_existing_var
+        bcs _try_print_string_var_restore_fail
+        jsr emit_print_string_var_current
+        clc
+        rts
+
+_try_print_string_var_array:
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr resolve_existing_var
+        bcs _try_print_string_var_restore_fail
+        lda current_var_data_lo
+        sta array_base_lo
+        lda current_var_data_hi
+        sta array_base_hi
+        jsr compile_array_index
+        bcs _try_print_string_var_restore_fail
+        lda array_base_lo
+        sta current_var_data_lo
+        lda array_base_hi
+        sta current_var_data_hi
+        jsr emit_set_arrayptr_current
+        jsr emit_load_ptr
+        jsr emit_print_string_expr
+        clc
+        rts
+
+_try_print_string_var_restore_fail:
+        lda line_idx_save
+        sta line_idx
+
+_try_print_string_var_fail:
+        sec
+        rts
+
+try_print_item_end:
+        jsr line_skip_spaces
+        jsr line_at_print_end
+        bcs _try_print_item_end_yes
+        jsr line_peek
+        cmp #';'
+        beq _try_print_item_end_yes
+        cmp #','
+        beq _try_print_item_end_yes
+        sec
+        rts
+
+_try_print_item_end_yes:
+        clc
         rts
 
 compile_goto:
@@ -2079,12 +4401,9 @@ compile_goto:
         rts
 
 _goto_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_goto
-        ldy #>out_bad_goto
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_goto
+        ldy #>msg_error_bad_goto
+        jsr fatal_statement_error
         rts
 
 compile_gosub:
@@ -2101,12 +4420,9 @@ compile_gosub:
         rts
 
 _gosub_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_gosub
-        ldy #>out_bad_gosub
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_gosub
+        ldy #>msg_error_bad_gosub
+        jsr fatal_statement_error
         rts
 
 compile_go:
@@ -2117,15 +4433,100 @@ compile_go:
         cmp #TOK_SYS
         beq compile_sys
         sta token_value
+        lda #<msg_error_unsupported_go
+        ldy #>msg_error_unsupported_go
+        jsr fatal_statement_error
+        rts
+
+compile_on:
+        jsr compile_expression
+        bcs _on_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _on_bad
+        jsr line_get
+        cmp #TOK_GOTO
+        beq _on_goto
+        cmp #TOK_GOSUB
+        beq _on_gosub
+        cmp #TOK_GO
+        beq _on_go
+        bra _on_bad
+
+_on_go:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _on_bad
+        jsr line_get
+        cmp #TOK_TO
+        bne _on_bad
+
+_on_goto:
+        lda #ON_MODE_GOTO
+        sta on_mode
+        bra _on_list_start
+
+_on_gosub:
+        lda #ON_MODE_GOSUB
+        sta on_mode
+        jsr alloc_on_label
+        lda on_label_lo
+        sta on_done_lo
+        lda on_label_hi
+        sta on_done_hi
+
+_on_list_start:
         lda #1
-        sta compile_error
-        lda #<out_unsupported_go
-        ldy #>out_unsupported_go
-        jsr out_zstr
-        lda token_value
-        jsr out_hex_byte
-        jsr out_cr
-        jsr line_skip_to_stmt_end
+        sta on_target_index
+
+_on_list_loop:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _on_bad
+        jsr line_parse_number
+        bcs _on_bad
+        jsr line_number_exists
+        bcs _on_bad
+        lda number_lo
+        sta on_target_lo
+        lda number_hi
+        sta on_target_hi
+        jsr alloc_on_label
+        jsr emit_on_compare
+        lda on_mode
+        cmp #ON_MODE_GOSUB
+        beq _on_emit_gosub
+        jsr emit_jmp_on_target
+        bra _on_after_emit
+
+_on_emit_gosub:
+        jsr emit_jsr_on_target
+        jsr emit_jmp_ondone
+
+_on_after_emit:
+        jsr emit_onnext_label_def
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _on_done
+        jsr line_get
+        cmp #','
+        bne _on_bad
+        inc on_target_index
+        bne _on_list_loop
+
+_on_bad:
+        lda #<msg_error_bad_on
+        ldy #>msg_error_bad_on
+        jsr fatal_statement_error
+        rts
+
+_on_done:
+        lda on_mode
+        cmp #ON_MODE_GOSUB
+        bne _on_return
+        jsr emit_ondone_label_def
+
+_on_return:
         rts
 
 compile_sys:
@@ -2140,36 +4541,55 @@ compile_sys:
         rts
 
 _sys_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_sys
-        ldy #>out_bad_sys
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_sys
+        ldy #>msg_error_bad_sys
+        jsr fatal_statement_error
         rts
 
 compile_poke:
         jsr compile_expression
-        bcs _poke_bad
+        bcs poke_bad
         jsr emit_expr_to_rtptr
+        jsr emit_save_rtptr
         jsr line_skip_spaces
         jsr line_at_end
-        bcs _poke_bad
+        bcs poke_bad
         jsr line_get
         cmp #','
-        bne _poke_bad
+        bne poke_bad
         jsr compile_expression
-        bcs _poke_bad
+        bcs poke_bad
+        jsr emit_restore_rtptr
         jsr emit_poke_expr_to_rtptr
         rts
 
-_poke_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_poke
-        ldy #>out_bad_poke
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+compile_wpoke:
+        jsr compile_expression
+        bcs wpoke_bad
+        jsr emit_expr_to_rtptr
+        jsr emit_save_rtptr
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs wpoke_bad
+        jsr line_get
+        cmp #','
+        bne wpoke_bad
+        jsr compile_expression
+        bcs wpoke_bad
+        jsr emit_restore_rtptr
+        jsr emit_wpoke_expr_to_rtptr
+        rts
+
+poke_bad:
+        lda #<msg_error_bad_poke
+        ldy #>msg_error_bad_poke
+        jsr fatal_statement_error
+        rts
+
+wpoke_bad:
+        lda #<msg_error_bad_poke
+        ldy #>msg_error_bad_poke
+        jsr fatal_statement_error
         rts
 
 compile_read:
@@ -2183,8 +4603,12 @@ _compile_read_next:
         jsr parse_variable_with_first_char
         bcs _compile_read_bad
         lda var_type
-        cmp #VAR_TYPE_INT
+        jsr var_type_is_numeric
+        bcc _compile_read_type_ok
+        cmp #VAR_TYPE_STRING
         bne _compile_read_bad
+_compile_read_type_ok:
+        sta read_target_type
 
         jsr line_skip_spaces
         jsr line_at_end
@@ -2200,7 +4624,7 @@ _compile_read_scalar:
         sta assign_var_data_lo
         lda current_var_data_hi
         sta assign_var_data_hi
-        jsr emit_read_int
+        jsr emit_read_for_target
         jsr emit_store_var
         bra _compile_read_after_target
 
@@ -2220,7 +4644,9 @@ _compile_read_array:
         lda array_base_hi
         sta current_var_data_hi
         jsr emit_set_arrayptr_current
-        jsr emit_read_int
+        jsr emit_save_arrayptr
+        jsr emit_read_for_target
+        jsr emit_restore_arrayptr
         jsr emit_store_ptr
 
 _compile_read_after_target:
@@ -2232,21 +4658,43 @@ _compile_read_after_target:
         beq _compile_read_next
 
 _compile_read_bad:
-        lda #1
-        sta compile_error
-        lda #<out_bad_read
-        ldy #>out_bad_read
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
+        lda #<msg_error_bad_read
+        ldy #>msg_error_bad_read
+        jsr fatal_statement_error
 
 _compile_read_done:
         rts
 
+emit_read_for_target:
+        lda read_target_type
+        cmp #VAR_TYPE_STRING
+        beq emit_read_string
+        bra emit_read_int
+
 compile_restore:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_restore_all
+        jsr line_parse_number
+        bcs _compile_restore_bad
+        jsr data_line_number_exists
+        bcs _compile_restore_bad
+        jsr emit_restore_data_line
+        jsr line_skip_to_stmt_end
+        rts
+
+_compile_restore_all:
+        jsr mark_runtime_data
         lda #<out_jsr_datainit
         ldy #>out_jsr_datainit
         jsr out_zstr
         jsr line_skip_to_stmt_end
+        rts
+
+_compile_restore_bad:
+        lda #<msg_error_bad_restore
+        ldy #>msg_error_bad_restore
+        jsr fatal_statement_error
         rts
 
 compile_rem:
@@ -2301,12 +4749,24 @@ _is_var_tail_no:
         sec
         rts
 
+var_type_is_numeric:
+        cmp #VAR_TYPE_INT
+        beq _var_type_numeric_yes
+        cmp #VAR_TYPE_FLOAT
+        beq _var_type_numeric_yes
+        sec
+        rts
+
+_var_type_numeric_yes:
+        clc
+        rts
+
 parse_variable_with_first_char:
         sta var_name_1
         lda #0
         sta var_name_2
         sta var_kind
-        lda #VAR_TYPE_INT
+        lda #VAR_TYPE_FLOAT
         sta var_type
 
         jsr line_at_end
@@ -2677,6 +5137,23 @@ _line_end_or_colon_yes:
         sec
         rts
 
+line_at_print_end:
+        jsr line_at_end_or_colon
+        bcs _line_print_end_yes
+        lda compile_stop_on_else
+        beq _line_print_end_no
+        jsr line_peek
+        cmp #TOK_ELSE
+        beq _line_print_end_yes
+
+_line_print_end_no:
+        clc
+        rts
+
+_line_print_end_yes:
+        sec
+        rts
+
 line_peek:
         ldx line_idx
         lda line_buf,x
@@ -2701,6 +5178,8 @@ _skip_spaces_done:
         rts
 
 line_skip_spaces_colons:
+        lda #0
+        sta line_had_colon
 _skip_sc_loop:
         jsr line_at_end
         bcs _skip_sc_done
@@ -2709,6 +5188,8 @@ _skip_sc_loop:
         beq _skip_sc_take
         cmp #':'
         bne _skip_sc_done
+        lda #1
+        sta line_had_colon
 _skip_sc_take:
         inc line_idx
         bra _skip_sc_loop
@@ -2800,7 +5281,41 @@ _parse_number_fail:
         sec
         rts
 
-line_parse_signed_number:
+line_parse_decimal_number:
+        jsr line_skip_spaces
+        lda #0
+        sta number_lo
+        sta number_hi
+        sta number_digits
+
+_parse_decimal_only_loop:
+        jsr line_at_end
+        bcs _parse_decimal_only_done
+        jsr line_peek
+        cmp #'0'
+        bcc _parse_decimal_only_done
+        cmp #'9' + 1
+        bcs _parse_decimal_only_done
+
+        jsr line_get
+        sec
+        sbc #'0'
+        sta digit_value
+        jsr number_mul10_add_digit
+        inc number_digits
+        bra _parse_decimal_only_loop
+
+_parse_decimal_only_done:
+        lda number_digits
+        beq _parse_decimal_only_fail
+        clc
+        rts
+
+_parse_decimal_only_fail:
+        sec
+        rts
+
+line_parse_signed_decimal_number:
         jsr line_skip_spaces
         lda #0
         sta data_sign
@@ -2826,7 +5341,7 @@ _parse_signed_minus:
         sta data_sign
 
 _parse_signed_value:
-        jsr line_parse_number
+        jsr line_parse_decimal_number
         bcs _parse_signed_fail
         lda data_sign
         beq _parse_signed_done
@@ -2845,6 +5360,168 @@ _parse_signed_done:
 _parse_signed_fail:
         sec
         rts
+
+add_string_literal:
+        lda #0
+        sta string_temp_len
+
+_add_string_loop:
+        jsr line_at_end
+        bcs _add_string_fail
+        jsr line_get
+        cmp #'"'
+        beq _add_string_done
+        ldx string_temp_len
+        cpx #LINE_BUF_MAX
+        bcs _add_string_fail
+        sta string_temp,x
+        inc string_temp_len
+        bra _add_string_loop
+
+_add_string_done:
+        ldx string_temp_len
+        lda #0
+        sta string_temp,x
+        jsr find_string_literal
+        bcc _add_string_found
+        jsr append_string_temp
+        bcs _add_string_fail
+
+_add_string_found:
+        clc
+        rts
+
+_add_string_fail:
+        sec
+        rts
+
+find_string_literal:
+        lda #0
+        sta string_match_idx
+
+_find_string_loop:
+        lda string_match_idx
+        cmp string_count
+        bcs _find_string_none
+        jsr string_literal_matches
+        bcc _find_string_found
+        inc string_match_idx
+        bra _find_string_loop
+
+_find_string_found:
+        lda string_match_idx
+        sta current_string_id
+        clc
+        rts
+
+_find_string_none:
+        sec
+        rts
+
+string_literal_matches:
+        ldx string_match_idx
+        lda string_off_lo,x
+        sta string_read_lo
+        lda string_off_hi,x
+        sta string_read_hi
+        lda #0
+        sta string_temp_idx
+
+_string_match_loop:
+        ldx string_temp_idx
+        lda string_temp,x
+        sta byte_value
+        jsr string_pool_read_byte
+        cmp byte_value
+        bne _string_match_no
+        lda byte_value
+        beq _string_match_yes
+        inc string_temp_idx
+        jsr inc_string_read
+        bra _string_match_loop
+
+_string_match_yes:
+        clc
+        rts
+
+_string_match_no:
+        sec
+        rts
+
+append_string_temp:
+        lda string_count
+        cmp #STRING_MAX
+        bcs _append_string_fail
+        sta current_string_id
+        tax
+        lda string_pool_next_lo
+        sta string_off_lo,x
+        lda string_pool_next_hi
+        sta string_off_hi,x
+        lda #0
+        sta string_temp_idx
+
+_append_string_loop:
+        ldx string_temp_idx
+        lda string_temp,x
+        sta byte_value
+        jsr string_pool_append_byte
+        bcs _append_string_fail
+        lda byte_value
+        beq _append_string_done
+        inc string_temp_idx
+        bra _append_string_loop
+
+_append_string_done:
+        inc string_count
+        clc
+        rts
+
+_append_string_fail:
+        sec
+        rts
+
+string_pool_append_byte:
+        lda string_pool_next_hi
+        cmp #>STRING_POOL_MAX
+        bcs _string_pool_append_fail
+        lda #<string_pool
+        clc
+        adc string_pool_next_lo
+        sta str_ptr
+        lda #>string_pool
+        adc string_pool_next_hi
+        sta str_ptr+1
+        lda byte_value
+        ldy #0
+        sta (str_ptr),y
+        inc string_pool_next_lo
+        bne +
+        inc string_pool_next_hi
++       clc
+        rts
+
+_string_pool_append_fail:
+        sec
+        rts
+
+string_pool_read_byte:
+        lda #<string_pool
+        clc
+        adc string_read_lo
+        sta str_ptr
+        lda #>string_pool
+        adc string_read_hi
+        sta str_ptr+1
+        ldy #0
+        lda (str_ptr),y
+        rts
+
+inc_string_read:
+        inc string_read_lo
+        bne +
+        inc string_read_hi
++       rts
 
 number_mul10_add_digit:
         lda number_lo
@@ -2950,6 +5627,19 @@ _alloc_for_label_fail:
         sec
         rts
 
+alloc_do_label:
+        lda do_label_next
+        cmp #DO_MAX
+        bcs _alloc_do_label_fail
+        sta current_do_id
+        inc do_label_next
+        clc
+        rts
+
+_alloc_do_label_fail:
+        sec
+        rts
+
 push_for_frame:
         ldx for_sp
         cpx #FOR_STACK_MAX
@@ -2986,6 +5676,66 @@ _pop_for_fail:
         sec
         rts
 
+peek_for_frame:
+        lda for_sp
+        beq _peek_for_fail
+        tax
+        dex
+        lda for_stack_id,x
+        sta current_for_id
+        lda for_stack_var_data_lo,x
+        sta current_for_var_data_lo
+        lda for_stack_var_data_hi,x
+        sta current_for_var_data_hi
+        clc
+        rts
+
+_peek_for_fail:
+        sec
+        rts
+
+push_do_frame:
+        ldx do_sp
+        cpx #DO_STACK_MAX
+        bcs _push_do_fail
+        lda current_do_id
+        sta do_stack_id,x
+        inc do_sp
+        clc
+        rts
+
+_push_do_fail:
+        sec
+        rts
+
+pop_do_frame:
+        lda do_sp
+        beq _pop_do_fail
+        dec do_sp
+        ldx do_sp
+        lda do_stack_id,x
+        sta current_do_id
+        clc
+        rts
+
+_pop_do_fail:
+        sec
+        rts
+
+peek_do_frame:
+        lda do_sp
+        beq _peek_do_fail
+        tax
+        dex
+        lda do_stack_id,x
+        sta current_do_id
+        clc
+        rts
+
+_peek_do_fail:
+        sec
+        rts
+
 alloc_if_labels:
         lda if_label_next_lo
         sta if_true_lo
@@ -3003,6 +5753,12 @@ alloc_if_labels:
         sta if_end_lo
         lda if_label_next_hi
         sta if_end_hi
+        jsr inc_if_label_next
+
+        lda if_label_next_lo
+        sta if_else_lo
+        lda if_label_next_hi
+        sta if_else_hi
         jsr inc_if_label_next
 
         lda if_label_next_lo
@@ -3028,6 +5784,16 @@ alloc_array_ok_label:
         inc array_label_next_hi
 +       rts
 
+alloc_on_label:
+        lda on_label_next_lo
+        sta on_label_lo
+        lda on_label_next_hi
+        sta on_label_hi
+        inc on_label_next_lo
+        bne +
+        inc on_label_next_hi
++       rts
+
 push_if_labels:
         ldx if_sp
         cpx #IF_STACK_MAX
@@ -3044,6 +5810,10 @@ push_if_labels:
         sta if_stack_end_lo,x
         lda if_end_hi
         sta if_stack_end_hi,x
+        lda if_else_lo
+        sta if_stack_else_lo,x
+        lda if_else_hi
+        sta if_stack_else_hi,x
         lda if_tmp_lo
         sta if_stack_tmp_lo,x
         lda if_tmp_hi
@@ -3053,8 +5823,6 @@ push_if_labels:
         rts
 
 _push_if_fail:
-        lda #1
-        sta compile_error
         sec
         rts
 
@@ -3071,6 +5839,10 @@ pop_if_labels:
         sta if_end_hi
         lda if_stack_end_lo,x
         sta if_end_lo
+        lda if_stack_else_hi,x
+        sta if_else_hi
+        lda if_stack_else_lo,x
+        sta if_else_lo
         lda if_stack_skip_hi,x
         sta if_skip_hi
         lda if_stack_skip_lo,x
@@ -3083,8 +5855,6 @@ pop_if_labels:
         rts
 
 _pop_if_fail:
-        lda #1
-        sta compile_error
         sec
         rts
 
@@ -3098,27 +5868,101 @@ emit_generated_tail:
         lda #<out_tail
         ldy #>out_tail
         jsr out_zstr
+        jsr emit_runtime_init
+        jsr emit_string_pool
         jsr emit_variable_runtime
-        lda #<out_runtime_math
-        ldy #>out_runtime_math
-        jsr out_zstr
-        lda #<out_runtime_compare
-        ldy #>out_runtime_compare
-        jsr out_zstr
-        lda #<out_runtime_print
-        ldy #>out_runtime_print
-        jsr out_zstr
-        lda #<out_runtime_data
-        ldy #>out_runtime_data
-        jsr out_zstr
+        lda runtime_need_string
+        beq _emit_generated_tail_after_strings
+        jsr ovr_rtstr1_emit
+        lda compile_error
+        bne _emit_generated_tail_done
+        jsr ovr_rtstr2_emit
+        lda compile_error
+        bne _emit_generated_tail_done
+
+_emit_generated_tail_after_strings:
+        jsr ovr_rtcore_emit
+        lda compile_error
+        bne _emit_generated_tail_done
+        lda runtime_need_print
+        beq _emit_generated_tail_after_io
+        jsr ovr_rtio_emit
+        lda compile_error
+        bne _emit_generated_tail_done
+
+_emit_generated_tail_after_io:
         jsr emit_data_table
-        lda #<out_runtime_array_bounds
-        ldy #>out_runtime_array_bounds
+        jsr has_string_roots
+        beq _emit_generated_tail_strgc_stub
+        jsr ovr_rtgc_emit
+        lda compile_error
+        bne _emit_generated_tail_done
+        jsr emit_string_roots
+        bra _emit_generated_tail_after_gc
+
+_emit_generated_tail_strgc_stub:
+        lda #<out_strgc_stub
+        ldy #>out_strgc_stub
         jsr out_zstr
+
+_emit_generated_tail_after_gc:
         jsr emit_for_storage
-        lda #<out_runtime_storage
-        ldy #>out_runtime_storage
+_emit_generated_tail_done:
+        rts
+
+emit_runtime_init:
+        lda #<out_runtimeinit_start
+        ldy #>out_runtimeinit_start
         jsr out_zstr
+        lda #<out_jsr_varinit
+        ldy #>out_jsr_varinit
+        jsr out_zstr
+        lda runtime_need_string_heap
+        beq _emit_runtime_init_no_str
+        lda #<out_jsr_strinit
+        ldy #>out_jsr_strinit
+        jsr out_zstr
+_emit_runtime_init_no_str:
+        lda runtime_need_data
+        beq _emit_runtime_init_no_data
+        lda #<out_jsr_datainit
+        ldy #>out_jsr_datainit
+        jsr out_zstr
+_emit_runtime_init_no_data:
+        lda #<out_rts
+        ldy #>out_rts
+        jsr out_zstr
+        jsr out_cr
+        rts
+
+has_string_roots:
+        lda #0
+        sta root_emit_idx
+
+_has_string_roots_loop:
+        lda root_emit_idx
+        cmp sym_count
+        bcs _has_string_roots_no
+        tax
+        lda sym_type,x
+        cmp #VAR_TYPE_STRING
+        bne _has_string_roots_next
+        lda sym_kind,x
+        cmp #VAR_KIND_SCALAR
+        beq _has_string_roots_yes
+        cmp #VAR_KIND_ARRAY1
+        beq _has_string_roots_yes
+
+_has_string_roots_next:
+        inc root_emit_idx
+        bra _has_string_roots_loop
+
+_has_string_roots_yes:
+        lda #1
+        rts
+
+_has_string_roots_no:
+        lda #0
         rts
 
 emit_for_storage:
@@ -3162,8 +6006,20 @@ _emit_data_table_loop:
         lda data_emit_idx
         cmp data_count
         bcs _emit_data_table_done
+        jsr emit_data_labels_for_current_index
         lda #<out_data_byte_prefix
         ldy #>out_data_byte_prefix
+        jsr out_zstr
+        ldx data_emit_idx
+        lda data_table_type,x
+        jsr out_hex_byte
+        ldx data_emit_idx
+        lda data_table_type,x
+        cmp #DATA_TYPE_STRING
+        beq _emit_data_string_record
+
+        lda #<out_data_byte_sep
+        ldy #>out_data_byte_sep
         jsr out_zstr
         ldx data_emit_idx
         lda data_table_lo,x
@@ -3178,10 +6034,211 @@ _emit_data_table_loop:
         inc data_emit_idx
         bra _emit_data_table_loop
 
+_emit_data_string_record:
+        jsr out_cr
+        lda #<out_data_word_prefix
+        ldy #>out_data_word_prefix
+        jsr out_zstr
+        ldx data_emit_idx
+        lda data_table_lo,x
+        sta current_string_id
+        jsr out_string_ref
+        jsr out_cr
+        inc data_emit_idx
+        bra _emit_data_table_loop
+
 _emit_data_table_done:
         lda #<out_data_table_end
         ldy #>out_data_table_end
         jsr out_zstr
+        rts
+
+emit_string_roots:
+        lda #<out_strroots_start
+        ldy #>out_strroots_start
+        jsr out_zstr
+        lda #0
+        sta root_emit_idx
+
+_emit_string_roots_loop:
+        lda root_emit_idx
+        cmp sym_count
+        bcs _emit_string_roots_done
+        tax
+        lda sym_type,x
+        cmp #VAR_TYPE_STRING
+        bne _emit_string_roots_next
+        lda sym_kind,x
+        cmp #VAR_KIND_SCALAR
+        beq _emit_string_root_scalar
+        cmp #VAR_KIND_ARRAY1
+        beq _emit_string_root_array
+        bra _emit_string_roots_next
+
+_emit_string_root_scalar:
+        lda sym_data_lo,x
+        sta number_lo
+        lda sym_data_hi,x
+        sta number_hi
+        lda #2
+        sta work2_lo
+        lda #0
+        sta work2_hi
+        jsr emit_string_root_record
+        bra _emit_string_roots_next
+
+_emit_string_root_array:
+        jsr load_root_array_dims
+        bcs _emit_string_roots_next
+        jsr compute_array_element_count
+        bcs _emit_string_roots_next
+        asl work2_lo
+        rol work2_hi
+        ldx root_emit_idx
+        lda sym_data_lo,x
+        sta number_lo
+        lda sym_data_hi,x
+        sta number_hi
+        jsr emit_string_root_record
+
+_emit_string_roots_next:
+        inc root_emit_idx
+        bra _emit_string_roots_loop
+
+_emit_string_roots_done:
+        lda #0
+        sta number_lo
+        sta number_hi
+        sta work2_lo
+        sta work2_hi
+        jsr emit_string_root_record
+        jsr out_cr
+        rts
+
+load_root_array_dims:
+        ldx root_emit_idx
+        lda sym_rank,x
+        sta array_rank
+        lda sym_dim0_lo,x
+        sta array_dims_lo+0
+        lda sym_dim0_hi,x
+        sta array_dims_hi+0
+        lda sym_dim1_lo,x
+        sta array_dims_lo+1
+        lda sym_dim1_hi,x
+        sta array_dims_hi+1
+        lda sym_dim2_lo,x
+        sta array_dims_lo+2
+        lda sym_dim2_hi,x
+        sta array_dims_hi+2
+        lda sym_dim3_lo,x
+        sta array_dims_lo+3
+        lda sym_dim3_hi,x
+        sta array_dims_hi+3
+        lda sym_dim4_lo,x
+        sta array_dims_lo+4
+        lda sym_dim4_hi,x
+        sta array_dims_hi+4
+        lda sym_dim5_lo,x
+        sta array_dims_lo+5
+        lda sym_dim5_hi,x
+        sta array_dims_hi+5
+        clc
+        rts
+
+emit_string_root_record:
+        lda #<out_data_byte_prefix
+        ldy #>out_data_byte_prefix
+        jsr out_zstr
+        lda number_lo
+        jsr out_hex_byte
+        lda #<out_data_byte_sep
+        ldy #>out_data_byte_sep
+        jsr out_zstr
+        lda number_hi
+        jsr out_hex_byte
+        lda #<out_data_byte_sep
+        ldy #>out_data_byte_sep
+        jsr out_zstr
+        lda work2_lo
+        jsr out_hex_byte
+        lda #<out_data_byte_sep
+        ldy #>out_data_byte_sep
+        jsr out_zstr
+        lda work2_hi
+        jsr out_hex_byte
+        jsr out_cr
+        rts
+
+emit_string_pool:
+        lda string_count
+        bne +
+        rts
++       lda #<out_string_pool_header
+        ldy #>out_string_pool_header
+        jsr out_zstr
+        lda #0
+        sta string_emit_idx
+
+_emit_string_pool_loop:
+        lda string_emit_idx
+        cmp string_count
+        bcs _emit_string_pool_done
+        sta current_string_id
+        jsr out_string_ref
+        jsr emit_label_suffix
+        ldx string_emit_idx
+        lda string_off_lo,x
+        sta string_read_lo
+        lda string_off_hi,x
+        sta string_read_hi
+
+_emit_string_byte_loop:
+        jsr string_pool_read_byte
+        sta byte_value
+        lda #<out_data_byte_prefix
+        ldy #>out_data_byte_prefix
+        jsr out_zstr
+        lda byte_value
+        jsr out_hex_byte
+        jsr out_cr
+        lda byte_value
+        beq _emit_string_next
+        jsr inc_string_read
+        bra _emit_string_byte_loop
+
+_emit_string_next:
+        inc string_emit_idx
+        bra _emit_string_pool_loop
+
+_emit_string_pool_done:
+        jsr out_cr
+        rts
+
+emit_data_labels_for_current_index:
+        lda #0
+        sta data_line_emit_idx
+
+_emit_data_label_loop:
+        lda data_line_emit_idx
+        cmp data_line_count
+        bcs _emit_data_label_done
+        tax
+        lda data_line_index,x
+        cmp data_emit_idx
+        bne _emit_data_label_next
+        lda data_line_lo,x
+        sta number_lo
+        lda data_line_hi,x
+        sta number_hi
+        jsr out_data_line_ref
+        jsr emit_label_suffix
+
+_emit_data_label_next:
+        inc data_line_emit_idx
+        bra _emit_data_label_loop
+
+_emit_data_label_done:
         rts
 
 emit_variable_runtime:
@@ -3217,8 +6274,34 @@ out_label_from_number:
         jsr out_hex_word_number
         rts
 
+out_data_line_ref:
+        lda #'d'
+        jsr KERNAL_CHROUT
+        lda #'a'
+        jsr KERNAL_CHROUT
+        lda #'t'
+        jsr KERNAL_CHROUT
+        lda #'a'
+        jsr KERNAL_CHROUT
+        jsr out_hex_word_number
+        rts
+
+out_string_ref:
+        lda #'s'
+        jsr KERNAL_CHROUT
+        lda #'t'
+        jsr KERNAL_CHROUT
+        lda #'r'
+        jsr KERNAL_CHROUT
+        lda #0
+        jsr out_hex_byte
+        lda current_string_id
+        jsr out_hex_byte
+        rts
+
 emit_chout_imm:
         sta byte_value
+        jsr mark_runtime_print
         lda #<out_lda_imm_hex
         ldy #>out_lda_imm_hex
         jsr out_zstr
@@ -3230,9 +6313,206 @@ emit_chout_imm:
         jsr out_zstr
         rts
 
+emit_print_string_current:
+        jsr mark_runtime_print
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_rtptr
+        ldy #>out_sta_rtptr
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_rtptr_1
+        ldy #>out_sta_rtptr_1
+        jsr out_zstr
+        lda #<out_jsr_printstr
+        ldy #>out_jsr_printstr
+        jsr out_zstr
+        rts
+
+emit_load_string_ref_to_expr:
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_exprlo
+        ldy #>out_sta_exprlo
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_exprhi
+        ldy #>out_sta_exprhi
+        jsr out_zstr
+        rts
+
+emit_string_literal_to_heap_expr:
+        jsr mark_runtime_string_heap
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_rtptr
+        ldy #>out_sta_rtptr
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        lda #<out_sta_rtptr_1
+        ldy #>out_sta_rtptr_1
+        jsr out_zstr
+        lda #<out_jsr_strfromlit
+        ldy #>out_jsr_strfromlit
+        jsr out_zstr
+        rts
+
+emit_print_string_var_current:
+        jsr emit_load_var
+        ; FALLTHROUGH
+
+emit_print_string_expr:
+        jsr mark_runtime_string
+        lda #<out_jsr_printheapstr
+        ldy #>out_jsr_printheapstr
+        jsr out_zstr
+        rts
+
+emit_copy_string_expr:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_strcopyexpr
+        ldy #>out_jsr_strcopyexpr
+        jsr out_zstr
+        rts
+
+emit_concat_strings:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_concatstr
+        ldy #>out_jsr_concatstr
+        jsr out_zstr
+        rts
+
+emit_string_len_expr:
+        jsr mark_runtime_string
+        lda #<out_jsr_strlenexpr
+        ldy #>out_jsr_strlenexpr
+        jsr out_zstr
+        rts
+
+emit_string_from_int:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_strfromint
+        ldy #>out_jsr_strfromint
+        jsr out_zstr
+        rts
+
+emit_val_string_expr:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_valstr
+        ldy #>out_jsr_valstr
+        jsr out_zstr
+        rts
+
+emit_string_temp_mark:
+        jsr mark_runtime_strtemp
+        lda #<out_jsr_strmark
+        ldy #>out_jsr_strmark
+        jsr out_zstr
+        rts
+
+emit_string_temp_release:
+        lda #<out_jsr_strrelease
+        ldy #>out_jsr_strrelease
+        jsr out_zstr
+        rts
+
+emit_string_left:
+        jsr emit_set_strarg1_one
+        bra emit_string_mid
+
+emit_string_right:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_strright
+        ldy #>out_jsr_strright
+        jsr out_zstr
+        rts
+
+emit_string_mid:
+        jsr mark_runtime_string_heap
+        lda #<out_jsr_strsub
+        ldy #>out_jsr_strsub
+        jsr out_zstr
+        rts
+
+emit_string_mid_tail:
+        lda #$FF
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        bra emit_string_mid
+
+emit_set_strarg1_one:
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda #1
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_strarg1lo
+        ldy #>out_sta_strarg1lo
+        jsr out_zstr
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda #0
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_strarg1hi
+        ldy #>out_sta_strarg1hi
+        jsr out_zstr
+        rts
+
+emit_save_expr_to_strarg1:
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_sta_strarg1lo
+        ldy #>out_sta_strarg1lo
+        jsr out_zstr
+        lda #<out_lda_exprhi
+        ldy #>out_lda_exprhi
+        jsr out_zstr
+        lda #<out_sta_strarg1hi
+        ldy #>out_sta_strarg1hi
+        jsr out_zstr
+        rts
+
 emit_print_comma:
+        jsr mark_runtime_print
         lda #<out_jsr_printcomma
         ldy #>out_jsr_printcomma
+        jsr out_zstr
+        rts
+
+emit_print_char_expr:
+        jsr mark_runtime_print
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_jsr_chout
+        ldy #>out_jsr_chout
         jsr out_zstr
         rts
 
@@ -3287,8 +6567,70 @@ emit_store_ptr:
         rts
 
 emit_read_int:
+        jsr mark_runtime_data
         lda #<out_jsr_readint
         ldy #>out_jsr_readint
+        jsr out_zstr
+        rts
+
+emit_read_string:
+        jsr mark_runtime_data
+        lda #<out_jsr_readstr
+        ldy #>out_jsr_readstr
+        jsr out_zstr
+        rts
+
+emit_input_line:
+        jsr mark_runtime_input
+        lda #<out_jsr_inputline
+        ldy #>out_jsr_inputline
+        jsr out_zstr
+        rts
+
+emit_input_int:
+        jsr mark_runtime_input
+        lda #<out_jsr_inputint
+        ldy #>out_jsr_inputint
+        jsr out_zstr
+        rts
+
+emit_input_string:
+        jsr mark_runtime_input
+        lda #<out_jsr_inputstr
+        ldy #>out_jsr_inputstr
+        jsr out_zstr
+        rts
+
+emit_get_key:
+        jsr mark_runtime_get
+        lda #<out_jsr_getkey
+        ldy #>out_jsr_getkey
+        jsr out_zstr
+        rts
+
+emit_get_string:
+        jsr mark_runtime_get
+        lda #<out_jsr_getstr
+        ldy #>out_jsr_getstr
+        jsr out_zstr
+        rts
+
+emit_restore_data_line:
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_data_line_ref
+        jsr out_cr
+        lda #<out_sta_dataptrlo
+        ldy #>out_sta_dataptrlo
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_data_line_ref
+        jsr out_cr
+        lda #<out_sta_dataptrhi
+        ldy #>out_sta_dataptrhi
         jsr out_zstr
         rts
 
@@ -3305,9 +6647,20 @@ emit_restore_arrayptr:
         rts
 
 emit_array_bounds_check:
+        jsr mark_runtime_array
         jsr alloc_array_ok_label
         lda #<out_array_check_start
         ldy #>out_array_check_start
+        jsr out_zstr
+        jsr out_array_nonneg_ref
+        jsr out_cr
+        lda #<out_jmp_arraybounds
+        ldy #>out_jmp_arraybounds
+        jsr out_zstr
+        jsr out_array_nonneg_ref
+        jsr emit_label_suffix
+        lda #<out_cmp_exprhi_imm
+        ldy #>out_cmp_exprhi_imm
         jsr out_zstr
         lda number_hi
         jsr out_hex_byte
@@ -3317,9 +6670,16 @@ emit_array_bounds_check:
         jsr out_zstr
         jsr out_array_ok_ref
         jsr out_cr
-        lda #<out_bne_arraybounds
-        ldy #>out_bne_arraybounds
+        lda #<out_beq_label
+        ldy #>out_beq_label
         jsr out_zstr
+        jsr out_array_hieq_ref
+        jsr out_cr
+        lda #<out_jmp_arraybounds
+        ldy #>out_jmp_arraybounds
+        jsr out_zstr
+        jsr out_array_hieq_ref
+        jsr emit_label_suffix
         lda #<out_cmp_exprlo_imm
         ldy #>out_cmp_exprlo_imm
         jsr out_zstr
@@ -3452,12 +6812,14 @@ emit_sub_lhs_expr:
         rts
 
 emit_mul_lhs_expr:
+        jsr mark_runtime_math
         lda #<out_jsr_mul16
         ldy #>out_jsr_mul16
         jsr out_zstr
         rts
 
 emit_div_lhs_expr:
+        jsr mark_runtime_math
         lda #<out_jsr_div16
         ldy #>out_jsr_div16
         jsr out_zstr
@@ -3469,15 +6831,507 @@ emit_neg_expr:
         jsr out_zstr
         rts
 
+emit_abs_expr:
+        jsr alloc_if_tmp_label
+        lda #<out_lda_exprhi
+        ldy #>out_lda_exprhi
+        jsr out_zstr
+        lda #<out_bpl_label
+        ldy #>out_bpl_label
+        jsr emit_branch_if_tmp
+        jsr emit_neg_expr
+        jsr emit_if_tmp_label_def
+        rts
+
+emit_sgn_expr:
+        jsr alloc_if_tmp_label
+        jsr alloc_on_label
+        lda on_label_lo
+        sta on_done_lo
+        lda on_label_hi
+        sta on_done_hi
+        jsr alloc_on_label
+
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_ora_exprhi
+        ldy #>out_ora_exprhi
+        jsr out_zstr
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr emit_branch_if_tmp
+
+        lda #<out_lda_exprhi
+        ldy #>out_lda_exprhi
+        jsr out_zstr
+        lda #<out_bmi_label
+        ldy #>out_bmi_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+
+        lda #1
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_jmp_ondone
+
+        jsr emit_onnext_label_def
+        lda #$FF
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_jmp_ondone
+
+        jsr emit_if_tmp_label_def
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+
+        jsr emit_ondone_label_def
+        rts
+
+emit_not_expr:
+        jsr alloc_on_label
+        lda on_label_lo
+        sta on_done_lo
+        lda on_label_hi
+        sta on_done_hi
+        jsr alloc_on_label
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_ora_exprhi
+        ldy #>out_ora_exprhi
+        jsr out_zstr
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_jmp_ondone
+        jsr emit_onnext_label_def
+        lda #1
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_ondone_label_def
+        rts
+
+emit_compare_expr_to_bool:
+        jsr mark_runtime_cmp
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_bool_cmp_eq
+        cmp #COND_NE
+        beq _emit_bool_cmp_ne
+        cmp #COND_LT
+        beq _emit_bool_cmp_lt
+        cmp #COND_LE
+        beq _emit_bool_cmp_le
+        cmp #COND_GT
+        beq _emit_bool_cmp_gt
+        cmp #COND_GE
+        beq _emit_bool_cmp_ge
+        rts
+
+_emit_bool_cmp_eq:
+        lda #<out_jsr_cmpeq
+        ldy #>out_jsr_cmpeq
+        bra _emit_bool_cmp_call
+
+_emit_bool_cmp_ne:
+        lda #<out_jsr_cmpne
+        ldy #>out_jsr_cmpne
+        bra _emit_bool_cmp_call
+
+_emit_bool_cmp_lt:
+        lda #<out_jsr_cmplt
+        ldy #>out_jsr_cmplt
+        bra _emit_bool_cmp_call
+
+_emit_bool_cmp_le:
+        lda #<out_jsr_cmple
+        ldy #>out_jsr_cmple
+        bra _emit_bool_cmp_call
+
+_emit_bool_cmp_gt:
+        lda #<out_jsr_cmpgt
+        ldy #>out_jsr_cmpgt
+        bra _emit_bool_cmp_call
+
+_emit_bool_cmp_ge:
+        lda #<out_jsr_cmpge
+        ldy #>out_jsr_cmpge
+
+_emit_bool_cmp_call:
+        jsr out_zstr
+        jsr emit_store_a_to_expr_bool
+        rts
+
+emit_string_compare_to_bool:
+        jsr mark_runtime_string
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_str_cmp_eq
+        cmp #COND_NE
+        beq _emit_str_cmp_ne
+        cmp #COND_LT
+        beq _emit_str_cmp_lt
+        cmp #COND_LE
+        beq _emit_str_cmp_le
+        cmp #COND_GT
+        beq _emit_str_cmp_gt
+        cmp #COND_GE
+        beq _emit_str_cmp_ge
+        rts
+
+_emit_str_cmp_eq:
+        lda #<out_jsr_streq
+        ldy #>out_jsr_streq
+        bra _emit_str_cmp_call
+
+_emit_str_cmp_ne:
+        lda #<out_jsr_strne
+        ldy #>out_jsr_strne
+        bra _emit_str_cmp_call
+
+_emit_str_cmp_lt:
+        lda #<out_jsr_strlt
+        ldy #>out_jsr_strlt
+        bra _emit_str_cmp_call
+
+_emit_str_cmp_le:
+        lda #<out_jsr_strle
+        ldy #>out_jsr_strle
+        bra _emit_str_cmp_call
+
+_emit_str_cmp_gt:
+        lda #<out_jsr_strgt
+        ldy #>out_jsr_strgt
+        bra _emit_str_cmp_call
+
+_emit_str_cmp_ge:
+        lda #<out_jsr_strge
+        ldy #>out_jsr_strge
+
+_emit_str_cmp_call:
+        jsr out_zstr
+        jsr emit_store_a_to_expr_bool
+        rts
+
+emit_string_ref_compare_to_bool:
+        jsr mark_runtime_string
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_strref_cmp_eq
+        cmp #COND_NE
+        beq _emit_strref_cmp_ne
+        cmp #COND_LT
+        beq _emit_strref_cmp_lt
+        cmp #COND_LE
+        beq _emit_strref_cmp_le
+        cmp #COND_GT
+        beq _emit_strref_cmp_gt
+        cmp #COND_GE
+        beq _emit_strref_cmp_ge
+        rts
+
+_emit_strref_cmp_eq:
+        lda #<out_jsr_strrefeq
+        ldy #>out_jsr_strrefeq
+        bra _emit_strref_cmp_call
+
+_emit_strref_cmp_ne:
+        lda #<out_jsr_strrefne
+        ldy #>out_jsr_strrefne
+        bra _emit_strref_cmp_call
+
+_emit_strref_cmp_lt:
+        lda #<out_jsr_strreflt
+        ldy #>out_jsr_strreflt
+        bra _emit_strref_cmp_call
+
+_emit_strref_cmp_le:
+        lda #<out_jsr_strrefle
+        ldy #>out_jsr_strrefle
+        bra _emit_strref_cmp_call
+
+_emit_strref_cmp_gt:
+        lda #<out_jsr_strrefgt
+        ldy #>out_jsr_strrefgt
+        bra _emit_strref_cmp_call
+
+_emit_strref_cmp_ge:
+        lda #<out_jsr_strrefge
+        ldy #>out_jsr_strrefge
+
+_emit_strref_cmp_call:
+        jsr out_zstr
+        jsr emit_store_a_to_expr_bool
+        rts
+
+emit_expr_to_lhs:
+        jsr emit_push_expr
+        jsr emit_pop_lhs
+        rts
+
+emit_set_strarg1lo_imm:
+        sta byte_value
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda byte_value
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_strarg1lo
+        ldy #>out_sta_strarg1lo
+        jsr out_zstr
+        rts
+
+emit_set_strarg1hi_imm:
+        sta byte_value
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda byte_value
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_strarg1hi
+        ldy #>out_sta_strarg1hi
+        jsr out_zstr
+        rts
+
+emit_empty_string_compare:
+        lda #VAR_KIND_SCALAR
+        sta var_kind
+        jsr resolve_var
+        bcs _emit_empty_cmp_fail
+        jsr emit_load_var
+        jsr emit_string_len_expr
+        lda byte_value
+        bne _emit_empty_cmp_empty_left
+
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_empty_cmp_len_eq_zero
+        cmp #COND_NE
+        beq _emit_empty_cmp_len_ne_zero
+        cmp #COND_LT
+        beq _emit_empty_cmp_false
+        cmp #COND_LE
+        beq _emit_empty_cmp_len_eq_zero
+        cmp #COND_GT
+        beq _emit_empty_cmp_len_ne_zero
+        cmp #COND_GE
+        beq _emit_empty_cmp_true
+        bra _emit_empty_cmp_fail
+
+_emit_empty_cmp_empty_left:
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_empty_cmp_len_eq_zero
+        cmp #COND_NE
+        beq _emit_empty_cmp_len_ne_zero
+        cmp #COND_LT
+        beq _emit_empty_cmp_len_ne_zero
+        cmp #COND_LE
+        beq _emit_empty_cmp_true
+        cmp #COND_GT
+        beq _emit_empty_cmp_false
+        cmp #COND_GE
+        beq _emit_empty_cmp_len_eq_zero
+        bra _emit_empty_cmp_fail
+
+_emit_empty_cmp_len_eq_zero:
+        lda #COND_EQ
+        sta cond_op
+        bra _emit_empty_cmp_len_zero
+
+_emit_empty_cmp_len_ne_zero:
+        lda #COND_NE
+        sta cond_op
+
+_emit_empty_cmp_len_zero:
+        jsr emit_push_expr
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_pop_lhs
+        jsr emit_compare_expr_to_bool
+        clc
+        rts
+
+_emit_empty_cmp_true:
+        lda #1
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        clc
+        rts
+
+_emit_empty_cmp_false:
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        clc
+        rts
+
+_emit_empty_cmp_fail:
+        sec
+        rts
+
+emit_store_a_to_expr_bool:
+        lda #<out_sta_exprlo
+        ldy #>out_sta_exprlo
+        jsr out_zstr
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda #0
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_exprhi
+        ldy #>out_sta_exprhi
+        jsr out_zstr
+        rts
+
+emit_bool_and_lhs_expr:
+        jsr alloc_on_label
+        lda on_label_lo
+        sta on_done_lo
+        lda on_label_hi
+        sta on_done_hi
+        jsr alloc_on_label
+        lda #<out_lda_lhslo
+        ldy #>out_lda_lhslo
+        jsr out_zstr
+        lda #<out_ora_lhshi
+        ldy #>out_ora_lhshi
+        jsr out_zstr
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_ora_exprhi
+        ldy #>out_ora_exprhi
+        jsr out_zstr
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #1
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_jmp_ondone
+        jsr emit_onnext_label_def
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_ondone_label_def
+        rts
+
+emit_bool_or_lhs_expr:
+        jsr alloc_on_label
+        lda on_label_lo
+        sta on_done_lo
+        lda on_label_hi
+        sta on_done_hi
+        jsr alloc_on_label
+        lda #<out_lda_lhslo
+        ldy #>out_lda_lhslo
+        jsr out_zstr
+        lda #<out_ora_lhshi
+        ldy #>out_ora_lhshi
+        jsr out_zstr
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #<out_lda_exprlo
+        ldy #>out_lda_exprlo
+        jsr out_zstr
+        lda #<out_ora_exprhi
+        ldy #>out_ora_exprhi
+        jsr out_zstr
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_jmp_ondone
+        jsr emit_onnext_label_def
+        lda #1
+        sta number_lo
+        lda #0
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_ondone_label_def
+        rts
+
 emit_expr_to_rtptr:
         lda #<out_expr_to_rtptr
         ldy #>out_expr_to_rtptr
         jsr out_zstr
         rts
 
+emit_save_rtptr:
+        lda #<out_save_rtptr
+        ldy #>out_save_rtptr
+        jsr out_zstr
+        rts
+
+emit_restore_rtptr:
+        lda #<out_restore_rtptr
+        ldy #>out_restore_rtptr
+        jsr out_zstr
+        rts
+
 emit_poke_expr_to_rtptr:
         lda #<out_poke_expr_to_rtptr
         ldy #>out_poke_expr_to_rtptr
+        jsr out_zstr
+        rts
+
+emit_wpoke_expr_to_rtptr:
+        lda #<out_wpoke_expr_to_rtptr
+        ldy #>out_wpoke_expr_to_rtptr
+        jsr out_zstr
+        rts
+
+emit_peek_expr:
+        lda #<out_peek_expr
+        ldy #>out_peek_expr
+        jsr out_zstr
+        rts
+
+emit_wpeek_expr:
+        lda #<out_wpeek_expr
+        ldy #>out_wpeek_expr
         jsr out_zstr
         rts
 
@@ -3643,7 +7497,102 @@ emit_jmp_fordone:
         jsr out_cr
         rts
 
+emit_do_top_label_def:
+        jsr out_dotop_ref
+        bra emit_label_suffix
+
+emit_do_done_label_def:
+        jsr out_dodone_ref
+        bra emit_label_suffix
+
+emit_jmp_dotop:
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        jsr out_dotop_ref
+        jsr out_cr
+        rts
+
+emit_jmp_dodone:
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        jsr out_dodone_ref
+        jsr out_cr
+        rts
+
+alloc_if_tmp_label:
+        lda if_label_next_lo
+        sta if_tmp_lo
+        lda if_label_next_hi
+        sta if_tmp_hi
+        jsr inc_if_label_next
+        rts
+
+emit_lhs_truth_test:
+        lda #<out_lda_lhslo
+        ldy #>out_lda_lhslo
+        jsr out_zstr
+        lda #<out_ora_lhshi
+        ldy #>out_ora_lhshi
+        jsr out_zstr
+        rts
+
+emit_do_pretest_while:
+        jsr alloc_if_tmp_label
+        jsr emit_lhs_truth_test
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr emit_branch_if_tmp
+        jsr emit_jmp_dodone
+        jsr emit_if_tmp_label_def
+        rts
+
+emit_do_pretest_until:
+        jsr alloc_if_tmp_label
+        jsr emit_lhs_truth_test
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr emit_branch_if_tmp
+        jsr emit_jmp_dodone
+        jsr emit_if_tmp_label_def
+        rts
+
+emit_do_posttest_until:
+        jsr alloc_if_tmp_label
+        jsr emit_lhs_truth_test
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr emit_branch_if_tmp
+        jsr emit_jmp_dotop
+        jsr emit_if_tmp_label_def
+        rts
+
+emit_do_posttest_while:
+        jsr alloc_if_tmp_label
+        jsr emit_lhs_truth_test
+        lda #<out_beq_label
+        ldy #>out_beq_label
+        jsr emit_branch_if_tmp
+        jsr emit_jmp_dotop
+        jsr emit_if_tmp_label_def
+        rts
+
 emit_if_comparison:
+        jsr emit_if_condition_branches
+        jsr emit_if_skip_label_def
+        jsr emit_jmp_if_end
+        jsr emit_if_true_label_def
+        rts
+
+emit_if_comparison_inline_start:
+        jsr emit_if_condition_branches
+        jsr emit_if_skip_label_def
+        jsr emit_jmp_if_else
+        jsr emit_if_true_label_def
+        rts
+
+emit_if_condition_branches:
         lda cond_op
         cmp #COND_EQ
         beq _emit_if_cmp_eq
@@ -3657,6 +7606,8 @@ emit_if_comparison:
         beq _emit_if_cmp_gt
         cmp #COND_GE
         beq _emit_if_cmp_ge
+        cmp #COND_TRUTH
+        beq _emit_if_truth
         rts
 
 _emit_if_cmp_eq:
@@ -3681,11 +7632,12 @@ _emit_if_cmp_gt:
 
 _emit_if_cmp_ge:
         jsr emit_if_cmp_ge
+        bra _emit_if_cmp_done
+
+_emit_if_truth:
+        jsr emit_if_truth
 
 _emit_if_cmp_done:
-        jsr emit_if_skip_label_def
-        jsr emit_jmp_if_end
-        jsr emit_if_true_label_def
         rts
 
 emit_if_cmp_eq:
@@ -3782,6 +7734,19 @@ emit_if_cmp_ge:
         jsr emit_jmp_if_skip
         rts
 
+emit_if_truth:
+        lda #<out_lda_lhslo
+        ldy #>out_lda_lhslo
+        jsr out_zstr
+        lda #<out_ora_lhshi
+        ldy #>out_ora_lhshi
+        jsr out_zstr
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr emit_branch_if_true
+        jsr emit_jmp_if_skip
+        rts
+
 emit_if_signed_prefix_lhs_negative_true:
         lda #<out_sign_xor_lhshi_exprhi
         ldy #>out_sign_xor_lhshi_exprhi
@@ -3870,6 +7835,14 @@ emit_jmp_if_end:
         jsr out_cr
         rts
 
+emit_jmp_if_else:
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        jsr out_if_else_ref
+        jsr out_cr
+        rts
+
 emit_jmp_if_target:
         lda #<out_jmp_label
         ldy #>out_jmp_label
@@ -3882,6 +7855,74 @@ emit_jmp_if_target:
         jsr out_cr
         rts
 
+emit_on_compare:
+        lda #<out_lda_exprhi
+        ldy #>out_lda_exprhi
+        jsr out_zstr
+        lda #<out_cmp_imm_hex
+        ldy #>out_cmp_imm_hex
+        jsr out_zstr
+        lda #0
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        lda #<out_cmp_exprlo_imm
+        ldy #>out_cmp_exprlo_imm
+        jsr out_zstr
+        lda on_target_index
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_bne_label
+        ldy #>out_bne_label
+        jsr out_zstr
+        jsr out_onnext_ref
+        jsr out_cr
+        rts
+
+emit_jmp_on_target:
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        lda on_target_lo
+        sta number_lo
+        lda on_target_hi
+        sta number_hi
+        jsr out_label_from_number
+        jsr out_cr
+        rts
+
+emit_jsr_on_target:
+        lda #<out_jsr_label
+        ldy #>out_jsr_label
+        jsr out_zstr
+        lda on_target_lo
+        sta number_lo
+        lda on_target_hi
+        sta number_hi
+        jsr out_label_from_number
+        jsr out_cr
+        rts
+
+emit_jmp_ondone:
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        jsr out_ondone_ref
+        jsr out_cr
+        rts
+
+emit_onnext_label_def:
+        jsr out_onnext_ref
+        bra emit_label_suffix
+
+emit_ondone_label_def:
+        jsr out_ondone_ref
+        bra emit_label_suffix
+
 emit_if_true_label_def:
         jsr out_if_true_ref
         bra emit_label_suffix
@@ -3892,6 +7933,10 @@ emit_if_skip_label_def:
 
 emit_if_end_label_def:
         jsr out_if_end_ref
+        bra emit_label_suffix
+
+emit_if_else_label_def:
+        jsr out_if_else_ref
         bra emit_label_suffix
 
 emit_if_tmp_label_def:
@@ -3933,6 +7978,16 @@ out_if_end_ref:
         jsr out_hex_byte
         rts
 
+out_if_else_ref:
+        lda #<out_ifelse_prefix
+        ldy #>out_ifelse_prefix
+        jsr out_zstr
+        lda if_else_hi
+        jsr out_hex_byte
+        lda if_else_lo
+        jsr out_hex_byte
+        rts
+
 out_if_tmp_ref:
         lda #<out_iftmp_prefix
         ldy #>out_iftmp_prefix
@@ -3950,6 +8005,46 @@ out_array_ok_ref:
         lda array_ok_hi
         jsr out_hex_byte
         lda array_ok_lo
+        jsr out_hex_byte
+        rts
+
+out_array_nonneg_ref:
+        lda #<out_arraynonneg_prefix
+        ldy #>out_arraynonneg_prefix
+        jsr out_zstr
+        lda array_ok_hi
+        jsr out_hex_byte
+        lda array_ok_lo
+        jsr out_hex_byte
+        rts
+
+out_array_hieq_ref:
+        lda #<out_arrayhieq_prefix
+        ldy #>out_arrayhieq_prefix
+        jsr out_zstr
+        lda array_ok_hi
+        jsr out_hex_byte
+        lda array_ok_lo
+        jsr out_hex_byte
+        rts
+
+out_onnext_ref:
+        lda #<out_onnext_prefix
+        ldy #>out_onnext_prefix
+        jsr out_zstr
+        lda on_label_hi
+        jsr out_hex_byte
+        lda on_label_lo
+        jsr out_hex_byte
+        rts
+
+out_ondone_ref:
+        lda #<out_ondone_prefix
+        ldy #>out_ondone_prefix
+        jsr out_zstr
+        lda on_done_hi
+        jsr out_hex_byte
+        lda on_done_lo
         jsr out_hex_byte
         rts
 
@@ -3998,6 +8093,24 @@ out_current_for_id:
         lda #0
         jsr out_hex_byte
         lda current_for_id
+        jsr out_hex_byte
+        rts
+
+out_dotop_ref:
+        lda #<out_dotop_prefix
+        ldy #>out_dotop_prefix
+        jsr out_zstr
+        bra out_current_do_id
+
+out_dodone_ref:
+        lda #<out_dodone_prefix
+        ldy #>out_dodone_prefix
+        jsr out_zstr
+
+out_current_do_id:
+        lda #0
+        jsr out_hex_byte
+        lda current_do_id
         jsr out_hex_byte
         rts
 
@@ -4117,24 +8230,63 @@ source_name:
         .text "source.prg"
 source_name_end:
 
+ovr_rtstr1_name:
+        .text "ovr-rtstr1"
+ovr_rtstr1_name_end:
+
+ovr_rtstr2_name:
+        .text "ovr-rtstr2"
+ovr_rtstr2_name_end:
+
+ovr_rtcore_name:
+        .text "ovr-rtcore"
+ovr_rtcore_name_end:
+
+ovr_rtio_name:
+        .text "ovr-rtio"
+ovr_rtio_name_end:
+
+ovr_rtgc_name:
+        .text "ovr-rtgc"
+ovr_rtgc_name_end:
+
 output_name:
-        .text "0:out.asm,s,w"
+        .text "0:out.tmp,s,w"
 output_name_end:
 
 scratch_name:
-        .text "s0:out.asm"
+        .text "s0:out.tmp"
         .byte 13
 scratch_name_end:
+
+scratch_final_name:
+        .text "s0:out.asm"
+        .byte 13
+scratch_final_name_end:
+
+rename_name:
+        .text "r0:out.asm=out.tmp"
+        .byte 13
+rename_name_end:
 
 msg_banner:
         .byte 13
         .text "basic65c: source.prg -> out.asm"
         .byte 13, 0
-msg_opening_in:
-        .text "loading source.prg"
+msg_loading_overlays:
+        .text "loading runtime overlays"
         .byte 13, 0
+msg_opening_in:
+        .text "source file? "
+        .byte 0
+msg_source_prompt:
+        .text "(return=source.prg) "
+        .byte 0
+msg_loading_source_prefix:
+        .text "loading "
+        .byte 0
 msg_scanning_in:
-        .text "scanning source.prg"
+        .text "scanning source"
         .byte 13, 0
 msg_opening_out:
         .text "opening out.asm"
@@ -4145,14 +8297,101 @@ msg_open_in_fail:
 msg_open_out_fail:
         .text "basic65c: cannot open out.asm"
         .byte 13, 0
+msg_overlay_fail:
+        .text "basic65c: cannot load runtime overlay"
+        .byte 13, 0
+msg_overlay_missing:
+        .text "basic65c: runtime overlay missing"
+        .byte 13, 0
+msg_finalize_fail:
+        .text "basic65c: cannot rename out.tmp"
+        .byte 13, 0
 msg_done:
         .text "basic65c: wrote out.asm"
         .byte 13, 0
-msg_compile_warn:
-        .text "basic65c: wrote out.asm with warnings"
+msg_compile_failed:
+        .text "basic65c: compilation halted"
         .byte 13, 0
 msg_compiling_start:
         .text "compiling:"
+        .byte 13, 0
+msg_error_line:
+        .text "basic65c: error line "
+        .byte 0
+msg_error_colon:
+        .text ": "
+        .byte 0
+msg_error_bad_data:
+        .text "bad data item"
+        .byte 13, 0
+msg_error_too_many_data:
+        .text "too many data items"
+        .byte 13, 0
+msg_error_line_overflow:
+        .text "line too long"
+        .byte 13, 0
+msg_error_unsupported_token:
+        .text "unsupported token"
+        .byte 13, 0
+msg_error_unsupported_statement:
+        .text "unsupported statement"
+        .byte 13, 0
+msg_error_unsupported_print:
+        .text "unsupported print"
+        .byte 13, 0
+msg_error_bad_input:
+        .text "bad input"
+        .byte 13, 0
+msg_error_bad_get:
+        .text "bad get"
+        .byte 13, 0
+msg_error_unsupported_go:
+        .text "unsupported go"
+        .byte 13, 0
+msg_error_bad_goto:
+        .text "bad goto"
+        .byte 13, 0
+msg_error_bad_gosub:
+        .text "bad gosub"
+        .byte 13, 0
+msg_error_bad_sys:
+        .text "bad sys"
+        .byte 13, 0
+msg_error_bad_poke:
+        .text "bad poke"
+        .byte 13, 0
+msg_error_bad_read:
+        .text "bad read"
+        .byte 13, 0
+msg_error_bad_restore:
+        .text "bad restore"
+        .byte 13, 0
+msg_error_bad_assignment:
+        .text "bad assignment"
+        .byte 13, 0
+msg_error_bad_if:
+        .text "bad if"
+        .byte 13, 0
+msg_error_bad_else:
+        .text "bad else"
+        .byte 13, 0
+msg_error_bad_for:
+        .text "bad for"
+        .byte 13, 0
+msg_error_bad_next:
+        .text "bad next"
+        .byte 13, 0
+msg_error_bad_on:
+        .text "bad on"
+        .byte 13, 0
+msg_error_bad_do:
+        .text "bad do"
+        .byte 13, 0
+msg_error_bad_loop:
+        .text "bad loop"
+        .byte 13, 0
+msg_error_bad_exit:
+        .text "bad exit"
         .byte 13, 0
 
 out_header:
@@ -4161,6 +8400,14 @@ out_header:
         .text "        .enc ""none"""
         .byte 13, 13
         .text "kernalchrout = $ffd2"
+        .byte 13
+        .text "kernalchrin = $ffcf"
+        .byte 13
+        .text "kernalscreen = $ffed"
+        .byte 13
+        .text "kernalplot = $fff0"
+        .byte 13
+        .text "kernalgetin = $ffe4"
         .byte 13
         .text "varptr = $f7"
         .byte 13
@@ -4186,9 +8433,7 @@ out_header:
         .byte 13
         .text "start:"
         .byte 13
-        .text "        jsr varinit"
-        .byte 13
-        .text "        jsr datainit"
+        .text "        jsr runtimeinit"
         .byte 13
         .byte 0
 
@@ -4201,6 +8446,10 @@ out_tail:
         .byte 13
         .byte 13
         .byte 0
+
+out_runtimeinit_start:
+        .text "runtimeinit:"
+        .byte 13, 0
 
 out_var_runtime_header:
         .text "; variable heap runtime"
@@ -4304,588 +8553,6 @@ out_var_runtime:
         .byte 13
         .byte 0
 
-out_runtime_math:
-        .text "; integer math runtime"
-        .byte 13
-        .text "mul16:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta resultlo"
-        .byte 13
-        .text "        sta resulthi"
-        .byte 13
-        .text "        ldx #16"
-        .byte 13
-        .text "mul16loop:"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        and #1"
-        .byte 13
-        .text "        beq mul16skip"
-        .byte 13
-        .text "        clc"
-        .byte 13
-        .text "        lda resultlo"
-        .byte 13
-        .text "        adc lhslo"
-        .byte 13
-        .text "        sta resultlo"
-        .byte 13
-        .text "        lda resulthi"
-        .byte 13
-        .text "        adc lhshi"
-        .byte 13
-        .text "        sta resulthi"
-        .byte 13
-        .text "mul16skip:"
-        .byte 13
-        .text "        asl lhslo"
-        .byte 13
-        .text "        rol lhshi"
-        .byte 13
-        .text "        lsr exprhi"
-        .byte 13
-        .text "        ror exprlo"
-        .byte 13
-        .text "        dex"
-        .byte 13
-        .text "        bne mul16loop"
-        .byte 13
-        .text "        lda resultlo"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        lda resulthi"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "div16:"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        ora exprhi"
-        .byte 13
-        .text "        beq div16zero"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta quotlo"
-        .byte 13
-        .text "        sta quothi"
-        .byte 13
-        .text "        sta remlo"
-        .byte 13
-        .text "        sta remhi"
-        .byte 13
-        .text "        ldx #16"
-        .byte 13
-        .text "div16loop:"
-        .byte 13
-        .text "        asl lhslo"
-        .byte 13
-        .text "        rol lhshi"
-        .byte 13
-        .text "        rol remlo"
-        .byte 13
-        .text "        rol remhi"
-        .byte 13
-        .text "        asl quotlo"
-        .byte 13
-        .text "        rol quothi"
-        .byte 13
-        .text "        lda remhi"
-        .byte 13
-        .text "        cmp exprhi"
-        .byte 13
-        .text "        bcc div16next"
-        .byte 13
-        .text "        bne div16sub"
-        .byte 13
-        .text "        lda remlo"
-        .byte 13
-        .text "        cmp exprlo"
-        .byte 13
-        .text "        bcc div16next"
-        .byte 13
-        .text "div16sub:"
-        .byte 13
-        .text "        sec"
-        .byte 13
-        .text "        lda remlo"
-        .byte 13
-        .text "        sbc exprlo"
-        .byte 13
-        .text "        sta remlo"
-        .byte 13
-        .text "        lda remhi"
-        .byte 13
-        .text "        sbc exprhi"
-        .byte 13
-        .text "        sta remhi"
-        .byte 13
-        .text "        inc quotlo"
-        .byte 13
-        .text "div16next:"
-        .byte 13
-        .text "        dex"
-        .byte 13
-        .text "        bne div16loop"
-        .byte 13
-        .text "        lda quotlo"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        lda quothi"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .text "div16zero:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .byte 0
-
-out_runtime_compare:
-        .text "; signed integer comparison runtime"
-        .byte 13
-        .text "cmple:"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        eor exprhi"
-        .byte 13
-        .text "        bpl cmplesame"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        bmi cmptrue"
-        .byte 13
-        .text "        jmp cmpfalse"
-        .byte 13
-        .text "cmplesame:"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        cmp exprhi"
-        .byte 13
-        .text "        bcc cmptrue"
-        .byte 13
-        .text "        bne cmpfalse"
-        .byte 13
-        .text "        lda lhslo"
-        .byte 13
-        .text "        cmp exprlo"
-        .byte 13
-        .text "        bcc cmptrue"
-        .byte 13
-        .text "        beq cmptrue"
-        .byte 13
-        .text "        jmp cmpfalse"
-        .byte 13
-        .byte 13
-        .text "cmpge:"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        eor exprhi"
-        .byte 13
-        .text "        bpl cmpgesame"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        bmi cmpfalse"
-        .byte 13
-        .text "        jmp cmptrue"
-        .byte 13
-        .text "cmpgesame:"
-        .byte 13
-        .text "        lda lhshi"
-        .byte 13
-        .text "        cmp exprhi"
-        .byte 13
-        .text "        bcc cmpfalse"
-        .byte 13
-        .text "        bne cmptrue"
-        .byte 13
-        .text "        lda lhslo"
-        .byte 13
-        .text "        cmp exprlo"
-        .byte 13
-        .text "        bcs cmptrue"
-        .byte 13
-        .text "        jmp cmpfalse"
-        .byte 13
-        .byte 13
-        .text "cmptrue:"
-        .byte 13
-        .text "        lda #1"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .text "cmpfalse:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .byte 0
-
-out_runtime_print:
-        .text "; integer print runtime"
-        .byte 13
-        .text "printch:"
-        .byte 13
-        .text "        pha"
-        .byte 13
-        .text "        jsr kernalchrout"
-        .byte 13
-        .text "        pla"
-        .byte 13
-        .text "        cmp #$0d"
-        .byte 13
-        .text "        beq printchcr"
-        .byte 13
-        .text "        inc printcol"
-        .byte 13
-        .text "        lda printcol"
-        .byte 13
-        .text "        cmp #10"
-        .byte 13
-        .text "        bcc printchdone"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta printcol"
-        .byte 13
-        .text "printchdone:"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .text "printchcr:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta printcol"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "printcomma:"
-        .byte 13
-        .text "        lda #$20"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda printcol"
-        .byte 13
-        .text "        bne printcomma"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "printuint:"
-        .byte 13
-        .text "        lda exprhi"
-        .byte 13
-        .text "        bpl printpos"
-        .byte 13
-        .text "        lda #'-'"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        sec"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sbc exprlo"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sbc exprhi"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        jmp printdigits"
-        .byte 13
-        .text "printpos:"
-        .byte 13
-        .text "        lda #' '"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "printdigits:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta printstarted"
-        .byte 13
-        .text "        lda #<$2710"
-        .byte 13
-        .text "        ldy #>$2710"
-        .byte 13
-        .text "        jsr printdigit"
-        .byte 13
-        .text "        lda #<$03e8"
-        .byte 13
-        .text "        ldy #>$03e8"
-        .byte 13
-        .text "        jsr printdigit"
-        .byte 13
-        .text "        lda #<$0064"
-        .byte 13
-        .text "        ldy #>$0064"
-        .byte 13
-        .text "        jsr printdigit"
-        .byte 13
-        .text "        lda #<$000a"
-        .byte 13
-        .text "        ldy #>$000a"
-        .byte 13
-        .text "        jsr printdigit"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        clc"
-        .byte 13
-        .text "        adc #'0'"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #' '"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "printdigit:"
-        .byte 13
-        .text "        sta divlo"
-        .byte 13
-        .text "        sty divhi"
-        .byte 13
-        .text "        lda #'0'"
-        .byte 13
-        .text "        sta digit"
-        .byte 13
-        .text "pdloop:"
-        .byte 13
-        .text "        lda exprhi"
-        .byte 13
-        .text "        cmp divhi"
-        .byte 13
-        .text "        bcc pddone"
-        .byte 13
-        .text "        bne pdsub"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        cmp divlo"
-        .byte 13
-        .text "        bcc pddone"
-        .byte 13
-        .text "pdsub:"
-        .byte 13
-        .text "        sec"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        sbc divlo"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        lda exprhi"
-        .byte 13
-        .text "        sbc divhi"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        inc digit"
-        .byte 13
-        .text "        jmp pdloop"
-        .byte 13
-        .text "pddone:"
-        .byte 13
-        .text "        lda digit"
-        .byte 13
-        .text "        cmp #'0'"
-        .byte 13
-        .text "        bne pdemit"
-        .byte 13
-        .text "        lda printstarted"
-        .byte 13
-        .text "        beq pdreturn"
-        .byte 13
-        .text "        lda digit"
-        .byte 13
-        .text "pdemit:"
-        .byte 13
-        .text "        sta digit"
-        .byte 13
-        .text "        lda #1"
-        .byte 13
-        .text "        sta printstarted"
-        .byte 13
-        .text "        lda digit"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "pdreturn:"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .byte 0
-
-out_runtime_data:
-        .text "; data/read runtime"
-        .byte 13
-        .text "datainit:"
-        .byte 13
-        .text "        lda #<datastart"
-        .byte 13
-        .text "        sta dataptrlo"
-        .byte 13
-        .text "        lda #>datastart"
-        .byte 13
-        .text "        sta dataptrhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "readint:"
-        .byte 13
-        .text "        lda dataptrhi"
-        .byte 13
-        .text "        cmp #>dataend"
-        .byte 13
-        .text "        bne readintok"
-        .byte 13
-        .text "        lda dataptrlo"
-        .byte 13
-        .text "        cmp #<dataend"
-        .byte 13
-        .text "        bne readintok"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        jmp outofdata"
-        .byte 13
-        .text "readintok:"
-        .byte 13
-        .text "        lda dataptrlo"
-        .byte 13
-        .text "        sta rtptr"
-        .byte 13
-        .text "        lda dataptrhi"
-        .byte 13
-        .text "        sta rtptr+1"
-        .byte 13
-        .text "        ldy #0"
-        .byte 13
-        .text "        lda (rtptr),y"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        iny"
-        .byte 13
-        .text "        lda (rtptr),y"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        clc"
-        .byte 13
-        .text "        lda dataptrlo"
-        .byte 13
-        .text "        adc #2"
-        .byte 13
-        .text "        sta dataptrlo"
-        .byte 13
-        .text "        lda dataptrhi"
-        .byte 13
-        .text "        adc #0"
-        .byte 13
-        .text "        sta dataptrhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "outofdata:"
-        .byte 13
-        .text "        lda #$4f"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$55"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$54"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$20"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$4f"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$46"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$20"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$44"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$41"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$54"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$41"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$0d"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .byte 0
-
 out_data_table_start:
         .text "datastart:"
         .byte 13, 0
@@ -4895,11 +8562,32 @@ out_data_byte_prefix:
 out_data_byte_sep:
         .text ",$"
         .byte 0
+out_data_word_prefix:
+        .text "        .word "
+        .byte 0
 out_data_table_end:
         .text "dataend:"
         .byte 13
         .byte 13
         .byte 0
+out_string_pool_header:
+        .text "; string literals"
+        .byte 13, 0
+
+out_strroots_start:
+        .text "; string gc roots: rootlo, roothi, bytelenlo, bytelenhi"
+        .byte 13
+        .text "strroots:"
+        .byte 13, 0
+
+out_strgc_stub:
+        .text "; no string gc roots"
+        .byte 13
+        .text "strgc:"
+        .byte 13
+        .text "        rts"
+        .byte 13
+        .byte 13, 0
 
 out_for_storage_header:
         .text "; for/next runtime storage"
@@ -4909,114 +8597,20 @@ out_for_word_storage:
         .text ":       .byte 0,0"
         .byte 13, 0
 
-out_runtime_storage:
-        .text "; integer runtime storage"
-        .byte 13
-        .text "exprlo:       .byte 0"
-        .byte 13
-        .text "exprhi:       .byte 0"
-        .byte 13
-        .text "lhslo:        .byte 0"
-        .byte 13
-        .text "lhshi:        .byte 0"
-        .byte 13
-        .text "resultlo:     .byte 0"
-        .byte 13
-        .text "resulthi:     .byte 0"
-        .byte 13
-        .text "quotlo:       .byte 0"
-        .byte 13
-        .text "quothi:       .byte 0"
-        .byte 13
-        .text "remlo:        .byte 0"
-        .byte 13
-        .text "remhi:        .byte 0"
-        .byte 13
-        .text "divlo:        .byte 0"
-        .byte 13
-        .text "divhi:        .byte 0"
-        .byte 13
-        .text "digit:        .byte 0"
-        .byte 13
-        .text "printstarted: .byte 0"
-        .byte 13
-        .text "printcol:     .byte 0"
-        .byte 13
-        .text "arrptrlo:     .byte 0"
-        .byte 13
-        .text "arrptrhi:     .byte 0"
-        .byte 13
-        .text "dataptrlo:    .byte 0"
-        .byte 13
-        .text "dataptrhi:    .byte 0"
-        .byte 13
-        .byte 0
-
-out_runtime_array_bounds:
-        .text "arraybounds:"
-        .byte 13
-        .text "        lda #$41"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$52"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$52"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$41"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$59"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$20"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$42"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$4f"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$55"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$4e"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$44"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$53"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        lda #$0d"
-        .byte 13
-        .text "        jsr printch"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .byte 0
-
 out_lda_imm_hex:
         .text "        lda #$"
         .byte 0
+out_lda_label_lo_imm:
+        .text "        lda #<"
+        .byte 0
+out_lda_label_hi_imm:
+        .text "        lda #>"
+        .byte 0
 out_adc_imm_hex:
         .text "        adc #$"
+        .byte 0
+out_cmp_imm_hex:
+        .text "        cmp #$"
         .byte 0
 out_jsr_chout:
         .text "        jsr printch"
@@ -5024,8 +8618,86 @@ out_jsr_chout:
 out_jsr_printuint:
         .text "        jsr printuint"
         .byte 13, 0
+out_jsr_printstr:
+        .text "        jsr printstr"
+        .byte 13, 0
+out_jsr_printheapstr:
+        .text "        jsr printheapstr"
+        .byte 13, 0
+out_jsr_strfromlit:
+        .text "        jsr strfromlit"
+        .byte 13, 0
+out_jsr_strcopyexpr:
+        .text "        jsr strcopyexpr"
+        .byte 13, 0
+out_jsr_concatstr:
+        .text "        jsr concatstr"
+        .byte 13, 0
+out_jsr_strlenexpr:
+        .text "        jsr strlenexpr"
+        .byte 13, 0
+out_jsr_strfromint:
+        .text "        jsr strfromint"
+        .byte 13, 0
+out_jsr_valstr:
+        .text "        jsr valstr"
+        .byte 13, 0
+out_jsr_strmark:
+        .text "        jsr strmark"
+        .byte 13, 0
+out_jsr_strrelease:
+        .text "        jsr strrelease"
+        .byte 13, 0
+out_jsr_strsub:
+        .text "        jsr strsub"
+        .byte 13, 0
+out_jsr_strright:
+        .text "        jsr strright"
+        .byte 13, 0
+out_jsr_streq:
+        .text "        jsr streq"
+        .byte 13, 0
+out_jsr_strne:
+        .text "        jsr strne"
+        .byte 13, 0
+out_jsr_strlt:
+        .text "        jsr strlt"
+        .byte 13, 0
+out_jsr_strle:
+        .text "        jsr strle"
+        .byte 13, 0
+out_jsr_strgt:
+        .text "        jsr strgt"
+        .byte 13, 0
+out_jsr_strge:
+        .text "        jsr strge"
+        .byte 13, 0
+out_jsr_strrefeq:
+        .text "        jsr strrefeq"
+        .byte 13, 0
+out_jsr_strrefne:
+        .text "        jsr strrefne"
+        .byte 13, 0
+out_jsr_strreflt:
+        .text "        jsr strreflt"
+        .byte 13, 0
+out_jsr_strrefle:
+        .text "        jsr strrefle"
+        .byte 13, 0
+out_jsr_strrefgt:
+        .text "        jsr strrefgt"
+        .byte 13, 0
+out_jsr_strrefge:
+        .text "        jsr strrefge"
+        .byte 13, 0
 out_jsr_printcomma:
         .text "        jsr printcomma"
+        .byte 13, 0
+out_jsr_varinit:
+        .text "        jsr varinit"
+        .byte 13, 0
+out_jsr_strinit:
+        .text "        jsr strinit"
         .byte 13, 0
 out_jsr_loadintvar:
         .text "        jsr loadintvar"
@@ -5036,11 +8708,41 @@ out_jsr_storeintvar:
 out_jsr_readint:
         .text "        jsr readint"
         .byte 13, 0
+out_jsr_readstr:
+        .text "        jsr readstr"
+        .byte 13, 0
+out_jsr_inputline:
+        .text "        jsr inputline"
+        .byte 13, 0
+out_jsr_inputint:
+        .text "        jsr inputint"
+        .byte 13, 0
+out_jsr_inputstr:
+        .text "        jsr inputstr"
+        .byte 13, 0
+out_jsr_getkey:
+        .text "        jsr getkey"
+        .byte 13, 0
+out_jsr_getstr:
+        .text "        jsr getstr"
+        .byte 13, 0
 out_jsr_datainit:
         .text "        jsr datainit"
         .byte 13, 0
+out_jsr_cmpeq:
+        .text "        jsr cmpeq"
+        .byte 13, 0
+out_jsr_cmpne:
+        .text "        jsr cmpne"
+        .byte 13, 0
+out_jsr_cmplt:
+        .text "        jsr cmplt"
+        .byte 13, 0
 out_jsr_cmple:
         .text "        jsr cmple"
+        .byte 13, 0
+out_jsr_cmpgt:
+        .text "        jsr cmpgt"
         .byte 13, 0
 out_jsr_cmpge:
         .text "        jsr cmpge"
@@ -5063,6 +8765,24 @@ out_sta_exprlo:
 out_sta_exprhi:
         .text "        sta exprhi"
         .byte 13, 0
+out_sta_dataptrlo:
+        .text "        sta dataptrlo"
+        .byte 13, 0
+out_sta_dataptrhi:
+        .text "        sta dataptrhi"
+        .byte 13, 0
+out_sta_rtptr:
+        .text "        sta rtptr"
+        .byte 13, 0
+out_sta_rtptr_1:
+        .text "        sta rtptr+1"
+        .byte 13, 0
+out_sta_strarg1lo:
+        .text "        sta strarg1lo"
+        .byte 13, 0
+out_sta_strarg1hi:
+        .text "        sta strarg1hi"
+        .byte 13, 0
 out_lda_exprlo:
         .text "        lda exprlo"
         .byte 13, 0
@@ -5072,13 +8792,11 @@ out_lda_exprhi:
 out_array_check_start:
         .text "        lda exprhi"
         .byte 13
-        .text "        bmi arraybounds"
-        .byte 13
+        .text "        bpl "
+        .byte 0
+out_cmp_exprhi_imm:
         .text "        cmp #$"
         .byte 0
-out_bne_arraybounds:
-        .text "        bne arraybounds"
-        .byte 13, 0
 out_cmp_exprlo_imm:
         .text "        lda exprlo"
         .byte 13
@@ -5152,6 +8870,12 @@ out_forcont_prefix:
 out_fordone_prefix:
         .text "fordone"
         .byte 0
+out_dotop_prefix:
+        .text "dotop"
+        .byte 0
+out_dodone_prefix:
+        .text "dodone"
+        .byte 0
 out_iftrue_prefix:
         .text "iftrue"
         .byte 0
@@ -5161,11 +8885,26 @@ out_ifskip_prefix:
 out_ifend_prefix:
         .text "ifend"
         .byte 0
+out_ifelse_prefix:
+        .text "ifelse"
+        .byte 0
 out_iftmp_prefix:
         .text "iftmp"
         .byte 0
 out_arrayok_prefix:
         .text "arrayok"
+        .byte 0
+out_arraynonneg_prefix:
+        .text "arraypos"
+        .byte 0
+out_arrayhieq_prefix:
+        .text "arrayhieq"
+        .byte 0
+out_onnext_prefix:
+        .text "onnext"
+        .byte 0
+out_ondone_prefix:
+        .text "ondone"
         .byte 0
 out_push_expr:
         .text "        lda exprlo"
@@ -5245,12 +8984,83 @@ out_expr_to_rtptr:
         .byte 13
         .text "        sta rtptr+1"
         .byte 13, 0
+out_save_rtptr:
+        .text "        lda rtptr"
+        .byte 13
+        .text "        sta arrptrlo"
+        .byte 13
+        .text "        lda rtptr+1"
+        .byte 13
+        .text "        sta arrptrhi"
+        .byte 13, 0
+out_restore_rtptr:
+        .text "        lda arrptrlo"
+        .byte 13
+        .text "        sta rtptr"
+        .byte 13
+        .text "        lda arrptrhi"
+        .byte 13
+        .text "        sta rtptr+1"
+        .byte 13, 0
 out_poke_expr_to_rtptr:
         .text "        lda exprlo"
         .byte 13
         .text "        ldy #0"
         .byte 13
         .text "        sta (rtptr),y"
+        .byte 13, 0
+out_wpoke_expr_to_rtptr:
+        .text "        lda exprlo"
+        .byte 13
+        .text "        ldy #0"
+        .byte 13
+        .text "        sta (rtptr),y"
+        .byte 13
+        .text "        iny"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        sta (rtptr),y"
+        .byte 13, 0
+out_peek_expr:
+        .text "        lda exprlo"
+        .byte 13
+        .text "        sta rtptr"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        sta rtptr+1"
+        .byte 13
+        .text "        ldy #0"
+        .byte 13
+        .text "        lda (rtptr),y"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda #0"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13, 0
+out_wpeek_expr:
+        .text "        lda exprlo"
+        .byte 13
+        .text "        sta rtptr"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        sta rtptr+1"
+        .byte 13
+        .text "        ldy #0"
+        .byte 13
+        .text "        lda (rtptr),y"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        iny"
+        .byte 13
+        .text "        lda (rtptr),y"
+        .byte 13
+        .text "        sta exprhi"
         .byte 13, 0
 out_cmp_lhshi_exprhi:
         .text "        lda lhshi"
@@ -5269,6 +9079,15 @@ out_sign_xor_lhshi_exprhi:
         .byte 13, 0
 out_lda_lhshi:
         .text "        lda lhshi"
+        .byte 13, 0
+out_lda_lhslo:
+        .text "        lda lhslo"
+        .byte 13, 0
+out_ora_lhshi:
+        .text "        ora lhshi"
+        .byte 13, 0
+out_ora_exprhi:
+        .text "        ora exprhi"
         .byte 13, 0
 out_jmp_label:
         .text "        jmp "
@@ -5312,49 +9131,6 @@ out_data_comment:
 out_dim_comment:
         .text "        ; dim allocated in variable heap"
         .byte 13, 0
-out_unsupported_token:
-        .text "        ; unsupported token $"
-        .byte 0
-out_unsupported_statement:
-        .text "        ; unsupported statement"
-        .byte 13, 0
-out_unsupported_print:
-        .text "        ; unsupported print expression"
-        .byte 13, 0
-out_unsupported_go:
-        .text "        ; unsupported go subtoken $"
-        .byte 0
-out_bad_goto:
-        .text "        ; bad goto target"
-        .byte 13, 0
-out_bad_gosub:
-        .text "        ; bad gosub target"
-        .byte 13, 0
-out_bad_sys:
-        .text "        ; bad sys address"
-        .byte 13, 0
-out_bad_poke:
-        .text "        ; bad poke"
-        .byte 13, 0
-out_bad_read:
-        .text "        ; bad read"
-        .byte 13, 0
-out_bad_assignment:
-        .text "        ; bad integer assignment"
-        .byte 13, 0
-out_bad_if:
-        .text "        ; bad if statement"
-        .byte 13, 0
-out_bad_for:
-        .text "        ; bad for statement"
-        .byte 13, 0
-out_bad_next:
-        .text "        ; bad next statement"
-        .byte 13, 0
-out_line_overflow:
-        .text "        ; line exceeded compiler buffer"
-        .byte 13, 0
-
 ;=======================================================================================
 ; State
 ;=======================================================================================
@@ -5379,9 +9155,21 @@ line_len:
         .byte 0
 line_idx:
         .byte 0
+line_idx_save:
+        .byte 0
+line_had_colon:
+        .byte 0
 line_overflow:
         .byte 0
 compile_error:
+        .byte 0
+error_count:
+        .byte 0
+compile_stop_on_else:
+        .byte 0
+compile_found_else:
+        .byte 0
+if_else_found:
         .byte 0
 token_value:
         .byte 0
@@ -5443,9 +9231,29 @@ array_label_next_lo:
         .byte 0
 array_label_next_hi:
         .byte 0
+on_label_next_lo:
+        .byte 0
+on_label_next_hi:
+        .byte 0
 array_ok_lo:
         .byte 0
 array_ok_hi:
+        .byte 0
+on_label_lo:
+        .byte 0
+on_label_hi:
+        .byte 0
+on_done_lo:
+        .byte 0
+on_done_hi:
+        .byte 0
+on_target_lo:
+        .byte 0
+on_target_hi:
+        .byte 0
+on_target_index:
+        .byte 0
+on_mode:
         .byte 0
 if_true_lo:
         .byte 0
@@ -5459,6 +9267,10 @@ if_end_lo:
         .byte 0
 if_end_hi:
         .byte 0
+if_else_lo:
+        .byte 0
+if_else_hi:
+        .byte 0
 if_tmp_lo:
         .byte 0
 if_tmp_hi:
@@ -5471,17 +9283,83 @@ if_sp:
         .byte 0
 for_label_next:
         .byte 0
+do_label_next:
+        .byte 0
 for_sp:
+        .byte 0
+do_sp:
         .byte 0
 for_storage_idx:
         .byte 0
 data_count:
         .byte 0
+data_line_count:
+        .byte 0
 data_emit_idx:
+        .byte 0
+data_line_emit_idx:
+        .byte 0
+root_emit_idx:
         .byte 0
 data_sign:
         .byte 0
+read_target_type:
+        .byte 0
+string_count:
+        .byte 0
+string_emit_idx:
+        .byte 0
+current_string_id:
+        .byte 0
+string_match_idx:
+        .byte 0
+string_temp_idx:
+        .byte 0
+string_temp_len:
+        .byte 0
+string_ref_type:
+        .byte 0
+string_ref_left_type:
+        .byte 0
+string_ref_right_type:
+        .byte 0
+string_pool_next_lo:
+        .byte 0
+string_pool_next_hi:
+        .byte 0
+string_read_lo:
+        .byte 0
+string_read_hi:
+        .byte 0
+strheaplo:
+        .byte 0
+strheaphi:
+        .byte 0
+strlen:
+        .byte 0
+strlen1:
+        .byte 0
+strlen2:
+        .byte 0
+stridx:
+        .byte 0
+strdstidx:
+        .byte 0
+strsrc1lo:
+        .byte 0
+strsrc1hi:
+        .byte 0
+strsrc2lo:
+        .byte 0
+strsrc2hi:
+        .byte 0
+strdstlo:
+        .byte 0
+strdsthi:
+        .byte 0
 current_for_id:
+        .byte 0
+current_do_id:
         .byte 0
 current_for_var_data_lo:
         .byte 0
@@ -5505,6 +9383,8 @@ work2_hi:
         .byte 0
 byte_value:
         .byte 0
+disk_status:
+        .byte 0
 print_suppress_cr:
         .byte 0
 poke_addr_lo:
@@ -5523,9 +9403,63 @@ screen_digit_value:
         .byte 0
 screen_started:
         .byte 0
+diag_msg_lo:
+        .byte 0
+diag_msg_hi:
+        .byte 0
+asset_ovr_rtstr1_ready:
+        .byte 0
+asset_ovr_rtstr2_ready:
+        .byte 0
+asset_ovr_rtcore_ready:
+        .byte 0
+asset_ovr_rtio_ready:
+        .byte 0
+asset_ovr_rtgc_ready:
+        .byte 0
+runtime_need_string:
+        .byte 0
+runtime_need_string_heap:
+        .byte 0
+runtime_need_print:
+        .byte 0
+runtime_need_input:
+        .byte 0
+runtime_need_math:
+        .byte 0
+runtime_need_cmp:
+        .byte 0
+runtime_need_strtemp:
+        .byte 0
+runtime_need_data:
+        .byte 0
+runtime_need_array:
+        .byte 0
+runtime_need_get:
+        .byte 0
+runtime_need_decparse:
+        .byte 0
+asset_retries:
+        .byte 0
+asset_name_ptr:
+        .word 0
+asset_name_len:
+        .byte 0
+asset_size:
+        .word 0
+asset_dst_addr:
+        .word 0
+asset_dst_bank:
+        .byte 0
+asset_dst_mb:
+        .byte 0
 
 line_buf:
         .fill LINE_BUF_MAX, 0
+source_filename_len:
+        .byte 0
+source_filename_buf:
+        .fill FILENAME_MAX + 1, 0
 line_table_lo:
         .fill LINE_MAX, 0
 line_table_hi:
@@ -5540,6 +9474,8 @@ for_stack_var_data_lo:
         .fill FOR_STACK_MAX, 0
 for_stack_var_data_hi:
         .fill FOR_STACK_MAX, 0
+do_stack_id:
+        .fill DO_STACK_MAX, 0
 if_stack_true_lo:
         .fill IF_STACK_MAX, 0
 if_stack_true_hi:
@@ -5551,6 +9487,10 @@ if_stack_skip_hi:
 if_stack_end_lo:
         .fill IF_STACK_MAX, 0
 if_stack_end_hi:
+        .fill IF_STACK_MAX, 0
+if_stack_else_lo:
+        .fill IF_STACK_MAX, 0
+if_stack_else_hi:
         .fill IF_STACK_MAX, 0
 if_stack_tmp_lo:
         .fill IF_STACK_MAX, 0
@@ -5602,5 +9542,21 @@ data_table_lo:
         .fill DATA_MAX, 0
 data_table_hi:
         .fill DATA_MAX, 0
+data_table_type:
+        .fill DATA_MAX, 0
+data_line_lo:
+        .fill DATA_LINE_MAX, 0
+data_line_hi:
+        .fill DATA_LINE_MAX, 0
+data_line_index:
+        .fill DATA_LINE_MAX, 0
+string_off_lo:
+        .fill STRING_MAX, 0
+string_off_hi:
+        .fill STRING_MAX, 0
+string_temp:
+        .fill LINE_BUF_MAX + 1, 0
+string_pool:
+        .fill STRING_POOL_MAX, 0
 
-        .cerror * >= $C000, "compiler image is too large for the current bank-0 layout"
+        .cerror * >= OVR_WINDOW_ADDR, "resident compiler grew into the overlay window"
