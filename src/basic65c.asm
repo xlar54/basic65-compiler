@@ -40,6 +40,8 @@ KERNAL_LOAD             = $FFD5
 
 source_ptr              = $F7
 str_ptr                 = $FB
+POOL_BANK               = $04
+POOL_BASE               = $C000 ; above any realistic tokenized source
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
@@ -169,11 +171,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-.if TEXT_EMITTER
-STRING_POOL_MAX         = $0300 ; checked build: squeezed under $c000
-.else
-STRING_POOL_MAX         = $0A00 ; lean build: full capacity
-.fi
+STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -1917,8 +1915,6 @@ _compile_line_loop:
         beq _compile_sound
         cmp #TOK_VOL
         beq _compile_vol
-        cmp #TOK_EXT_FE
-        beq _compile_ext_fe
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -2068,10 +2064,6 @@ _compile_vol:
         jsr compile_vol
         jmp _compile_line_loop
 
-_compile_ext_fe:
-        jsr compile_ext_fe
-        jmp _compile_line_loop
-
 _compile_if:
         jsr compile_if
         bra _compile_line_loop
@@ -2131,7 +2123,10 @@ _compile_extended_fe:
         beq _compile_bend
 
 _compile_unsupported_extended_fe:
-        lda #TOK_EXT_FE
+        jsr compile_ext_fe
+        bcs +
+        jmp _compile_line_loop
++       lda #TOK_EXT_FE
         bra _compile_unsupported_extended_token
 
 _compile_wpoke:
@@ -5205,8 +5200,30 @@ _compile_trap_arm:
         jsr out_zstr
         rts
 
-; dispatch $FE-prefixed statements by their second token byte
+; dispatch the $FE second byte for music/sprite statements; carry set
+; hands anything else back to the legacy handler (WPOKE, BEGIN, BEND)
 compile_ext_fe:
+        jsr line_at_end
+        bcs _compile_ext_other
+        jsr line_peek
+        cmp #$03
+        beq _compile_ext_take
+        cmp #$04
+        beq _compile_ext_take
+        cmp #$05
+        beq _compile_ext_take
+        cmp #$0a
+        beq _compile_ext_take
+        cmp #$06
+        beq _compile_ext_take
+        cmp #$07
+        beq _compile_ext_take
+        cmp #$08
+        beq _compile_ext_take
+_compile_ext_other:
+        sec
+        rts
+_compile_ext_take:
         jsr line_get
         cmp #$03
         beq _compile_ext_filter
@@ -5220,12 +5237,7 @@ compile_ext_fe:
         beq _compile_ext_movspr
         cmp #$07
         beq _compile_ext_sprite
-        cmp #$08
-        beq _compile_ext_sprcolor
-        lda #<msg_error_bad_sprite
-        ldy #>msg_error_bad_sprite
-        jsr fatal_statement_error
-        rts
+        jmp compile_sprcolor
 _compile_ext_filter:
         jmp compile_filter
 _compile_ext_play:
@@ -5238,8 +5250,6 @@ _compile_ext_movspr:
         jmp compile_movspr
 _compile_ext_sprite:
         jmp compile_sprite
-_compile_ext_sprcolor:
-        jmp compile_sprcolor
 
 ; PLAY [string1 ... string6]: argument position selects the voice;
 ; bare PLAY silences everything
@@ -7482,20 +7492,25 @@ _append_string_fail:
         sec
         rts
 
+; the pool lives in bank 4; borrow source_ptr ($f7, only safe far
+; pointer) and restore it -- new zero page is off limits, the KERNAL
+; screen editor owns most of $90-$ff ($f3/$f4 is its color pointer)
 string_pool_append_byte:
         lda string_pool_next_hi
         cmp #>STRING_POOL_MAX
         bcs _string_pool_append_fail
-        lda #<string_pool
+        jsr pool_ptr_save
+        lda #<POOL_BASE
         clc
         adc string_pool_next_lo
-        sta str_ptr
-        lda #>string_pool
+        sta source_ptr
+        lda #>POOL_BASE
         adc string_pool_next_hi
-        sta str_ptr+1
+        sta source_ptr+1
+        ldz #0
         lda byte_value
-        ldy #0
-        sta (str_ptr),y
+        sta [source_ptr],z
+        jsr pool_ptr_restore
         inc string_pool_next_lo
         bne +
         inc string_pool_next_hi
@@ -7507,15 +7522,42 @@ _string_pool_append_fail:
         rts
 
 string_pool_read_byte:
-        lda #<string_pool
+        jsr pool_ptr_save
+        lda #<POOL_BASE
         clc
         adc string_read_lo
-        sta str_ptr
-        lda #>string_pool
+        sta source_ptr
+        lda #>POOL_BASE
         adc string_read_hi
-        sta str_ptr+1
-        ldy #0
-        lda (str_ptr),y
+        sta source_ptr+1
+        ldz #0
+        lda [source_ptr],z
+        jmp pool_ptr_restore    ; A survives, restores the pointer
+
+pool_ptr_save:
+        ldx source_ptr
+        stx pool_save
+        ldx source_ptr+1
+        stx pool_save+1
+        ldx source_ptr+2
+        stx pool_save+2
+        ldx source_ptr+3
+        stx pool_save+3
+        ldx #POOL_BANK
+        stx source_ptr+2
+        ldx #0
+        stx source_ptr+3
+        rts
+
+pool_ptr_restore:
+        ldx pool_save
+        stx source_ptr
+        ldx pool_save+1
+        stx source_ptr+1
+        ldx pool_save+2
+        stx source_ptr+2
+        ldx pool_save+3
+        stx source_ptr+3
         rts
 
 inc_string_read:
@@ -13429,6 +13471,8 @@ play_track_no:
         .byte 0
 snd_used:
         .byte 0
+pool_save:
+        .byte 0,0,0,0
 scan_ext_prefix:
         .byte 0
 prog_base_hi:
@@ -13602,7 +13646,6 @@ string_off_hi:
 string_temp:
         .fill LINE_BUF_MAX + 1, 0
 string_pool:
-        .fill STRING_POOL_MAX, 0
 
 ;=======================================================================================
 ; Binary backend label address tables, filled during the size pass and read
