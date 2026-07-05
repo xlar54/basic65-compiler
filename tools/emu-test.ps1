@@ -129,22 +129,37 @@ function Invoke-Fixture {
         # fall back to the 64tass-assembled PRG when the native one is absent
         cmd /c ".\c1541.exe -attach `"$d81`" -delete out.prg -write target\out.prg out.prg >nul 2>nul"
     }
-    Remove-Item -Force -ErrorAction SilentlyContinue $screenDump
-    $p = Start-Process -FilePath $Xemu -ArgumentList @(
-        "-8", $d81, "-hdosvirt", "true",
-        "-prg", (Join-Path $repo "target\bootstrap-run.prg"),
-        "-dumpscreen", $screenDump, "-besure"
-    ) -PassThru
-    Start-Sleep -Seconds $RunWait
-    Stop-Xemu $p -Graceful
-    if (-not (Test-Path $screenDump)) { return @{ Name = $name; Result = "FAIL (no screen dump)" } }
+    # xemu's -prg autotype occasionally loses its RETURN, leaving the
+    # machine parked at "RUN:" with the boot banner up; retry those
+    $attempt = 0
+    do {
+        $attempt++
+        Remove-Item -Force -ErrorAction SilentlyContinue $screenDump
+        # AUTOBOOT.C65 runs from disk at boot: the compiled program itself
+        # boots directly -- no bootstrap chain, no keyboard injection
+        $bootPrg = if ($nativeOk) { "target\out-native.prg" } else { "target\out.prg" }
+        cmd /c ".\c1541.exe -attach `"$d81`" -delete autoboot.c65 -write $bootPrg autoboot.c65 >nul 2>nul"
+        $p = Start-Process -FilePath $Xemu -ArgumentList @(
+            "-8", $d81, "-hdosvirt", "true",
+            "-dumpscreen", $screenDump, "-besure"
+        ) -PassThru
+        Start-Sleep -Seconds $RunWait
+        Stop-Xemu $p -Graceful
+        if (-not (Test-Path $screenDump)) { return @{ Name = $name; Result = "FAIL (no screen dump)" } }
+        $rawDump = Get-Content $screenDump -Raw
+        $stalled = $rawDump -match "PERSONAL COMPUTER SYSTEM"
+        if ($stalled) { Write-Host "phase 2 stalled at boot (attempt $attempt), retrying..." }
+    } while ($stalled -and $attempt -lt 3)
 
     $screen = Get-Content $screenDump | Where-Object { $_.Trim() -ne "" -and $_ -notmatch '^\{\$A0\}' }
     Write-Host "=== program output (last screen) ==="
     $screen | ForEach-Object { Write-Host $_ }
 
-    $ran = ($screen -join "`n") -match "READY\."
-    $suspect = ($screen -join "`n") -match "FAIL"
+    $joined = $screen -join "`n"
+    # if the boot banner is still on screen, the program never ran
+    # (fixtures clear the screen first); banner READY. is a false positive
+    $ran = ($joined -match "READY\.") -and ($rawDump -notmatch "PERSONAL COMPUTER SYSTEM")
+    $suspect = $joined -match "FAIL|OVERFLOW|DIVISION BY ZERO|TYPE MISMATCH|OUT OF|ILLEGAL QUANT|ARRAY BOUNDS"
     if (-not $ran) { return @{ Name = $name; Result = "FAIL (no READY after run)" } }
     if ($suspect) { return @{ Name = $name; Result = "SUSPECT (output contains FAIL)" } }
     if (-not $nativeOk) { return @{ Name = $name; Result = "SUSPECT (ran, but native PRG differs/missing)" } }

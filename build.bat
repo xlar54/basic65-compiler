@@ -35,7 +35,9 @@ if %ERRORLEVEL%==0 (
     echo Warning: python not found; skipping bin-template generation
 )
 
-.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
+.\64tass.exe --cbm-prg -a -D TEXT_EMITTER=0 src\basic65c.asm -o target\basic65c
+if errorlevel 1 exit /b 1
+.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65cc
 if errorlevel 1 exit /b 1
 
 rem harness bootstraps must survive the target\*.prg wipe above
@@ -78,6 +80,7 @@ cd target
 ..\c1541.exe -format "basic65c,01" d81 basic65c.d81
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write basic65c basic65c
+..\c1541.exe -attach basic65c.d81 -write basic65cc basic65cc
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write runtime.prg runtime.prg
 if errorlevel 1 exit /b 1

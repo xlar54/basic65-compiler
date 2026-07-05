@@ -273,6 +273,7 @@ main:
         bne _main_compile_failed
         jsr report_size_pass
 
+.if TEXT_EMITTER
         lda #<msg_opening_out
         ldy #>msg_opening_out
         jsr screen_zstr
@@ -309,6 +310,7 @@ main:
 
 +       lda #13
         jsr KERNAL_CHROUT
+.fi
 
         lda #<msg_writing_prg
         ldy #>msg_writing_prg
@@ -326,9 +328,11 @@ _main_prg_ok:
         jsr screen_zstr
 
 _main_done_ok:
+.if TEXT_EMITTER
         lda #<msg_done
         ldy #>msg_done
         jsr screen_zstr
+.fi
         rts
 
 _main_compile_failed:
