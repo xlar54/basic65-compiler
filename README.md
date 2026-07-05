@@ -258,3 +258,18 @@ numbers. `OUT.ASM` is only replaced after a clean compile.
 - The compiler and generated code avoid using `STZ` as "store zero"; on 45GS02
   `STZ` stores the Z register.
 - Keep all readable BASIC test fixtures in `basic\`.
+
+## Benchmarks
+
+Same program, same MEGA65 at 40MHz, interpreted vs compiled
+(xemu, PAL; timed with CLR TI / PRINT TI):
+
+| Benchmark | Workload | Interpreted | Compiled | Speedup |
+|---|---|---|---|---|
+| `basic/mandel.bas` | float multiply/add (Mandelbrot escape loop) | 4.87 s | 0.04 s | ~122x |
+| `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 0.26 s | ~81x |
+| `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.02 s | ~39x |
+
+Ahl's accuracy figure: 2.27e-04 compiled vs 3.11e-04 interpreted --
+the compiler's MFLP math lands slightly closer to the true value than
+the ROM's float code.
