@@ -91,6 +91,10 @@ TOK_TRAP                = $D7
 TOK_RESUME              = $D6
 TOK_SOUND               = $DA
 TOK_JOY                 = $CF
+TOK_XOR                 = $E9
+TOK_WAIT                = $92
+TOK_FRE                 = $B8
+TOK_ERR_STR             = $D3
 TOK_LOG                 = $BC
 TOK_EXP_FN              = $BD
 TOK_COS                 = $BE
@@ -1251,8 +1255,10 @@ _scan_vars_extended:
         beq _scan_ext_snd
         bra _scan_ext_skip
 _scan_ext_ce:
-        cmp #$03                ; BUMP
-        beq _scan_ext_snd
+        cmp #$02                ; POT..RSPCOLOR live in the slab
+        bcc _scan_ext_skip
+        cmp #$07+1
+        bcc _scan_ext_snd
         cmp #$0f                ; RPLAY
         bne _scan_ext_skip
 _scan_ext_snd:
@@ -1919,6 +1925,8 @@ _compile_line_loop:
         beq _compile_sound
         cmp #TOK_VOL
         beq _compile_vol
+        cmp #TOK_WAIT
+        beq _compile_wait
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -2066,6 +2074,10 @@ _compile_sound:
 
 _compile_vol:
         jsr compile_vol
+        jmp _compile_line_loop
+
+_compile_wait:
+        jsr compile_wait
         jmp _compile_line_loop
 
 _compile_if:
@@ -2329,6 +2341,8 @@ _string_factor_var:
         beq _string_factor_str
         cmp #TOK_HEX_STR
         beq _string_factor_hex
+        cmp #TOK_ERR_STR
+        beq _string_factor_err
         cmp #TOK_LEFT_STR
         beq _string_factor_left
         cmp #TOK_RIGHT_STR
@@ -2390,6 +2404,19 @@ _string_factor_str:
         jsr compile_str_string_function
         rts
 
+_string_factor_err:
+        jsr parse_open_paren
+        bcs _string_factor_fail
+        jsr compile_expression
+        bcs _string_factor_fail
+        jsr parse_close_paren
+        bcs _string_factor_fail
+        lda #<out_jsr_errstrf
+        ldy #>out_jsr_errstrf
+        jsr out_zstr
+        clc
+        rts
+
 _string_factor_hex:
         jsr parse_open_paren
         bcs _string_factor_fail
@@ -2427,6 +2454,8 @@ string_expression_starts:
         cmp #TOK_STR_STR
         beq _string_expr_starts_yes
         cmp #TOK_HEX_STR
+        beq _string_expr_starts_yes
+        cmp #TOK_ERR_STR
         beq _string_expr_starts_yes
         cmp #TOK_LEFT_STR
         beq _string_expr_starts_yes
@@ -3254,10 +3283,28 @@ _cond_or_loop:
         jsr line_peek
         cmp #TOK_OR
         beq _cond_or_take
+        cmp #TOK_XOR
+        beq _cond_xor_take
 
 _cond_or_done:
         clc
         rts
+
+_cond_xor_take:
+        jsr line_get
+        jsr emit_qint_if_float
+        jsr emit_push_expr
+        jsr compile_condition_and
+        bcs _cond_or_fail
+        jsr emit_qint_if_float
+        jsr emit_pop_lhs
+        lda #<out_xor_lhs_expr
+        ldy #>out_xor_lhs_expr
+        jsr out_zstr
+        lda #0
+        sta const_state
+        sta expr_type
+        bra _cond_or_loop
 
 _cond_or_take:
         jsr line_get
@@ -4273,6 +4320,8 @@ _factor_not_number:
         beq _factor_ext_ce
         cmp #TOK_JOY
         beq _factor_joy
+        cmp #TOK_FRE
+        beq _factor_fre
         cmp #TOK_SIN
         beq _factor_sin
         cmp #TOK_COS
@@ -4742,6 +4791,20 @@ _factor_ext_ce:
         beq +
         cmp #$0f                ; RPLAY
         beq _factor_rplay
+        cmp #$08                ; LOG10
+        beq _factor_log10
+        cmp #$0b                ; MOD
+        beq _factor_mod
+        cmp #$02                ; POT
+        beq _factor_pot
+        cmp #$04                ; LPEN
+        beq _factor_lpen
+        cmp #$05                ; RSPPOS
+        beq _factor_rsppos
+        cmp #$06                ; RSPRITE
+        beq _factor_rsprite
+        cmp #$07                ; RSPCOLOR
+        beq _factor_rspcolor
         bra _factor_fail
 +
         jsr parse_open_paren
@@ -4765,6 +4828,104 @@ _factor_wpeek:
         bcs _factor_fail
         jsr emit_wpeek_expr
         clc
+        rts
+
+_factor_log10:
+        lda #<out_jsr_log10f
+        ldy #>out_jsr_log10f
+        jmp _factor_ffn_arg
+
+_factor_mod:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        lda #<out_jsr_modseta
+        ldy #>out_jsr_modseta
+        jsr out_zstr
+        jsr parse_comma
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_modf
+        ldy #>out_jsr_modf
+        jsr out_zstr
+        clc
+        rts
+
+_factor_rsppos:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        lda #<out_jsr_rspset
+        ldy #>out_jsr_rspset
+        jsr out_zstr
+        jsr parse_comma
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_rspposf
+        ldy #>out_jsr_rspposf
+        jsr out_zstr
+        clc
+        rts
+
+_factor_rsprite:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        lda #<out_jsr_rspset
+        ldy #>out_jsr_rspset
+        jsr out_zstr
+        jsr parse_comma
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_rspritef
+        ldy #>out_jsr_rspritef
+        jsr out_zstr
+        clc
+        rts
+
+_factor_pot:
+        lda #<out_jsr_potf
+        ldy #>out_jsr_potf
+        bra _factor_one
+_factor_lpen:
+        lda #<out_jsr_lpenf
+        ldy #>out_jsr_lpenf
+        bra _factor_one
+_factor_rspcolor:
+        lda #<out_jsr_rspcolorf
+        ldy #>out_jsr_rspcolorf
+
+; one-arg int functions
+_factor_one:
+        pha
+        phy
+        jsr parse_open_paren
+        bcs _factor_one_fail
+        jsr compile_expression
+        bcs _factor_one_fail
+        jsr parse_close_paren
+        bcs _factor_one_fail
+        ply
+        pla
+        jsr out_zstr
+        clc
+        rts
+_factor_one_fail:
+        ply
+        pla
+        sec
         rts
 
 _factor_rplay:
@@ -4812,6 +4973,11 @@ _factor_ffn_entry:
         pha
         phy
         jsr line_get            ; consume the function token
+        bra _factor_ffn_paren
+_factor_ffn_arg:
+        pha
+        phy
+_factor_ffn_paren:
         jsr parse_open_paren
         bcs _factor_ffn_fail
         jsr compile_num_expression
@@ -4835,6 +5001,20 @@ _factor_ffn_fail:
         ply
         pla
         sec
+        rts
+
+_factor_fre:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_fref
+        ldy #>out_jsr_fref
+        jsr out_zstr
+        clc
         rts
 
 _factor_joy:
@@ -5203,6 +5383,8 @@ compile_ext_fe:
         beq _compile_ext_take
         cmp #$0a
         beq _compile_ext_take
+        cmp #$0b
+        beq _compile_ext_take
         cmp #$06
         beq _compile_ext_take
         cmp #$07
@@ -5222,6 +5404,8 @@ _compile_ext_take:
         beq _compile_ext_tempo
         cmp #$0a
         beq _compile_ext_envelope
+        cmp #$0b
+        beq _compile_ext_sleep
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5233,6 +5417,8 @@ _compile_ext_play:
         jmp compile_play
 _compile_ext_tempo:
         jmp compile_tempo
+_compile_ext_sleep:
+        jmp compile_sleep
 _compile_ext_envelope:
         jmp compile_envelope
 _compile_ext_movspr:
@@ -5324,6 +5510,50 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; SLEEP seconds: float expression, frame-granular in the runtime
+compile_sleep:
+        jsr compile_num_expression
+        bcs compile_env_bad
+        lda expr_type
+        bne _compile_sleep_f
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_compile_sleep_f:
+        lda #<out_jsr_sleepf
+        ldy #>out_jsr_sleepf
+        jsr out_zstr
+        clc
+        rts
+
+; WAIT address, andmask [, xormask]
+compile_wait:
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_waitseta
+        ldy #>out_jsr_waitseta
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_env_bad
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_waitsetm
+        ldy #>out_jsr_waitsetm
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_wait_go
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_waitsetx
+        ldy #>out_jsr_waitsetx
+        jsr out_zstr
+_compile_wait_go:
+        lda #<out_jsr_waitgo
+        ldy #>out_jsr_waitgo
+        jsr out_zstr
+        clc
+        rts
 
 compile_tempo:
         jsr compile_expression
@@ -11746,6 +11976,135 @@ out_rtpb_post:
 .else
         .byte 0
 .fi
+out_jsr_log10f:
+.if TEXT_EMITTER
+        .text "        jsr log10f"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_modseta:
+.if TEXT_EMITTER
+        .text "        jsr modseta"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_modf:
+.if TEXT_EMITTER
+        .text "        jsr modf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sleepf:
+.if TEXT_EMITTER
+        .text "        jsr sleepf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_waitseta:
+.if TEXT_EMITTER
+        .text "        jsr waitseta"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_waitsetm:
+.if TEXT_EMITTER
+        .text "        jsr waitsetm"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_waitsetx:
+.if TEXT_EMITTER
+        .text "        jsr waitsetx"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_waitgo:
+.if TEXT_EMITTER
+        .text "        jsr waitgo"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fref:
+.if TEXT_EMITTER
+        .text "        jsr fref"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_errstrf:
+.if TEXT_EMITTER
+        .text "        jsr errstrf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_potf:
+.if TEXT_EMITTER
+        .text "        jsr potf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_lpenf:
+.if TEXT_EMITTER
+        .text "        jsr lpenf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rspset:
+.if TEXT_EMITTER
+        .text "        jsr rspset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rspposf:
+.if TEXT_EMITTER
+        .text "        jsr rspposf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rspritef:
+.if TEXT_EMITTER
+        .text "        jsr rspritef"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rspcolorf:
+.if TEXT_EMITTER
+        .text "        jsr rspcolorf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_xor_lhs_expr:
+.if TEXT_EMITTER
+        .text "        lda lhslo"
+        .byte 13
+        .text "        eor exprlo"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda lhshi"
+        .byte 13
+        .text "        eor exprhi"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_fltsetn:
 .if TEXT_EMITTER
         .text "        jsr fltsetn"
@@ -13642,7 +14001,11 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
+.if TEXT_EMITTER
+LBL_IF_IDS      = 256           ; checked build: squeezed under $c000
+.else
 LBL_IF_IDS      = 384
+.fi
 LBL_ON_IDS      = 128
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 48

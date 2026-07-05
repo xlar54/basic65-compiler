@@ -4327,6 +4327,13 @@ mth_r1:       .byte 0
 mth_r2:       .byte 0
 mth_e:        .byte 0
 mth_e2:       .byte 0
+mod_a:        .byte 0,0
+mod_r:        .byte 0,0
+slp_last:     .byte 0
+wt_addr:      .byte 0,0
+wt_and:       .byte 0
+wt_xor:       .byte 0
+err_no:       .byte 0
 
 ; MFLP float accumulators (unpacked)
 facexp:       .byte 0
@@ -4989,6 +4996,208 @@ _expf_done:
         rts
 _expf_ovf:
         lda #15                 ; OVERFLOW
+        jmp rterror
+
+; 1/ln(10) and the PAL jiffy rate, packed MFLP
+c1oln10:
+        .byte $7f, $5e, $5b, $d8, $a9
+cfifty:
+        .byte $86, $48, $00, $00, $00
+
+log10f:
+        jsr logf
+        lda #<c1oln10
+        ldy #>c1oln10
+        jsr fldca
+        jmp fmul
+
+; MOD(a,b): 16-bit remainder by shift-subtract; b=0 raises DIV BY ZERO
+modseta:
+        lda exprlo
+        sta mod_a
+        lda exprhi
+        sta mod_a+1
+        rts
+
+modf:
+        lda exprlo
+        ora exprhi
+        bne +
+        lda #20
+        jmp rterror
++       lda #0
+        sta mod_r
+        sta mod_r+1
+        ldx #16
+_modf_loop:
+        asl mod_a
+        rol mod_a+1
+        rol mod_r
+        rol mod_r+1
+        lda mod_r
+        sec
+        sbc exprlo
+        tay
+        lda mod_r+1
+        sbc exprhi
+        bcc _modf_next
+        sta mod_r+1
+        sty mod_r
+        inc mod_a
+_modf_next:
+        dex
+        bne _modf_loop
+        lda mod_r
+        sta exprlo
+        lda mod_r+1
+        sta exprhi
+        rts
+
+; SLEEP seconds (float in FAC): frame-granular wait on FRAMECOUNT
+sleepf:
+        lda #<cfifty
+        ldy #>cfifty
+        jsr fldca
+        jsr fmul
+        jsr qint                ; exprlo/hi = frames
+        lda exprlo
+        ora exprhi
+        bne +
+        rts
++       lda $d7fa
+        sta slp_last
+_sleepf_loop:
+        lda $d7fa
+        cmp slp_last
+        beq _sleepf_loop
+        sta slp_last
+        lda exprlo
+        bne +
+        dec exprhi
++       dec exprlo
+        lda exprlo
+        ora exprhi
+        bne _sleepf_loop
+        rts
+
+; WAIT address, andmask [, xormask]
+waitseta:
+        lda exprlo
+        sta wt_addr
+        lda exprhi
+        sta wt_addr+1
+        rts
+
+waitsetm:
+        lda exprlo
+        sta wt_and
+        lda #0
+        sta wt_xor
+        rts
+
+waitsetx:
+        lda exprlo
+        sta wt_xor
+        rts
+
+waitgo:
+        lda wt_addr
+        sta rtptr
+        lda wt_addr+1
+        sta rtptr+1
+        ldy #0
+_waitgo_loop:
+        lda (rtptr),y
+        and wt_and
+        eor wt_xor
+        beq _waitgo_loop
+        rts
+
+; FRE(1) = bank-1 string heap bottom minus the variable heap end;
+; FRE(0) and FRE(-1) have no compiled equivalent and return 0
+fref:
+        lda exprlo
+        cmp #1
+        beq _fref_bank1
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+_fref_bank1:
+        lda strheaplo
+        sec
+        sbc rtvheapend
+        sta exprlo
+        lda strheaphi
+        sbc rtvheapend+1
+        sta exprhi
+        rts
+
+; ERR$(n): our error message table covers the codes the runtime can
+; raise; anything else out of 1-41 errors, in-range-but-unknown gets ""
+errstrf:
+        lda exprhi
+        bne _errstrf_bad
+        lda exprlo
+        beq _errstrf_bad
+        cmp #42
+        bcs _errstrf_bad
+        sta err_no
+        ldx #0
+_errstrf_scan:
+        lda rterrtab,x
+        beq _errstrf_empty      ; unknown in-range code: empty string
+        cmp err_no
+        beq _errstrf_found
+        inx
+        inx
+        inx
+        bra _errstrf_scan
+_errstrf_found:
+        lda rterrtab+1,x
+        sta rtptr
+        lda rterrtab+2,x
+        sta rtptr+1
+        ldy #0
+_errstrf_len:
+        lda (rtptr),y
+        beq _errstrf_alloc
+        iny
+        bne _errstrf_len
+_errstrf_alloc:
+        sty strlen
+        tya
+        pha
+        jsr stralloc
+        pla
+        sta strlen
+        bcs _errstrf_done
+        ldz #0
+        lda strlen
+        sta [varptr],z
+        ldy #0
+_errstrf_copy:
+        cpy strlen
+        beq _errstrf_done
+        lda (rtptr),y
+        inz
+        sta [varptr],z
+        iny
+        bne _errstrf_copy
+_errstrf_done:
+        rts
+_errstrf_empty:
+        lda #0
+        sta strlen
+        jsr stralloc
+        bcs _errstrf_done
+        ldz #0
+        lda #0
+        sta [varptr],z
+        rts
+
+_errstrf_bad:
+        lda #14
         jmp rterror
 
 rtsndshut:
@@ -5899,6 +6108,161 @@ _sndshut_gates:
         sta snd_dur_hi,x
         dex
         bpl _sndshut_gates
+        rts
+
+; POT(1-4): select the paddle pair on CIA1 port A, read SID pots;
+; value > 255 means the fire button is down too
+potf:
+        ldx exprlo
+        dex
+        cpx #4
+        bcc +
+        ldx #0
++       txa
+        and #2
+        beq _potf_p1
+        lda #$80                ; paddles on control port 2
+        bra _potf_sel
+_potf_p1:
+        lda #$40                ; control port 1
+_potf_sel:
+        sta $dc00
+        ldy #0
+_potf_settle:
+        dey
+        bne _potf_settle
+        txa
+        and #1
+        bne _potf_y
+        lda $d419
+        bra _potf_val
+_potf_y:
+        lda $d41a
+_potf_val:
+        sta exprlo
+        lda #0
+        sta exprhi
+        txa
+        and #2
+        beq _potf_fb1
+        lda $dc00
+        bra _potf_fire
+_potf_fb1:
+        lda $dc01
+_potf_fire:
+        and #$0c                ; paddle fire lines
+        cmp #$0c
+        beq _potf_nofire
+        lda #1
+        sta exprhi              ; value + 256
+_potf_nofire:
+        lda #$ff                ; restore keyboard scanning
+        sta $dc00
+        rts
+
+lpenf:
+        lda exprlo
+        bne _lpenf_y
+        lda $d013
+        asl a
+        sta exprlo
+        lda #0
+        rol a
+        sta exprhi
+        rts
+_lpenf_y:
+        lda $d014
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+rspset:
+        lda exprlo
+        and #7
+        sta spr_n
+        rts
+
+; RSPPOS(sprite, n): 0 x (with MSB), 1 y, 2 speed (no engine: 0)
+rspposf:
+        ldx spr_n
+        lda exprlo
+        cmp #1
+        beq _rsppos_y
+        bcs _rsppos_spd
+        txa
+        asl a
+        tay
+        lda $d000,y
+        sta exprlo
+        lda $d010
+        and sprbit,x
+        beq +
+        lda #1
++       sta exprhi
+        rts
+_rsppos_y:
+        txa
+        asl a
+        tay
+        lda $d001,y
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+_rsppos_spd:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+
+; RSPRITE(sprite, n): 0 on, 1 colour, 2 priority, 3 expx, 4 expy, 5 mc
+rspritef:
+        ldx spr_n
+        lda exprlo
+        bne +
+        lda $d015
+        bra _rsprite_bit
++       cmp #1
+        bne +
+        lda $d027,x
+        and #$0f
+        bra _rsprite_val
++       cmp #2
+        bne +
+        lda $d01b
+        bra _rsprite_bit
++       cmp #3
+        bne +
+        lda $d01d
+        bra _rsprite_bit
++       cmp #4
+        bne +
+        lda $d017
+        bra _rsprite_bit
++       lda $d01c
+_rsprite_bit:
+        and sprbit,x
+        beq _rsprite_val
+        lda #1
+_rsprite_val:
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+rspcolorf:
+        lda exprlo
+        cmp #2
+        beq _rspcolor_2
+        lda $d025
+        bra +
+_rspcolor_2:
+        lda $d026
++       and #$0f
+        sta exprlo
+        lda #0
+        sta exprhi
         rts
 
 ; voice register offsets from $d400: SID2 voices 1-3, SID4 voices 4-6
