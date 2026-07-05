@@ -94,6 +94,13 @@ rtinit:
         jsr varinit
         jsr strinit
         jsr datainit
+        ; varptr always points into bank 1 for variable and string access;
+        ; every runtime path preserves these two bytes, so generated code
+        ; never has to set them (printscroll saves/restores around its use)
+        lda #$01
+        sta varptr+2
+        lda #$00
+        sta varptr+3
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff so large
         ; programs can execute there; the KERNAL stays mapped at $e000 for
         ; CHROUT and friends, and the ROM bits are restored before returning

@@ -6739,6 +6739,8 @@ emit_array_bounds_check:
         jsr out_array_ok_ref
         bra emit_label_suffix
 
+; varptr+2/+3 (bank/megabyte) are set once by rtinit and preserved by every
+; runtime path, so per-access setup only writes the 16-bit bank-1 offset
 emit_set_varptr_current:
         lda #<out_lda_imm_hex
         ldy #>out_lda_imm_hex
@@ -6758,26 +6760,6 @@ emit_set_varptr_current:
         jsr out_cr
         lda #<out_sta_varptr_1
         ldy #>out_sta_varptr_1
-        jsr out_zstr
-
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
-        lda #VAR_BANK
-        jsr out_hex_byte
-        jsr out_cr
-        lda #<out_sta_varptr_2
-        ldy #>out_sta_varptr_2
-        jsr out_zstr
-
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
-        lda #VAR_MB
-        jsr out_hex_byte
-        jsr out_cr
-        lda #<out_sta_varptr_3
-        ldy #>out_sta_varptr_3
         jsr out_zstr
         rts
 
@@ -6806,26 +6788,6 @@ emit_set_arrayptr_current:
         jsr out_cr
         lda #<out_sta_varptr_1
         ldy #>out_sta_varptr_1
-        jsr out_zstr
-
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
-        lda #VAR_BANK
-        jsr out_hex_byte
-        jsr out_cr
-        lda #<out_sta_varptr_2
-        ldy #>out_sta_varptr_2
-        jsr out_zstr
-
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
-        lda #VAR_MB
-        jsr out_hex_byte
-        jsr out_cr
-        lda #<out_sta_varptr_3
-        ldy #>out_sta_varptr_3
         jsr out_zstr
         rts
 
@@ -9090,12 +9052,6 @@ out_sta_varptr:
 out_sta_varptr_1:
         .text "        sta varptr+1"
         .byte 13, 0
-out_sta_varptr_2:
-        .text "        sta varptr+2"
-        .byte 13, 0
-out_sta_varptr_3:
-        .text "        sta varptr+3"
-        .byte 13, 0
 out_sta_exprlo:
         .text "        sta exprlo"
         .byte 13, 0
@@ -9168,14 +9124,6 @@ out_restore_arrayptr:
         .text "        lda arrptrhi"
         .byte 13
         .text "        sta varptr+1"
-        .byte 13
-        .text "        lda #$01"
-        .byte 13
-        .text "        sta varptr+2"
-        .byte 13
-        .text "        lda #$00"
-        .byte 13
-        .text "        sta varptr+3"
         .byte 13, 0
 out_lda_label:
         .text "        lda "
