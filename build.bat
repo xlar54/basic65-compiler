@@ -18,7 +18,10 @@ rem bakes runtime addresses from target\runtime.lbl into
 rem src\gen\bin-templates.inc, which the compiler includes. Assembling the
 rem compiler first would embed stale addresses whenever the runtime moves
 rem (the harness byte-diff catches exactly that drift).
-.\64tass.exe --cbm-prg -a src\runtime\runtime.asm -l target\runtime.lbl -L target\runtime.lst -o target\runtime.prg
+rem No -a here: the harness links this same source without it, and the
+rem shipped RUNTIME.PRG image must assemble byte-identically both ways
+rem (runtime text comparisons handle ASCII and PETSCII input explicitly).
+.\64tass.exe --cbm-prg src\runtime\runtime.asm -l target\runtime.lbl -L target\runtime.lst -o target\runtime.prg
 if errorlevel 1 exit /b 1
 
 rem Derive binary code templates from the compiler's text templates for the

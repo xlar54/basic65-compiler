@@ -878,6 +878,70 @@ _fdiv_underflow:
 _fdiv_overflow:
         jmp fltoverflow
 
+; software float stack (packed entries): every conversion and operation is
+; free to clobber ARG, so a compiled left operand is parked here while the
+; right side evaluates, then popped into ARG
+fpush:
+        ldx fltsp
+        cpx #FLT_STACK_MAX * 5
+        bcc +
+        jmp fltoverflow
++       lda facexp
+        sta fltstack,x
+        lda facm0
+        and #$7f
+        bit facsgn
+        bpl +
+        ora #$80
++       sta fltstack+1,x
+        lda facm1
+        sta fltstack+2,x
+        lda facm2
+        sta fltstack+3,x
+        lda facm3
+        sta fltstack+4,x
+        txa
+        clc
+        adc #5
+        sta fltsp
+        rts
+
+fpoparg:
+        lda fltsp
+        sec
+        sbc #5
+        sta fltsp
+        tax
+        lda #0
+        sta argext
+        lda fltstack,x
+        sta argexp
+        bne +
+        lda #0
+        sta argm0
+        sta argm1
+        sta argm2
+        sta argm3
+        sta argsgn
+        rts
++       lda fltstack+1,x
+        pha
+        ora #$80
+        sta argm0
+        lda #0
+        sta argsgn
+        pla
+        bpl +
+        lda #$ff
+        sta argsgn
++       lda fltstack+2,x
+        sta argm1
+        lda fltstack+3,x
+        sta argm2
+        lda fltstack+4,x
+        sta argm3
+        rts
+
 fzero:
         lda #0
         sta facexp
@@ -958,6 +1022,472 @@ _fcmp_gt:
 _fcmp_lt:
         lda #$ff
         rts
+
+;=======================================================================================
+; MFLP text conversion: FAC*10, FAC/10, valflt (parse), printflt (format)
+;=======================================================================================
+
+; hardwired unpacked constants (ARG or FAC)
+fldarg_ten:
+        lda #$84
+        sta argexp
+        lda #$a0
+        sta argm0
+        lda #0
+        sta argm1
+        sta argm2
+        sta argm3
+        sta argsgn
+        sta argext
+        rts
+
+fldarg_1e8:
+        lda #$9b
+        sta argexp
+        lda #$be
+        sta argm0
+        lda #$bc
+        sta argm1
+        lda #$20
+        sta argm2
+        lda #0
+        sta argm3
+        sta argsgn
+        sta argext
+        rts
+
+fldarg_1e9:
+        lda #$9e
+        sta argexp
+        lda #$ee
+        sta argm0
+        lda #$6b
+        sta argm1
+        lda #$28
+        sta argm2
+        lda #0
+        sta argm3
+        sta argsgn
+        sta argext
+        rts
+
+fldarg_half:
+        lda #$80
+        sta argexp
+        sta argm0
+        lda #0
+        sta argm1
+        sta argm2
+        sta argm3
+        sta argsgn
+        sta argext
+        rts
+
+fmul10:
+        jsr fldarg_ten
+        jmp fmul
+
+fdiv10:
+        jsr fmovaf              ; ARG = x
+        lda #$84                ; FAC = 10
+        sta facexp
+        lda #$a0
+        sta facm0
+        lda #0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        sta facext
+        jmp fdiv                ; FAC = ARG / FAC = x / 10
+
+; parse a zero-terminated decimal number at (rtptr) into FAC:
+; [spaces][+|-][digits][.digits][e|E[+|-]digits]; stops at any other char
+valflt:
+        jsr fzero
+        ldy #0
+        sty vflt_sign
+        sty vflt_decexp
+        sty vflt_frac
+        sty vflt_eexp
+        sty vflt_esign
+_vf_skip:
+        lda (rtptr),y
+        cmp #' '
+        bne +
+        iny
+        bra _vf_skip
++       cmp #'-'
+        bne +
+        lda #$ff
+        sta vflt_sign
+        iny
+        bra _vf_digits
++       cmp #'+'
+        bne _vf_digits
+        iny
+_vf_digits:
+        lda (rtptr),y
+        beq _vf_scale
+        cmp #'.'
+        beq _vf_point
+        cmp #$65                ; ASCII 'e'
+        beq _vf_exp
+        cmp #$45                ; PETSCII 'e' / 'E' (compiled literal pools)
+        beq _vf_exp
+        cmp #'0'
+        bcc _vf_scale
+        cmp #'9' + 1
+        bcs _vf_scale
+        sec
+        sbc #'0'
+        sta vflt_digit
+        sty vflt_y
+        jsr fmul10
+        jsr fmovaf
+        lda vflt_digit
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fadd
+        ldy vflt_y
+        lda vflt_frac
+        beq +
+        inc vflt_decexp
++       iny
+        bra _vf_digits
+_vf_point:
+        lda #1
+        sta vflt_frac
+        iny
+        bra _vf_digits
+_vf_exp:
+        iny
+        lda (rtptr),y
+        cmp #'-'
+        bne +
+        lda #1
+        sta vflt_esign
+        iny
+        bra _vf_exp_dig
++       cmp #'+'
+        bne _vf_exp_dig
+        iny
+_vf_exp_dig:
+        lda (rtptr),y
+        cmp #'0'
+        bcc _vf_scale
+        cmp #'9' + 1
+        bcs _vf_scale
+        pha
+        lda vflt_eexp           ; eexp = eexp*10 + digit
+        asl
+        asl
+        clc
+        adc vflt_eexp
+        asl
+        sta vflt_eexp
+        pla
+        sec
+        sbc #'0'
+        clc
+        adc vflt_eexp
+        sta vflt_eexp
+        iny
+        bra _vf_exp_dig
+_vf_scale:
+        lda vflt_eexp
+        ldx vflt_esign
+        beq +
+        eor #$ff
+        clc
+        adc #1
++       sec
+        sbc vflt_decexp
+        sta vflt_scale
+_vf_apply:
+        lda vflt_scale
+        beq _vf_sign
+        bmi _vf_down
+        jsr fmul10
+        dec vflt_scale
+        bra _vf_apply
+_vf_down:
+        jsr fdiv10
+        inc vflt_scale
+        bra _vf_apply
+_vf_sign:
+        lda facexp
+        beq +
+        lda vflt_sign
+        bpl +
+        sta facsgn
++       rts
+
+; print FAC in BASIC style: sign space/minus, up to nine significant digits
+; with the point placed by the decimal exponent, E notation outside
+; .01 <= |x| < 1e9 (approximately CBM FOUT behavior), trailing space
+printflt:
+        lda facexp
+        bne +
+        lda #' '
+        jsr printch
+        lda #'0'
+        jsr printch
+        lda #' '
+        jmp printch
++       lda facsgn
+        bpl _pf_sign_pos
+        lda #0
+        sta facsgn
+        lda #'-'
+        jsr printch
+        bra _pf_scaled
+_pf_sign_pos:
+        lda #' '
+        jsr printch
+_pf_scaled:
+        lda #0
+        sta fout_dexp
+_pf_scale_up:
+        jsr fldarg_1e8
+        jsr fcmp
+        cmp #$ff                ; FAC < 1e8: bring a digit in
+        bne _pf_scale_down
+        jsr fmul10
+        dec fout_dexp
+        bra _pf_scale_up
+_pf_scale_down:
+        jsr fldarg_1e9
+        jsr fcmp
+        cmp #$ff                ; FAC < 1e9: scaled
+        beq _pf_round
+        jsr fdiv10
+        inc fout_dexp
+        bra _pf_scale_down
+_pf_round:
+        jsr fldarg_half         ; round the ninth digit
+        jsr fadd
+        jsr fldarg_1e9
+        jsr fcmp
+        cmp #$ff
+        beq _pf_int
+        jsr fdiv10
+        inc fout_dexp
+_pf_int:
+        ; 32-bit integer from the scaled FAC (exponent is $9b..$9e here)
+        lda facm0
+        sta fout_val0
+        lda facm1
+        sta fout_val1
+        lda facm2
+        sta fout_val2
+        lda facm3
+        sta fout_val3
+        lda #$a0
+        sec
+        sbc facexp
+        beq _pf_digits
+        tax
+_pf_shift:
+        lsr fout_val0
+        ror fout_val1
+        ror fout_val2
+        ror fout_val3
+        dex
+        bne _pf_shift
+_pf_digits:
+        ldx #0
+        stx fout_idx
+_pf_dig_loop:
+        lda #'0'
+        sta fout_digit
+_pf_dig_sub:
+        lda fout_val0
+        cmp pf_pow0,x
+        bcc _pf_dig_store
+        bne _pf_dig_take
+        lda fout_val1
+        cmp pf_pow1,x
+        bcc _pf_dig_store
+        bne _pf_dig_take
+        lda fout_val2
+        cmp pf_pow2,x
+        bcc _pf_dig_store
+        bne _pf_dig_take
+        lda fout_val3
+        cmp pf_pow3,x
+        bcc _pf_dig_store
+_pf_dig_take:
+        sec
+        lda fout_val3
+        sbc pf_pow3,x
+        sta fout_val3
+        lda fout_val2
+        sbc pf_pow2,x
+        sta fout_val2
+        lda fout_val1
+        sbc pf_pow1,x
+        sta fout_val1
+        lda fout_val0
+        sbc pf_pow0,x
+        sta fout_val0
+        inc fout_digit
+        bra _pf_dig_sub
+_pf_dig_store:
+        ldy fout_idx
+        lda fout_digit
+        sta fout_buf,y
+        inc fout_idx
+        inx
+        cpx #9
+        bne _pf_dig_loop
+        ; p = digits before the decimal point
+        lda fout_dexp
+        clc
+        adc #9
+        sta fout_p
+        bmi _pf_check_m1
+        beq _pf_p_zero
+        cmp #10
+        bcc _pf_fixed
+        jmp _pf_e
+_pf_check_m1:
+        cmp #$ff
+        beq _pf_p_m1
+        jmp _pf_e
+
+_pf_fixed:
+        ; digits, point after position p, fraction trimmed of trailing zeros
+        jsr _pf_trim
+        ldy #0
+_pf_fix_int:
+        cpy fout_p
+        beq _pf_fix_frac
+        lda fout_buf,y
+        jsr printch
+        iny
+        bra _pf_fix_int
+_pf_fix_frac:
+        lda fout_last
+        cmp fout_p
+        bcc _pf_space           ; nothing after the point
+        lda #'.'
+        jsr printch
+_pf_fix_floop:
+        lda fout_buf,y
+        jsr printch
+        iny
+        cpy fout_last
+        bcc _pf_fix_floop
+        beq _pf_fix_floop
+        bra _pf_space
+
+_pf_p_zero:
+        jsr _pf_trim
+        lda #'.'
+        jsr printch
+        ldy #0
+        bra _pf_frac_out
+
+_pf_p_m1:
+        jsr _pf_trim
+        lda #'.'
+        jsr printch
+        lda #'0'
+        jsr printch
+        ldy #0
+_pf_frac_out:
+        lda fout_buf,y
+        jsr printch
+        iny
+        cpy fout_last
+        bcc _pf_frac_out
+        beq _pf_frac_out
+        bra _pf_space
+
+_pf_e:
+        ; d.dddddddd E +/- exponent (p-1)
+        jsr _pf_trim
+        lda fout_buf
+        jsr printch
+        lda fout_last
+        beq _pf_e_mark
+        lda #'.'
+        jsr printch
+        ldy #1
+_pf_e_frac:
+        lda fout_buf,y
+        jsr printch
+        iny
+        cpy fout_last
+        bcc _pf_e_frac
+        beq _pf_e_frac
+_pf_e_mark:
+        lda #$45                ; 'E'
+        jsr printch
+        lda fout_p
+        sec
+        sbc #1
+        bpl _pf_e_plus
+        eor #$ff
+        clc
+        adc #1
+        sta fout_digit
+        lda #'-'
+        jsr printch
+        bra _pf_e_num
+_pf_e_plus:
+        sta fout_digit
+        lda #'+'
+        jsr printch
+_pf_e_num:
+        lda #'0'
+        sta fout_p              ; reuse as tens digit
+_pf_e_tens:
+        lda fout_digit
+        cmp #10
+        bcc _pf_e_out
+        sbc #10
+        sta fout_digit
+        inc fout_p
+        bra _pf_e_tens
+_pf_e_out:
+        lda fout_p
+        jsr printch
+        lda fout_digit
+        clc
+        adc #'0'
+        jsr printch
+
+_pf_space:
+        lda #' '
+        jmp printch
+
+; find the last significant digit index (trailing-zero trim, never trims
+; the leading digit)
+_pf_trim:
+        ldy #8
+_pf_trim_loop:
+        lda fout_buf,y
+        cmp #'0'
+        bne _pf_trim_done
+        dey
+        bne _pf_trim_loop
+_pf_trim_done:
+        sty fout_last
+        rts
+
+; 32-bit powers of ten, MSB first, for nine-digit extraction
+pf_pow0:
+        .byte $05,$00,$00,$00,$00,$00,$00,$00,$00
+pf_pow1:
+        .byte $f5,$98,$0f,$01,$00,$00,$00,$00,$00
+pf_pow2:
+        .byte $e1,$96,$42,$86,$27,$03,$00,$00,$00
+pf_pow3:
+        .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
 ; Integer math runtime
@@ -2975,6 +3505,27 @@ argm3:        .byte 0
 argsgn:       .byte 0
 argext:       .byte 0
 qint_lost:    .byte 0
+vflt_sign:    .byte 0
+vflt_decexp:  .byte 0
+vflt_frac:    .byte 0
+vflt_eexp:    .byte 0
+vflt_esign:   .byte 0
+vflt_digit:   .byte 0
+vflt_y:       .byte 0
+vflt_scale:   .byte 0
+fout_dexp:    .byte 0
+fout_p:       .byte 0
+fout_val0:    .byte 0
+fout_val1:    .byte 0
+fout_val2:    .byte 0
+fout_val3:    .byte 0
+fout_idx:     .byte 0
+fout_digit:   .byte 0
+fout_last:    .byte 0
+fout_buf:     .fill 9, 0
+FLT_STACK_MAX = 8
+fltsp:        .byte 0
+fltstack:     .fill FLT_STACK_MAX * 5, 0
 
 ; integer runtime storage
 exprlo:       .byte 0

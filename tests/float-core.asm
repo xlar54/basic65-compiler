@@ -335,7 +335,152 @@ start:
 
         lda #$0d
         jsr printch
+
+; printflt of an integer-valued float: 42 -> " 42 "
+        lda #42
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr printflt
+
+; valflt("1.5") + valflt("2.25") -> " 3.75 " (valflt clobbers ARG, so the
+; left operand parks on the float stack like compiled code will do)
+        lda #<txt_1_5
+        sta rtptr
+        lda #>txt_1_5
+        sta rtptr+1
+        jsr valflt
+        jsr fpush
+        lda #<txt_2_25
+        sta rtptr
+        lda #>txt_2_25
+        sta rtptr+1
+        jsr valflt
+        jsr fpoparg
+        jsr fadd
+        jsr printflt
+
+; .1 + .2 -> " .3 "
+        lda #<txt_p1
+        sta rtptr
+        lda #>txt_p1
+        sta rtptr+1
+        jsr valflt
+        jsr fpush
+        lda #<txt_p2
+        sta rtptr
+        lda #>txt_p2
+        sta rtptr+1
+        jsr valflt
+        jsr fpoparg
+        jsr fadd
+        jsr printflt
+
+; -12.34 round trip -> "-12.34 "
+        lda #<txt_m12_34
+        sta rtptr
+        lda #>txt_m12_34
+        sta rtptr+1
+        jsr valflt
+        jsr printflt
+
+; 1e3 -> " 1000 "
+        lda #<txt_1e3
+        sta rtptr
+        lda #>txt_1e3
+        sta rtptr+1
+        jsr valflt
+        jsr printflt
+
+; 1.5e-2 -> " .015 "
+        lda #<txt_15em2
+        sta rtptr
+        lda #>txt_15em2
+        sta rtptr+1
+        jsr valflt
+        jsr printflt
+
+        lda #$0d
+        jsr printch
+
+; 1/3 -> " .333333333 "
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #3
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        jsr printflt
+
+; 2/3 -> " .666666667 " (ninth-digit rounding)
+        lda #2
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #3
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        jsr printflt
+
+; 123456789 -> " 123456789 "
+        lda #<txt_9dig
+        sta rtptr
+        lda #>txt_9dig
+        sta rtptr+1
+        jsr valflt
+        jsr printflt
+
+; 1e10 -> " 1E+10 "
+        lda #<txt_1e10
+        sta rtptr
+        lda #>txt_1e10
+        sta rtptr+1
+        jsr valflt
+        jsr printflt
+
+        lda #$0d
+        jsr printch
         jmp rtexit
+
+txt_1_5:
+        .text "1.5"
+        .byte 0
+txt_2_25:
+        .text "2.25"
+        .byte 0
+txt_p1:
+        .text ".1"
+        .byte 0
+txt_p2:
+        .text ".2"
+        .byte 0
+txt_m12_34:
+        .text "-12.34"
+        .byte 0
+txt_1e3:
+        .text "1e3"
+        .byte 0
+txt_15em2:
+        .text "1.5e-2"
+        .byte 0
+txt_9dig:
+        .text "123456789"
+        .byte 0
+txt_1e10:
+        .text "1e10"
+        .byte 0
 
 dataend:
 strroots:
