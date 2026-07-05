@@ -257,6 +257,527 @@ printfloatdone:
         rts
 
 ;=======================================================================================
+; MFLP floating point core (5-byte CBM format; see docs\floats-mflp.md)
+;
+; Unpacked accumulators FAC and ARG: exponent (excess-128, 0 means the value
+; is zero), 4 mantissa bytes MSB-first with the leading 1 explicit in bit 7,
+; sign ($00 positive / $ff negative), and a rounding extension byte.
+; Packed memory form: exp, then mantissa MSB with bit 7 replaced by the sign.
+;
+; Conventions: fadd computes FAC = ARG + FAC, fsub computes FAC = ARG - FAC
+; (left operand in ARG). fcmp returns A = 0 equal, 1 FAC > ARG, $ff FAC < ARG.
+;=======================================================================================
+
+; pack FAC into 5 bytes at [varptr]+Z .. Z+4 (Z preset by the caller)
+fpack:
+        lda facexp
+        sta [varptr],z
+        inz
+        lda facm0
+        and #$7f
+        bit facsgn
+        bpl +
+        ora #$80
++       sta [varptr],z
+        inz
+        lda facm1
+        sta [varptr],z
+        inz
+        lda facm2
+        sta [varptr],z
+        inz
+        lda facm3
+        sta [varptr],z
+        rts
+
+; unpack 5 bytes at [varptr]+Z .. Z+4 into FAC
+funpack:
+        lda [varptr],z
+        sta facexp
+        bne +
+        lda #0
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        sta facext
+        rts
++       inz
+        lda [varptr],z
+        pha
+        ora #$80
+        sta facm0
+        lda #0
+        sta facsgn
+        pla
+        bpl +
+        lda #$ff
+        sta facsgn
++       inz
+        lda [varptr],z
+        sta facm1
+        inz
+        lda [varptr],z
+        sta facm2
+        inz
+        lda [varptr],z
+        sta facm3
+        lda #0
+        sta facext
+        rts
+
+; copy FAC to ARG / ARG to FAC
+fmovaf:
+        lda facexp
+        sta argexp
+        lda facm0
+        sta argm0
+        lda facm1
+        sta argm1
+        lda facm2
+        sta argm2
+        lda facm3
+        sta argm3
+        lda facsgn
+        sta argsgn
+        lda #0
+        sta argext
+        rts
+
+fmovfa:
+        lda argexp
+        sta facexp
+        lda argm0
+        sta facm0
+        lda argm1
+        sta facm1
+        lda argm2
+        sta facm2
+        lda argm3
+        sta facm3
+        lda argsgn
+        sta facsgn
+        lda #0
+        sta facext
+        rts
+
+fswapfa:
+        ldx facexp
+        lda argexp
+        sta facexp
+        stx argexp
+        ldx facm0
+        lda argm0
+        sta facm0
+        stx argm0
+        ldx facm1
+        lda argm1
+        sta facm1
+        stx argm1
+        ldx facm2
+        lda argm2
+        sta facm2
+        stx argm2
+        ldx facm3
+        lda argm3
+        sta facm3
+        stx argm3
+        ldx facsgn
+        lda argsgn
+        sta facsgn
+        stx argsgn
+        ldx facext
+        lda argext
+        sta facext
+        stx argext
+        rts
+
+; signed 16-bit integer in exprlo/exprhi -> FAC
+float16:
+        lda #0
+        sta facsgn
+        sta facext
+        sta facm2
+        sta facm3
+        lda exprlo
+        ora exprhi
+        bne +
+        sta facexp
+        rts
++       lda exprhi
+        bpl _float16_pos
+        lda #$ff
+        sta facsgn
+        sec
+        lda #0
+        sbc exprlo
+        sta facm1
+        lda #0
+        sbc exprhi
+        sta facm0
+        bra _float16_norm
+_float16_pos:
+        lda exprlo
+        sta facm1
+        lda exprhi
+        sta facm0
+_float16_norm:
+        lda #$90                ; 2^16 position
+        sta facexp
+        jmp fnorm
+
+; FAC -> signed 16-bit integer in exprlo/exprhi with floor semantics
+; (INT(-1.5) = -2, matching interpreted BASIC); |x| >= 32768 clamps
+qint:
+        lda facexp
+        bne +
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
++       cmp #$81
+        bcs _qint_big
+        ; |x| < 1: floor gives 0 for positive, -1 for negative
+        lda facsgn
+        beq _qint_zero
+        lda #$ff
+        sta exprlo
+        sta exprhi
+        rts
+_qint_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+_qint_big:
+        lda facexp
+        cmp #$91
+        bcc +
+        ; |x| >= 65536: clamp to the signed extreme
+        lda facsgn
+        bmi _qint_min
+_qint_max:
+        lda #$ff
+        sta exprlo
+        lda #$7f
+        sta exprhi
+        rts
+_qint_min:
+        lda #0
+        sta exprlo
+        lda #$80
+        sta exprhi
+        rts
++       ; shift the top 16 mantissa bits right ($90 - exp) places
+        lda facm0
+        sta exprhi
+        lda facm1
+        sta exprlo
+        lda facm2
+        ora facm3
+        sta qint_lost
+        lda #$90
+        sec
+        sbc facexp
+        beq _qint_signed
+        tax
+_qint_shift:
+        lsr exprhi
+        ror exprlo
+        bcc +
+        lda #1
+        ora qint_lost
+        sta qint_lost
++       dex
+        bne _qint_shift
+_qint_signed:
+        ; exp == $91 handled above; exp == $90 with bit15 set overflows the
+        ; signed range except for exactly -32768
+        lda exprhi
+        bpl +
+        lda facsgn
+        beq _qint_max
+        lda exprlo
+        ora qint_lost
+        bne _qint_min
+        lda #0
+        sta exprlo
+        lda #$80
+        sta exprhi
+        rts
++       lda facsgn
+        beq _qint_done
+        ; negative: negate, then floor adjusts by -1 if bits were lost
+        sec
+        lda #0
+        sbc exprlo
+        sta exprlo
+        lda #0
+        sbc exprhi
+        sta exprhi
+        lda qint_lost
+        beq _qint_done
+        lda exprlo
+        bne +
+        dec exprhi
++       dec exprlo
+_qint_done:
+        rts
+
+; normalize FAC (leading mantissa bit into bit 7), then round from the
+; extension byte; a zero mantissa or exponent underflow yields exact zero
+fnorm:
+        lda facm0
+        ora facm1
+        ora facm2
+        ora facm3
+        ora facext
+        bne _fnorm_loop
+        sta facexp
+        rts
+_fnorm_loop:
+        lda facm0
+        bmi fround
+        asl facext
+        rol facm3
+        rol facm2
+        rol facm1
+        rol facm0
+        dec facexp
+        bne _fnorm_loop
+        ; exponent underflow: flush to zero
+        lda #0
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facext
+        sta facexp
+        rts
+
+fround:
+        lda facext
+        bpl _fround_clear
+        inc facm3
+        bne _fround_clear
+        inc facm2
+        bne _fround_clear
+        inc facm1
+        bne _fround_clear
+        inc facm0
+        bne _fround_clear
+        ; mantissa wrapped: value reached the next power of two
+        lda #$80
+        sta facm0
+        inc facexp
+        beq fltoverflow
+_fround_clear:
+        lda #0
+        sta facext
+        rts
+
+fltoverflow:
+        lda #$4f                ; "OVERFLOW"
+        jsr printch
+        lda #$56
+        jsr printch
+        lda #$45
+        jsr printch
+        lda #$52
+        jsr printch
+        lda #$46
+        jsr printch
+        lda #$4c
+        jsr printch
+        lda #$4f
+        jsr printch
+        lda #$57
+        jsr printch
+        lda #$0d
+        jsr printch
+        lda #0
+        sta facexp
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facext
+        rts
+
+; FAC = ARG - FAC
+fsub:
+        lda facexp
+        beq fadd
+        lda facsgn
+        eor #$ff
+        sta facsgn
+        ; FALLTHROUGH
+
+; FAC = ARG + FAC
+fadd:
+        lda argexp
+        bne +
+        rts
++       lda facexp
+        bne +
+        jmp fmovfa
++       lda #0
+        sta facext
+        sta argext
+        lda facexp
+        cmp argexp
+        bcs +
+        jsr fswapfa
++       lda facexp
+        sec
+        sbc argexp
+        beq _fadd_aligned
+        cmp #32
+        bcc +
+        rts                     ; ARG is negligible against FAC
++       tax
+_fadd_shift:
+        lsr argm0
+        ror argm1
+        ror argm2
+        ror argm3
+        ror argext
+        dex
+        bne _fadd_shift
+_fadd_aligned:
+        lda facsgn
+        cmp argsgn
+        bne _fadd_diff
+        clc
+        lda facext
+        adc argext
+        sta facext
+        lda facm3
+        adc argm3
+        sta facm3
+        lda facm2
+        adc argm2
+        sta facm2
+        lda facm1
+        adc argm1
+        sta facm1
+        lda facm0
+        adc argm0
+        sta facm0
+        bcc _fadd_done
+        ror facm0
+        ror facm1
+        ror facm2
+        ror facm3
+        ror facext
+        inc facexp
+        beq _fadd_overflow
+_fadd_done:
+        jmp fround
+
+_fadd_overflow:
+        jmp fltoverflow
+
+_fadd_diff:
+        sec
+        lda facext
+        sbc argext
+        sta facext
+        lda facm3
+        sbc argm3
+        sta facm3
+        lda facm2
+        sbc argm2
+        sta facm2
+        lda facm1
+        sbc argm1
+        sta facm1
+        lda facm0
+        sbc argm0
+        sta facm0
+        bcs _fadd_norm
+        ; borrow: ARG magnitude was larger, take its sign and negate
+        lda argsgn
+        sta facsgn
+        sec
+        lda #0
+        sbc facext
+        sta facext
+        lda #0
+        sbc facm3
+        sta facm3
+        lda #0
+        sbc facm2
+        sta facm2
+        lda #0
+        sbc facm1
+        sta facm1
+        lda #0
+        sbc facm0
+        sta facm0
+_fadd_norm:
+        jmp fnorm
+
+; compare FAC with ARG: A = 0 equal, 1 FAC > ARG, $ff FAC < ARG
+fcmp:
+        lda facexp
+        bne +
+        lda argexp
+        bne _fcmp_fac_zero
+        lda #0
+        rts
+_fcmp_fac_zero:
+        lda argsgn
+        bmi _fcmp_gt
+        bra _fcmp_lt
++       lda argexp
+        bne +
+        lda facsgn
+        bmi _fcmp_lt
+        bra _fcmp_gt
++       lda facsgn
+        cmp argsgn
+        beq _fcmp_same_sign
+        lda facsgn
+        bmi _fcmp_lt
+        bra _fcmp_gt
+_fcmp_same_sign:
+        lda facexp
+        cmp argexp
+        bne _fcmp_mag
+        lda facm0
+        cmp argm0
+        bne _fcmp_mag
+        lda facm1
+        cmp argm1
+        bne _fcmp_mag
+        lda facm2
+        cmp argm2
+        bne _fcmp_mag
+        lda facm3
+        cmp argm3
+        bne _fcmp_mag
+        lda #0
+        rts
+_fcmp_mag:
+        ; carry set here means FAC magnitude >= ARG magnitude (and not equal)
+        bcc _fcmp_mag_lt
+        lda facsgn
+        bmi _fcmp_lt            ; larger magnitude but negative -> smaller
+        bra _fcmp_gt
+_fcmp_mag_lt:
+        lda facsgn
+        bmi _fcmp_gt
+        bra _fcmp_lt
+_fcmp_gt:
+        lda #1
+        rts
+_fcmp_lt:
+        lda #$ff
+        rts
+
+;=======================================================================================
 ; Integer math runtime
 ;=======================================================================================
 
@@ -2255,6 +2776,23 @@ rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
+
+; MFLP float accumulators (unpacked)
+facexp:       .byte 0
+facm0:        .byte 0
+facm1:        .byte 0
+facm2:        .byte 0
+facm3:        .byte 0
+facsgn:       .byte 0
+facext:       .byte 0
+argexp:       .byte 0
+argm0:        .byte 0
+argm1:        .byte 0
+argm2:        .byte 0
+argm3:        .byte 0
+argsgn:       .byte 0
+argext:       .byte 0
+qint_lost:    .byte 0
 
 ; integer runtime storage
 exprlo:       .byte 0
