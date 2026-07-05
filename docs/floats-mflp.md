@@ -4,6 +4,13 @@ Real floating point for compiled programs, using the interpreter's own
 format so compiled BASIC65 behaves like interpreted BASIC65. Decision made
 2026-07-04: 5-byte CBM MFLP, no fixed-point variant for now.
 
+**Status:** stages 1-2 done and emulator-verified via tests\float-core.asm
+(standalone, no compiler involvement): fpack/funpack, fmovaf/fmovfa/fswapfa,
+float16/qint (floor semantics), fnorm/fround, fadd/fsub, fcmp, and
+fmul/fdiv on the MEGA65 hardware math unit ($d770 inputs, MULTOUT/DIVOUT,
+busy bits in $d70f; rtinit selects MEGA65 I/O mode). Next: fmul10/fdiv10,
+valflt, printflt (stage 3), then compiler type propagation (stage 4).
+
 ## Format
 
 Memory format (5 bytes), identical to C64/C65 BASIC variables:
