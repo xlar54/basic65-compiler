@@ -13,18 +13,17 @@ del target\basic65c 2>nul
 del target\runtime.prg 2>nul
 del target\*.prg 2>nul
 
-.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
-if errorlevel 1 exit /b 1
-
-rem Assemble the runtime standalone as a syntax/size check and to publish its
-rem label map. The runtime is linked into generated programs below; this
-rem artifact is not shipped on the D81.
+rem The runtime must assemble BEFORE the compiler: the template generator
+rem bakes runtime addresses from target\runtime.lbl into
+rem src\gen\bin-templates.inc, which the compiler includes. Assembling the
+rem compiler first would embed stale addresses whenever the runtime moves
+rem (the harness byte-diff catches exactly that drift).
 .\64tass.exe --cbm-prg -a src\runtime\runtime.asm -l target\runtime.lbl -L target\runtime.lst -o target\runtime.prg
 if errorlevel 1 exit /b 1
 
 rem Derive binary code templates from the compiler's text templates for the
 rem native backend (see docs\native-backend.md). Requires Python; skipped
-rem with a warning if unavailable because nothing consumes the output yet.
+rem with a warning if unavailable (the committed include is then used as-is).
 where python >nul 2>nul
 if %ERRORLEVEL%==0 (
     python tools\gen-bin-templates.py
@@ -32,6 +31,9 @@ if %ERRORLEVEL%==0 (
 ) else (
     echo Warning: python not found; skipping bin-template generation
 )
+
+.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
+if errorlevel 1 exit /b 1
 
 rem harness bootstraps must survive the target\*.prg wipe above
 .\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas

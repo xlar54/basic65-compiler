@@ -94,6 +94,13 @@ rtinit:
         jsr varinit
         jsr strinit
         jsr datainit
+        ; select MEGA65 I/O mode so the math unit registers at $d768-$d77f
+        ; are visible (idempotent under the MEGA65 ROM, which already runs
+        ; in this mode)
+        lda #$47
+        sta $d02f
+        lda #$53
+        sta $d02f
         ; varptr always points into bank 1 for variable and string access;
         ; every runtime path preserves these two bytes, so generated code
         ; never has to set them (printscroll saves/restores around its use)
@@ -718,6 +725,181 @@ _fadd_diff:
         sta facm0
 _fadd_norm:
         jmp fnorm
+
+; FAC = ARG * FAC, mantissa product from the MEGA65 hardware multiplier
+; (MULTINA/MULTINB at $d770/$d774, 64-bit MULTOUT at $d778, MULBUSY in
+; $d70f bit 6). rtinit selects MEGA65 I/O mode so these are visible.
+fmul:
+        lda facexp
+        beq _fmul_zero
+        lda argexp
+        bne _fmul_go
+_fmul_zero:
+        jmp fzero
+_fmul_go:
+        ; exponent: e = facexp + argexp - 128; 0 or less underflows to zero,
+        ; above 255 overflows
+        lda facexp
+        clc
+        adc argexp
+        bcs _fmul_e_high
+        sec
+        sbc #128
+        bcc _fmul_zero          ; underflow
+        beq _fmul_zero
+        bra _fmul_e_done
+_fmul_e_high:
+        ; sum is 256..510: e = sum - 128 = low byte + 128
+        clc
+        adc #128
+        bcs _fmul_overflow
+_fmul_e_done:
+        sta facexp
+        lda facsgn
+        eor argsgn
+        sta facsgn
+        lda facm3               ; inputs are little-endian
+        sta $d770
+        lda facm2
+        sta $d771
+        lda facm1
+        sta $d772
+        lda facm0
+        sta $d773
+        lda argm3
+        sta $d774
+        lda argm2
+        sta $d775
+        lda argm1
+        sta $d776
+        lda argm0
+        sta $d777
+-       bit $d70f               ; bit 6 = MULBUSY -> V
+        bvs -
+        lda $d77f               ; top 32 product bits are the new mantissa
+        sta facm0
+        lda $d77e
+        sta facm1
+        lda $d77d
+        sta facm2
+        lda $d77c
+        sta facm3
+        lda $d77b
+        sta facext              ; next 8 bits round
+        jmp fnorm
+
+_fmul_overflow:
+        jmp fltoverflow
+
+; FAC = ARG / FAC via the hardware divider (DIVOUT at $d768: fraction in
+; $d768-$d76b, whole part in $d76c-$d76f; DIVBUSY in $d70f bit 7)
+fdiv:
+        lda facexp
+        bne +
+        jsr fdivzero_msg
+        jmp fzero
++       lda argexp
+        bne +
+        jmp fzero               ; 0 / x = 0
++       ; e = argexp - facexp + 128; mantissa quotient lands in (0.5, 2)
+        lda argexp
+        sec
+        sbc facexp
+        bcs _fdiv_e_pos
+        clc
+        adc #128
+        bcc _fdiv_underflow     ; difference beyond -128
+        beq _fdiv_underflow
+        bra _fdiv_e_done
+_fdiv_e_pos:
+        clc
+        adc #128
+        bcs _fdiv_overflow
+_fdiv_e_done:
+        sta facexp
+        lda facsgn
+        eor argsgn
+        sta facsgn
+        lda argm3               ; numerator = ARG
+        sta $d770
+        lda argm2
+        sta $d771
+        lda argm1
+        sta $d772
+        lda argm0
+        sta $d773
+        lda facm3               ; denominator = FAC
+        sta $d774
+        lda facm2
+        sta $d775
+        lda facm1
+        sta $d776
+        lda facm0
+        sta $d777
+-       bit $d70f               ; bit 7 = DIVBUSY -> N
+        bmi -
+        lda $d76c               ; whole part is 0 or 1 for our operand ranges
+        beq _fdiv_frac
+        inc facexp
+        beq _fdiv_overflow
+        lda $d76b               ; mantissa = (1.fraction) >> 1
+        sec
+        ror
+        sta facm0
+        lda $d76a
+        ror
+        sta facm1
+        lda $d769
+        ror
+        sta facm2
+        lda $d768
+        ror
+        sta facm3
+        lda #0
+        ror
+        sta facext
+        jmp fround
+_fdiv_frac:
+        lda $d76b
+        sta facm0
+        lda $d76a
+        sta facm1
+        lda $d769
+        sta facm2
+        lda $d768
+        sta facm3
+        lda #0
+        sta facext
+        jmp fnorm
+
+_fdiv_underflow:
+        jmp fzero
+
+_fdiv_overflow:
+        jmp fltoverflow
+
+fzero:
+        lda #0
+        sta facexp
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        sta facext
+        rts
+
+fdivzero_msg:
+        ldx #0
+-       lda _fdivzero_text,x
+        beq +
+        jsr printch
+        inx
+        bra -
++       lda #$0d
+        jmp printch
+_fdivzero_text:
+        .byte $44,$49,$56,$49,$53,$49,$4f,$4e,$20,$42,$59,$20,$5a,$45,$52,$4f,$00
 
 ; compare FAC with ARG: A = 0 equal, 1 FAC > ARG, $ff FAC < ARG
 fcmp:

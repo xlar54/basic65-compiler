@@ -212,6 +212,129 @@ start:
 
         lda #$0d
         jsr printch
+
+; 6 * 7 = 42
+        lda #6
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #7
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmul
+        jsr qint
+        jsr printuint
+
+; 100 * 100 = 10000
+        lda #100
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        jsr fmul
+        jsr qint
+        jsr printuint
+
+; -5 * 3 = -15
+        lda #<-5
+        sta exprlo
+        lda #>-5
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #3
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmul
+        jsr qint
+        jsr printuint
+
+; 32767 * 1 = 32767
+        lda #<32767
+        sta exprlo
+        lda #>32767
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmul
+        jsr qint
+        jsr printuint
+
+; 100 / 4 = 25
+        lda #<100
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #4
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        jsr qint
+        jsr printuint
+
+; 7 / 7 = 1
+        lda #7
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        jsr fdiv
+        jsr qint
+        jsr printuint
+
+; -9 / 2 = -4.5, floor -> -5
+        lda #<-9
+        sta exprlo
+        lda #>-9
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #2
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        jsr qint
+        jsr printuint
+
+        lda #$0d
+        jsr printch
+
+; 1 / 0 -> DIVISION BY ZERO message, result 0
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #0
+        sta exprlo
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        jsr qint
+        jsr printuint
+
+        lda #$0d
+        jsr printch
         jmp rtexit
 
 dataend:
