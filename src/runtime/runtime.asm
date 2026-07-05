@@ -2492,6 +2492,69 @@ floadx_fac:
 ; a compiled-world convention: argument as a 16-bit int in A(lo)/Y(hi)
 ; (also exprlo/exprhi), result returned the same way. The ROM's
 ; FAC-based convention assumes interpreter internals we do not keep.
+; DECBIN(s$): binary text to number, stops at the first non-binary char
+decbinf:
+        lda #0
+        sta bin_v
+        sta bin_v+1
+        lda exprlo
+        ora exprhi
+        beq _decbin_done
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta bin_n
+        lda #0
+        sta bin_j
+_decbin_loop:
+        lda bin_j
+        cmp bin_n
+        beq _decbin_done
+        inc bin_j
+        ldz bin_j
+        lda [varptr],z
+        cmp #$30                ; 0
+        beq _decbin_shift
+        cmp #$31                ; 1
+        bne _decbin_done
+        asl bin_v
+        rol bin_v+1
+        inc bin_v
+        bra _decbin_loop
+_decbin_shift:
+        asl bin_v
+        rol bin_v+1
+        bra _decbin_loop
+_decbin_done:
+        lda bin_v
+        sta exprlo
+        lda bin_v+1
+        sta exprhi
+        rts
+
+; STRBIN$(n): the low byte as eight binary digits on the string heap
+strbinf:
+        lda exprlo
+        sta bin_v
+        lda #8
+        sta strlen
+        jsr stralloc
+        bcs _strbin_done
+        ldz #0
+        lda #8
+        sta [varptr],z
+        ldy #8
+_strbin_loop:
+        lda #$30
+        asl bin_v
+        adc #0                  ; carry from the shifted-out bit
+        inz
+        sta [varptr],z
+        dey
+        bne _strbin_loop
+_strbin_done:
+        rts
+
 usrf:
         lda exprlo
         ldy exprhi
@@ -4750,6 +4813,9 @@ ds_len:       .byte 0
 ds_code:      .byte 0
 ds_valid:     .byte 0
 dsbuf:        .fill 40, 0
+bin_v:        .byte 0,0
+bin_n:        .byte 0
+bin_j:        .byte 0
 bl_addr:      .byte 0,0
 bl_end:       .byte 0,0
 ti_ss:        .byte 0

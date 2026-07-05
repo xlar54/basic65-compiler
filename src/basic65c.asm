@@ -2403,6 +2403,8 @@ compile_string_factor:
         rts
 
 _string_factor_var:
+        cmp #TOK_EXT_CE
+        beq _string_factor_ce
         cmp #TOK_STR_STR
         beq _string_factor_str
         cmp #TOK_HEX_STR
@@ -2494,6 +2496,24 @@ _string_factor_str:
         jsr compile_str_string_function
         rts
 
+_string_factor_ce:
+        jsr line_at_end         ; the CE byte is already consumed
+        bcs _string_factor_fail
+        jsr line_get
+        cmp #$12                ; STRBIN$
+        bne _string_factor_fail
+        jsr parse_open_paren
+        bcs _string_factor_fail
+        jsr compile_expression
+        bcs _string_factor_fail
+        jsr parse_close_paren
+        bcs _string_factor_fail
+        lda #<out_jsr_strbinf
+        ldy #>out_jsr_strbinf
+        jsr out_zstr
+        clc
+        rts
+
 _string_factor_err:
         jsr parse_open_paren
         bcs _string_factor_fail
@@ -2545,6 +2565,8 @@ string_expression_starts:
         beq _string_expr_starts_yes
         cmp #TOK_HEX_STR
         beq _string_expr_starts_yes
+        cmp #TOK_EXT_CE
+        beq _string_expr_starts_ce
         cmp #TOK_ERR_STR
         beq _string_expr_starts_yes
         cmp #TOK_LEFT_STR
@@ -2565,6 +2587,19 @@ string_expression_starts:
 _string_expr_starts_no:
         lda line_idx_save
         sta line_idx
+        sec
+        rts
+
+_string_expr_starts_ce:
+        lda line_idx            ; peek the sub-token without consuming
+        pha
+        jsr line_get
+        jsr line_peek
+        tax
+        pla
+        sta line_idx
+        cpx #$12                ; STRBIN$
+        beq _string_expr_starts_yes
         sec
         rts
 
@@ -4912,6 +4947,8 @@ _factor_ext_ce:
         beq _factor_rsprite
         cmp #$07                ; RSPCOLOR
         beq _factor_rspcolor
+        cmp #$11                ; DECBIN
+        beq _factor_decbin
         bra _factor_fail
 +
         jsr parse_open_paren
@@ -4999,6 +5036,21 @@ _factor_rsprite:
         lda #<out_jsr_rspritef
         ldy #>out_jsr_rspritef
         jsr out_zstr
+        clc
+        rts
+
+_factor_decbin:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_decbinf
+        ldy #>out_jsr_decbinf
+        jsr out_zstr
+        jsr emit_string_temp_release
         clc
         rts
 
@@ -13323,6 +13375,20 @@ out_jsr_dopmode:
 out_jsr_dclosech:
 .if TEXT_EMITTER
         .text "        jsr dclosech"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_decbinf:
+.if TEXT_EMITTER
+        .text "        jsr decbinf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_strbinf:
+.if TEXT_EMITTER
+        .text "        jsr strbinf"
         .byte 13, 0
 .else
         .byte 0

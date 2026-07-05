@@ -1,0 +1,5 @@
+10 print chr$(147);:print "test bin"
+20 if decbin("1010")=10 and decbin("11111111")=255 then print " decbin ok"
+30 if strbin$(5)="00000101" and strbin$(255)="11111111" then print " strbin ok"
+40 if decbin(strbin$(170))=170 then print " roundtrip ok"
+50 print "bin done"

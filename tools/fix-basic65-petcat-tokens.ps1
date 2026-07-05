@@ -55,6 +55,29 @@ foreach ($item in $Path) {
                 continue
             }
 
+            # DECBIN: petcat emits the DEC token + literal BIN
+            if ($i + 3 -lt $lineEnd -and $b -eq 0xd1 -and
+                $bytes[$i+1] -eq 0x42 -and $bytes[$i+2] -eq 0x49 -and $bytes[$i+3] -eq 0x4e) {
+                $bytes[$i] = 0xce
+                $bytes[$i+1] = 0x11
+                $bytes[$i+2] = 0x20
+                $bytes[$i+3] = 0x20
+                $changed++
+                $i += 3
+                continue
+            }
+            # STRBIN$: petcat leaves it as plain text
+            if ($i + 6 -lt $lineEnd -and $b -eq 0x53 -and
+                $bytes[$i+1] -eq 0x54 -and $bytes[$i+2] -eq 0x52 -and
+                $bytes[$i+3] -eq 0x42 -and $bytes[$i+4] -eq 0x49 -and
+                $bytes[$i+5] -eq 0x4e -and $bytes[$i+6] -eq 0x24) {
+                $bytes[$i] = 0xce
+                $bytes[$i+1] = 0x12
+                for ($k = 2; $k -le 6; $k++) { $bytes[$i+$k] = 0x20 }
+                $changed++
+                $i += 6
+                continue
+            }
             if ($i + 1 -lt $lineEnd -and $b -eq 0x57) {
                 if ($bytes[$i + 1] -eq 0x97) {
                     $bytes[$i] = 0xfe
