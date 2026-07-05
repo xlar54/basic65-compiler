@@ -2926,13 +2926,13 @@ compile_loop_bad:
         jsr fatal_statement_error
         rts
 
+; EXIT leaves the current DO..LOOP only (the book's spec; the
+; interpreter has no EXIT FOR, so neither do we)
 compile_exit:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _compile_exit_do
         jsr line_peek
-        cmp #TOK_FOR
-        beq _compile_exit_for
         cmp #TOK_ELSE
         beq _compile_exit_do
         bra compile_exit_bad
@@ -2941,21 +2941,6 @@ _compile_exit_do:
         jsr peek_do_frame
         bcs compile_exit_bad
         jsr emit_jmp_dodone
-        rts
-
-_compile_exit_for:
-        jsr line_get
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _compile_exit_for_emit
-        jsr line_peek
-        cmp #TOK_ELSE
-        bne compile_exit_bad
-
-_compile_exit_for_emit:
-        jsr peek_for_frame
-        bcs compile_exit_bad
-        jsr emit_jmp_fordone
         rts
 
 compile_exit_bad:

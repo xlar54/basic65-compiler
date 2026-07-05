@@ -1,4 +1,4 @@
-10 ts=15:rem 0=all 1=expr 2=data 3=on 4=bool 5=loop 6=str 7=input 8=get 9=temp 10=gc 11=strarr 12=mem 13=func 14=types 15=floats
+10 ts=0:rem 0=all 1=expr 2=data 3=on 4=bool 5=loop 6=str 7=input 8=get 9=temp 10=gc 11=strarr 12=mem 13=func 14=types 15=floats
 20 if ts=0 then gosub 1000:gosub 2000:gosub 3000:gosub 4000:gosub 5000:gosub 6000:gosub 7000:gosub 8000:gosub 9000:gosub 10000:gosub 11000:gosub 12000:gosub 13000:gosub 14000:gosub 15000:end
 30 on ts gosub 1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,11000,12000,13000,14000,15000
 40 end
@@ -73,7 +73,9 @@
 5030 n=0:do:n=n+1:if n=2 then print " loop if ok":loop until n=2
 5040 n=0:do until n=2:n=n+1:loop:print " do until ok";n
 5050 n=0:print " exit:";:do:n=n+1:if n=3 then exit : else print n;:loop:print " ok";n
-5060 print " exit for:";:for f=1 to 5:if f=3 then exit for : else print f;:next f:print " ok";f
+5060 print " exit for:";:for f=1 to 5:if f=3 then goto 5064
+5062 print f;:next f
+5064 print " ok";f
 5070 return
 6000 print chr$(147);:print "test 6 str"
 6010 print " dup ok":print " dup ok"
