@@ -11,7 +11,7 @@
 ; Memory contract:
 ;   $2001         BASIC stub (SYS 8210)
 ;   $2012         rtinit -- runtime entry, called by the stub
-;   $2012-$4fff   runtime code and storage (guarded by .cerror below)
+;   $2012-$5fff   runtime cap (actual program base is computed per build)
 ;   $5000         program header vectors, then the compiled program:
 ;                   progbase+0  .word start        (program entry)
 ;                   progbase+2  .word varheapend   (bank-1 clear limit)
@@ -64,7 +64,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $5000
+progbase     = $6000            ; hard cap; actual progbase is per-program
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -89,26 +89,17 @@ strheaptop   = $f800
         * = $2012
 
 rtinit:
-        lda progbase+2
-        sta rtvheapend
-        lda progbase+3
-        sta rtvheapend+1
-        lda progbase+4
-        sta rtdatastart
-        lda progbase+5
-        sta rtdatastart+1
-        lda progbase+6
-        sta rtdataend
-        lda progbase+7
-        sta rtdataend+1
-        lda progbase+8
-        sta rtstrroots
-        lda progbase+9
-        sta rtstrroots+1
-        lda progbase+10
-        sta rtfltinit
-        lda progbase+11
-        sta rtfltinit+1
+        lda #0                  ; the program header lives at rtpbhi<<8
+        sta rtptr
+        lda rtpbhi
+        sta rtptr+1
+        ldy #2
+_rtinit_vecs:
+        lda (rtptr),y
+        sta rtvheapend-2,y
+        iny
+        cpy #12
+        bne _rtinit_vecs
         jsr varinit
         jsr strinit
         jsr datainit
@@ -151,7 +142,17 @@ rtinit:
         sta $d030
         rts
 rtcallprog:
-        jmp (progbase)
+        lda #0
+        sta rtptr
+        lda rtpbhi
+        sta rtptr+1
+        ldy #0
+        lda (rtptr),y
+        sta rtjmp
+        iny
+        lda (rtptr),y
+        sta rtjmp+1
+        jmp (rtjmp)
 
 ; END/STOP from any GOSUB depth: unwind the stack to the pre-program mark,
 ; restore the ROM mapping, and return to the BASIC SYS caller
@@ -4315,6 +4316,16 @@ rtfltinit:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
+rtpbhi:       .byte >rtpb       ; native writer patches this during copy
+mthbuf:       .fill 21, 0
+mth_ptr:      .byte 0,0
+mth_n:        .byte 0
+mth_sgn:      .byte 0
+mth_sgn2:     .byte 0
+mth_r1:       .byte 0
+mth_r2:       .byte 0
+mth_e:        .byte 0
+mth_e2:       .byte 0
 
 ; MFLP float accumulators (unpacked)
 facexp:       .byte 0
@@ -4444,6 +4455,541 @@ inputdigits:  .byte 0
 inputbuf:     .fill 81,0
 
 
+;=======================================================================================
+; Transcendental math: SIN COS TAN ATN LOG EXP over the MFLP core.
+; Coefficients are generated and packed offline (Taylor/artanh series,
+; Horner order); fpoly evaluates them. Three 7-byte buffers snapshot
+; the unpacked FAC. fsub is ARG-FAC and fdiv is ARG/FAC throughout.
+;=======================================================================================
+
+; sin(2*pi*u), u^2-poly coeffs, highest power first
+csin:
+        .byte $84, $f1, $83, $a7, $ef   ; -15.094642576822984
+        .byte $86, $28, $3c, $1a, $44   ; 42.058693944897634
+        .byte $87, $99, $69, $66, $73   ; -76.70585975306136
+        .byte $87, $23, $35, $e3, $3c   ; 81.60524927607504
+        .byte $86, $a5, $5d, $e7, $31   ; -41.341702240399755
+        .byte $83, $49, $0f, $da, $a2   ; 6.283185307179586
+; quarter turn for cos
+chalf:
+        .byte $7f, $00, $00, $00, $00   ; 0.25
+; 1/(2*pi)
+cinv2pi:
+        .byte $7e, $22, $f9, $83, $6e   ; 0.15915494309189535
+; artanh series *2, highest first
+clog:
+        .byte $7e, $63, $8e, $38, $e4   ; 0.2222222222222222
+        .byte $7f, $12, $49, $24, $92   ; 0.2857142857142857
+        .byte $7f, $4c, $cc, $cc, $cd   ; 0.4
+        .byte $80, $2a, $aa, $aa, $ab   ; 0.6666666666666666
+        .byte $82, $00, $00, $00, $00   ; 2.0
+; sqrt(0.5)
+csqh:
+        .byte $80, $35, $04, $f3, $34   ; 0.7071067811865476
+; ln(sqrt(0.5))
+clnsqh:
+        .byte $7f, $b1, $72, $17, $f8   ; -0.3465735902799726
+; ln 2
+cln2:
+        .byte $80, $31, $72, $17, $f8   ; 0.6931471805599453
+; 1/ln 2
+cinvln2:
+        .byte $81, $38, $aa, $3b, $29   ; 1.4426950408889634
+; exp Taylor, highest first
+cexp:
+        .byte $74, $50, $0d, $00, $d0   ; 0.0001984126984126984
+        .byte $77, $36, $0b, $60, $b6   ; 0.001388888888888889
+        .byte $7a, $08, $88, $88, $89   ; 0.008333333333333333
+        .byte $7c, $2a, $aa, $aa, $ab   ; 0.041666666666666664
+        .byte $7e, $2a, $aa, $aa, $ab   ; 0.16666666666666666
+        .byte $80, $00, $00, $00, $00   ; 0.5
+        .byte $81, $00, $00, $00, $00   ; 1.0
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; atan t^2-poly coeffs, highest first
+catn:
+        .byte $7c, $70, $f0, $f0, $f1   ; 0.058823529411764705
+        .byte $7d, $88, $88, $88, $89   ; -0.06666666666666667
+        .byte $7d, $1d, $89, $d8, $9e   ; 0.07692307692307693
+        .byte $7d, $ba, $2e, $8b, $a3   ; -0.09090909090909091
+        .byte $7d, $63, $8e, $38, $e4   ; 0.1111111111111111
+        .byte $7e, $92, $49, $24, $92   ; -0.14285714285714285
+        .byte $7e, $4c, $cc, $cc, $cd   ; 0.2
+        .byte $7f, $aa, $aa, $aa, $ab   ; -0.3333333333333333
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; pi/4
+cpi4:
+        .byte $80, $49, $0f, $da, $a2   ; 0.7853981633974483
+; pi/2
+cpi2:
+        .byte $81, $49, $0f, $da, $a2   ; 1.5707963267948966
+; 1.0
+cone:
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; 0.5
+chalf2:
+        .byte $80, $00, $00, $00, $00   ; 0.5
+; tan(pi/8)
+ctan8:
+        .byte $7f, $54, $13, $cc, $d0   ; 0.41421356237309503
+
+; packed 5-byte constant at A/Y (bank 0) -> FAC
+fldc:
+        sta rtfltptr
+        sty rtfltptr+1
+        ldy #0
+        lda (rtfltptr),y
+        sta facexp
+        bne +
+        lda #0
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        sta facext
+        rts
++       iny
+        lda (rtfltptr),y
+        pha
+        ora #$80
+        sta facm0
+        lda #0
+        sta facsgn
+        pla
+        bpl +
+        lda #$ff
+        sta facsgn
++       iny
+        lda (rtfltptr),y
+        sta facm1
+        iny
+        lda (rtfltptr),y
+        sta facm2
+        iny
+        lda (rtfltptr),y
+        sta facm3
+        lda #0
+        sta facext
+        rts
+
+; packed 5-byte constant at A/Y (bank 0) -> ARG
+fldca:
+        sta rtfltptr
+        sty rtfltptr+1
+        ldy #0
+        lda (rtfltptr),y
+        sta argexp
+        bne +
+        lda #0
+        sta argm0
+        sta argm1
+        sta argm2
+        sta argm3
+        sta argsgn
+        sta argext
+        rts
++       iny
+        lda (rtfltptr),y
+        pha
+        ora #$80
+        sta argm0
+        lda #0
+        sta argsgn
+        pla
+        bpl +
+        lda #$ff
+        sta argsgn
++       iny
+        lda (rtfltptr),y
+        sta argm1
+        iny
+        lda (rtfltptr),y
+        sta argm2
+        iny
+        lda (rtfltptr),y
+        sta argm3
+        lda #0
+        sta argext
+        rts
+
+; FAC snapshots in mthbuf: X = 0, 7, or 14
+fsavb:
+        lda facexp
+        sta mthbuf,x
+        lda facm0
+        sta mthbuf+1,x
+        lda facm1
+        sta mthbuf+2,x
+        lda facm2
+        sta mthbuf+3,x
+        lda facm3
+        sta mthbuf+4,x
+        lda facsgn
+        sta mthbuf+5,x
+        lda facext
+        sta mthbuf+6,x
+        rts
+
+frstb:
+        lda mthbuf,x
+        sta facexp
+        lda mthbuf+1,x
+        sta facm0
+        lda mthbuf+2,x
+        sta facm1
+        lda mthbuf+3,x
+        sta facm2
+        lda mthbuf+4,x
+        sta facm3
+        lda mthbuf+5,x
+        sta facsgn
+        lda mthbuf+6,x
+        sta facext
+        rts
+
+fargb:
+        lda mthbuf,x
+        sta argexp
+        lda mthbuf+1,x
+        sta argm0
+        lda mthbuf+2,x
+        sta argm1
+        lda mthbuf+3,x
+        sta argm2
+        lda mthbuf+4,x
+        sta argm3
+        lda mthbuf+5,x
+        sta argsgn
+        lda mthbuf+6,x
+        sta argext
+        rts
+
+; FAC = poly(FAC): packed coeffs at A/Y (highest power first), X terms
+fpoly:
+        sta mth_ptr
+        sty mth_ptr+1
+        stx mth_n
+        ldx #0
+        jsr fsavb               ; z
+        lda mth_ptr
+        ldy mth_ptr+1
+        jsr fldc
+        jsr fpolyadv
+_fpoly_loop:
+        dec mth_n
+        beq _fpoly_done
+        ldx #0
+        jsr fargb
+        jsr fmul
+        lda mth_ptr
+        ldy mth_ptr+1
+        jsr fldca
+        jsr fadd
+        jsr fpolyadv
+        bra _fpoly_loop
+_fpoly_done:
+        rts
+
+fpolyadv:
+        lda mth_ptr
+        clc
+        adc #5
+        sta mth_ptr
+        bcc +
+        inc mth_ptr+1
++       rts
+
+; SIN(x): u = x/2pi, folded by symmetry to a in [0, 1/4], a*poly(a^2)
+sinf:
+        lda #<cinv2pi
+        ldy #>cinv2pi
+        jsr fldca
+        jsr fmul
+        ldx #7
+        jsr fsavb               ; u
+        jsr qint
+        jsr float16             ; FAC = floor(u)
+        ldx #7
+        jsr fargb               ; ARG = u
+        jsr fsub                ; frac = u - floor(u), [0,1)
+        lda #<chalf2
+        ldy #>chalf2
+        jsr fldca
+        jsr fcmp
+        cmp #1
+        bne _sinf_centered
+        ldx #7
+        jsr fsavb
+        lda #<cone
+        ldy #>cone
+        jsr fldc
+        ldx #7
+        jsr fargb
+        jsr fsub                ; frac - 1, now in [-1/2, 1/2]
+_sinf_centered:
+        lda facsgn
+        sta mth_sgn
+        lda #0
+        sta facsgn              ; a = |frac|
+        lda #<chalf
+        ldy #>chalf
+        jsr fldca
+        jsr fcmp
+        cmp #1
+        bne _sinf_folded
+        lda #<chalf2
+        ldy #>chalf2
+        jsr fldca
+        jsr fsub                ; a = 1/2 - a
+_sinf_folded:
+        ldx #7
+        jsr fsavb               ; a
+        jsr fmovaf
+        jsr fmul                ; z = a*a
+        lda #<csin
+        ldy #>csin
+        ldx #6
+        jsr fpoly
+        ldx #7
+        jsr fargb
+        jsr fmul                ; a * poly
+        lda mth_sgn
+        beq _sinf_done
+        lda facsgn
+        eor #$ff
+        sta facsgn
+_sinf_done:
+        rts
+
+cosf:
+        lda #<cpi2
+        ldy #>cpi2
+        jsr fldca
+        jsr fadd
+        bra sinf
+
+tanf:
+        ldx #14
+        jsr fsavb
+        jsr sinf
+        jsr fpush
+        ldx #14
+        jsr frstb
+        jsr cosf
+        jsr fpoparg             ; ARG = sin
+        jsr fdiv                ; sin/cos
+        rts
+
+; ATN(x): odd; reduce 1/x above 1, then (x-1)/(x+1) above tan(pi/8)
+atnf:
+        lda facsgn
+        sta mth_sgn2
+        lda #0
+        sta facsgn
+        sta mth_r1
+        sta mth_r2
+        lda #<cone
+        ldy #>cone
+        jsr fldca
+        jsr fcmp
+        cmp #1
+        bne _atnf_le1
+        inc mth_r1
+        lda #<cone
+        ldy #>cone
+        jsr fldca
+        jsr fdiv                ; 1/x
+_atnf_le1:
+        lda #<ctan8
+        ldy #>ctan8
+        jsr fldca
+        jsr fcmp
+        cmp #1
+        bne _atnf_small
+        inc mth_r2
+        ldx #7
+        jsr fsavb               ; x
+        lda #<cone
+        ldy #>cone
+        jsr fldca
+        jsr fadd                ; x+1
+        ldx #14
+        jsr fsavb
+        lda #<cone
+        ldy #>cone
+        jsr fldc
+        ldx #7
+        jsr fargb
+        jsr fsub                ; x-1
+        jsr fpush
+        ldx #14
+        jsr frstb
+        jsr fpoparg
+        jsr fdiv                ; (x-1)/(x+1)
+_atnf_small:
+        ldx #7
+        jsr fsavb               ; t
+        jsr fmovaf
+        jsr fmul                ; z = t*t
+        lda #<catn
+        ldy #>catn
+        ldx #9
+        jsr fpoly
+        ldx #7
+        jsr fargb
+        jsr fmul
+        lda mth_r2
+        beq _atnf_nor2
+        lda #<cpi4
+        ldy #>cpi4
+        jsr fldca
+        jsr fadd
+_atnf_nor2:
+        lda mth_r1
+        beq _atnf_nor1
+        lda #<cpi2
+        ldy #>cpi2
+        jsr fldca
+        jsr fsub                ; pi/2 - r
+_atnf_nor1:
+        lda mth_sgn2
+        beq _atnf_done
+        lda facsgn
+        eor #$ff
+        sta facsgn
+_atnf_done:
+        rts
+
+; LOG(x): e*ln2 + ln(m), m in [1/2,1) via artanh((m-r)/(m+r)), r=sqrt(1/2)
+logf:
+        lda facexp
+        beq _logf_err
+        lda facsgn
+        bne _logf_err
+        lda facexp
+        sec
+        sbc #$80
+        sta mth_e
+        lda #$80
+        sta facexp
+        ldx #7
+        jsr fsavb               ; m
+        lda #<csqh
+        ldy #>csqh
+        jsr fldca
+        jsr fadd                ; m + r
+        ldx #14
+        jsr fsavb
+        lda #<csqh
+        ldy #>csqh
+        jsr fldc
+        ldx #7
+        jsr fargb
+        jsr fsub                ; m - r
+        jsr fpush
+        ldx #14
+        jsr frstb
+        jsr fpoparg
+        jsr fdiv                ; t
+        ldx #7
+        jsr fsavb
+        jsr fmovaf
+        jsr fmul                ; z = t*t
+        lda #<clog
+        ldy #>clog
+        ldx #5
+        jsr fpoly
+        ldx #7
+        jsr fargb
+        jsr fmul                ; ln((1+t)/(1-t))
+        lda #<clnsqh
+        ldy #>clnsqh
+        jsr fldca
+        jsr fadd                ; ln m
+        jsr fpush
+        lda mth_e
+        sta exprlo
+        and #$80
+        beq _logf_epos
+        lda #$ff
+        bra _logf_ehi
+_logf_epos:
+        lda #0
+_logf_ehi:
+        sta exprhi
+        jsr float16
+        lda #<cln2
+        ldy #>cln2
+        jsr fldca
+        jsr fmul                ; e * ln2
+        jsr fpoparg
+        jsr fadd
+        rts
+_logf_err:
+        lda #14                 ; ILLEGAL QUANTITY
+        jmp rterror
+
+; EXP(x): v = x/ln2, n = round(v), 2^n * e^((v-n)*ln2)
+expf:
+        lda #<cinvln2
+        ldy #>cinvln2
+        jsr fldca
+        jsr fmul                ; v
+        ldx #7
+        jsr fsavb
+        lda #<chalf2
+        ldy #>chalf2
+        jsr fldca
+        jsr fadd
+        jsr qint                ; n = floor(v + 1/2)
+        lda exprlo
+        sta mth_e
+        lda exprhi
+        sta mth_e2
+        jsr float16             ; FAC = n
+        ldx #7
+        jsr fargb               ; ARG = v
+        jsr fsub                ; f = v - n, |f| <= 1/2
+        lda #<cln2
+        ldy #>cln2
+        jsr fldca
+        jsr fmul                ; g = f*ln2
+        lda #<cexp
+        ldy #>cexp
+        ldx #8
+        jsr fpoly               ; e^g
+        lda facexp
+        beq _expf_done
+        clc
+        lda facexp
+        adc mth_e
+        tax                     ; new exponent low
+        lda #0
+        adc mth_e2              ; high + carry
+        beq _expf_inrange
+        cmp #$ff
+        beq _expf_zero          ; negative sum: underflow to 0
+        bra _expf_ovf
+_expf_inrange:
+        txa
+        beq _expf_zero
+        sta facexp
+        bra _expf_done
+_expf_zero:
+        lda #0
+        sta facexp
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        sta facext
+_expf_done:
+        rts
+_expf_ovf:
+        lda #15                 ; OVERFLOW
+        jmp rterror
+
 rtsndshut:
         jmp (snd_shutptr)
 rtshutnop:
@@ -4452,7 +4998,8 @@ rtshutnop:
 rtendcore:
 
 .weak
-RTSOUND = 1                    ; OUT.ASM sets 0 when the program uses no sound
+RTSOUND = 1
+rtpb = $5400                    ; overridden by each generated OUT.ASM                    ; OUT.ASM sets 0 when the program uses no sound
 .endweak
 
 .if RTSOUND != 0

@@ -89,6 +89,12 @@ TOK_TRAP                = $D7
 TOK_RESUME              = $D6
 TOK_SOUND               = $DA
 TOK_JOY                 = $CF
+TOK_LOG                 = $BC
+TOK_EXP_FN              = $BD
+TOK_COS                 = $BE
+TOK_SIN                 = $BF
+TOK_TAN                 = $C0
+TOK_ATN                 = $C1
 
 .weak
 TEXT_EMITTER = 1
@@ -164,7 +170,7 @@ DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
 .if TEXT_EMITTER
-STRING_POOL_MAX         = $0480 ; checked build: squeezed under $c000
+STRING_POOL_MAX         = $0300 ; checked build: squeezed under $c000
 .else
 STRING_POOL_MAX         = $0A00 ; lean build: full capacity
 .fi
@@ -229,7 +235,7 @@ main:
         sta flt_lit_count
         sta trap_used
         sta snd_used
-        lda #>$5000
+        lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
         lda #<VAR_HEAP_START
@@ -601,7 +607,17 @@ _copy_runtime_write:
         cmp #<RT_END_CORE
         bcs _copy_runtime_written
 _copy_runtime_keep:
+        lda bin_pc+1
+        cmp #>RT_PBHI
+        bne _copy_runtime_plain
+        lda bin_pc
+        cmp #<RT_PBHI
+        bne _copy_runtime_plain
+        lda prog_base_hi        ; patch rtpbhi with this program's base
+        bra _copy_runtime_put
+_copy_runtime_plain:
         lda line_buf,y
+_copy_runtime_put:
         jsr bin_write_byte
         iny
         bra _copy_runtime_write
@@ -4273,6 +4289,18 @@ _factor_not_number:
         beq _factor_ext_ce
         cmp #TOK_JOY
         beq _factor_joy
+        cmp #TOK_SIN
+        beq _factor_sin
+        cmp #TOK_COS
+        beq _factor_cos
+        cmp #TOK_TAN
+        beq _factor_tan
+        cmp #TOK_ATN
+        beq _factor_atn
+        cmp #TOK_LOG
+        beq _factor_log
+        cmp #TOK_EXP_FN
+        beq _factor_exp
         jsr is_var_start
         bcc _factor_variable
 _factor_fail:
@@ -4766,6 +4794,63 @@ _factor_rplay:
         ldy #>out_jsr_rplayf
         jsr out_zstr
         clc
+        rts
+
+_factor_sin:
+        lda #<out_jsr_sinf
+        ldy #>out_jsr_sinf
+        bra _factor_ffn_entry
+_factor_cos:
+        lda #<out_jsr_cosf
+        ldy #>out_jsr_cosf
+        bra _factor_ffn_entry
+_factor_tan:
+        lda #<out_jsr_tanf
+        ldy #>out_jsr_tanf
+        bra _factor_ffn_entry
+_factor_atn:
+        lda #<out_jsr_atnf
+        ldy #>out_jsr_atnf
+        bra _factor_ffn_entry
+_factor_log:
+        lda #<out_jsr_logf
+        ldy #>out_jsr_logf
+        bra _factor_ffn_entry
+_factor_exp:
+        lda #<out_jsr_expf
+        ldy #>out_jsr_expf
+        bra _factor_ffn_entry
+
+; shared: FN(x) over a float argument; A/Y = the jsr template.
+; The template pointer rides the CPU stack: the argument may contain
+; nested math functions that reuse this handler.
+_factor_ffn_entry:
+        pha
+        phy
+        jsr line_get            ; consume the function token
+        jsr parse_open_paren
+        bcs _factor_ffn_fail
+        jsr compile_num_expression
+        bcs _factor_ffn_fail
+        jsr parse_close_paren
+        bcs _factor_ffn_fail
+        lda expr_type
+        bne _factor_ffn_flt
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_factor_ffn_flt:
+        ply
+        pla
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        clc
+        rts
+_factor_ffn_fail:
+        ply
+        pla
+        sec
         rts
 
 _factor_joy:
@@ -7789,6 +7874,14 @@ emit_generated_header:
         ldy #>out_rtsoundoff
         jsr out_zstr
 _emit_header_text:
+        lda #<out_rtpb_pre
+        ldy #>out_rtpb_pre
+        jsr out_zstr
+        lda prog_base_hi
+        jsr out_hex_byte
+        lda #<out_rtpb_post
+        ldy #>out_rtpb_post
+        jsr out_zstr
         lda #<out_header_pre
         ldy #>out_header_pre
         jsr out_zstr
@@ -11565,6 +11658,63 @@ out_jsr_sndsetd:
 .else
         .byte 0
 .fi
+out_jsr_sinf:
+.if TEXT_EMITTER
+        .text "        jsr sinf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cosf:
+.if TEXT_EMITTER
+        .text "        jsr cosf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_tanf:
+.if TEXT_EMITTER
+        .text "        jsr tanf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_atnf:
+.if TEXT_EMITTER
+        .text "        jsr atnf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_logf:
+.if TEXT_EMITTER
+        .text "        jsr logf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_expf:
+.if TEXT_EMITTER
+        .text "        jsr expf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_rtpb_pre:
+.if TEXT_EMITTER
+        .text "rtpb = $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_rtpb_post:
+.if TEXT_EMITTER
+        .text "00"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
 out_jsr_fltsetn:
 .if TEXT_EMITTER
         .text "        jsr fltsetn"
@@ -13283,6 +13433,7 @@ scan_ext_prefix:
         .byte 0
 prog_base_hi:
         .byte 0
+
 if_begin_taken:
         .byte 0
 if_block_open:
