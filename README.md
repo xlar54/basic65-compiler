@@ -14,7 +14,8 @@ build.bat
 This creates `target\basic65c.d81` containing:
 
 - `basic65c` - the compiler PRG
-- `ovr-rtstr1`, `ovr-rtstr2`, `ovr-rtcore`, `ovr-rtio` - runtime emitter overlays
+- `ovr-rtstr1`, `ovr-rtstr2`, `ovr-rtcore`, `ovr-rtio`, `ovr-rtgc`,
+  `ovr-rtnum` - runtime emitter overlays
 - `source.prg` - a tiny tokenized BASIC PRG fixture built from `basic\source.bas`
 - `out.prg` - the assembled compiler output, when `target\out.asm.seq` exists
 
@@ -83,6 +84,8 @@ work first:
 - variable heap: bank 1 offset `$2000` through `$F7FF`
 - variable descriptors: 16 bytes each, with current scalar numeric/string data at
   descriptor offset `+8`
+- plain numeric scalar slots are tagged as integer values or decimal literal
+  references; `%` variables continue to use raw 16-bit integer slots
 - string heap: bank 1 offset `$F7FF` downward, using `$F800` as the
   one-past-top pointer so the reserved/color RAM mirror range is not used
 
@@ -123,8 +126,10 @@ errors.
 Supported BASIC today:
 
 - one- and two-character numeric and string variables
-- `A`, `A%`, and `A$` are separate symbols; plain numeric `A` is tracked as
-  the future float type but currently emitted through the 16-bit integer backend
+- `A`, `A%`, and `A$` are separate symbols; plain numeric `A` uses tagged
+  scalar storage, while `A%` uses raw 16-bit integer storage
+- decimal float literal assignment and direct printing, for example `F=1.5`,
+  `PRINT F`, and `PRINT 3.75`; float arithmetic/comparison is not implemented yet
 - numeric and string arrays with `DIM`, up to 6 dimensions
 - `A()`, `A%()`, and `A$()` are separate array symbols
 - array indexes are zero-based and `DIM A(10)` allocates elements `A(0)` through `A(10)`

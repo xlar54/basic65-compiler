@@ -1,6 +1,6 @@
-10 ts=14:rem 0=all 1=expr 2=data 3=on 4=bool 5=loop 6=str 7=input 8=get 9=temp 10=gc 11=strarr 12=mem 13=func 14=types
-20 if ts=0 then gosub 1000:gosub 2000:gosub 3000:gosub 4000:gosub 5000:gosub 6000:gosub 7000:gosub 8000:gosub 9000:gosub 10000:gosub 11000:gosub 12000:gosub 13000:gosub 14000:end
-30 on ts gosub 1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,11000,12000,13000,14000
+10 ts=15:rem 0=all 1=expr 2=data 3=on 4=bool 5=loop 6=str 7=input 8=get 9=temp 10=gc 11=strarr 12=mem 13=func 14=types 15=floats
+20 if ts=0 then gosub 1000:gosub 2000:gosub 3000:gosub 4000:gosub 5000:gosub 6000:gosub 7000:gosub 8000:gosub 9000:gosub 10000:gosub 11000:gosub 12000:gosub 13000:gosub 14000:gosub 15000:end
+30 on ts gosub 1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,11000,12000,13000,14000,15000
 40 end
 1000 print "test 1 expr"
 1010 a=1+2*3:b=a-4
@@ -189,3 +189,10 @@
 14070 for i%=1 to 3:next i%
 14080 if i%=4 then print " for int suffix ok" : else print "for int suffix fail";i%
 14090 return
+15000 print chr$(147);:print "test 15 floats"
+15010 f=1.5:g=-2.25:h=.75
+15020 print " floats:";f;g;h
+15030 print " literal:";3.75
+15040 f=7:print " int reuse:";f
+15050 f=1.25:print " float reuse:";f
+15060 return

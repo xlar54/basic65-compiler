@@ -15,6 +15,7 @@ del target\ovr-rtstr2 2>nul
 del target\ovr-rtcore 2>nul
 del target\ovr-rtio 2>nul
 del target\ovr-rtgc 2>nul
+del target\ovr-rtnum 2>nul
 del target\*.prg 2>nul
 
 .\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
@@ -35,6 +36,9 @@ if errorlevel 1 exit /b 1
 .\64tass.exe --cbm-prg -a src\overlays\ovr-rtgc.asm -l target\ovr-rtgc.lbl -L target\ovr-rtgc.lst -o target\ovr-rtgc
 if errorlevel 1 exit /b 1
 
+.\64tass.exe --cbm-prg -a src\overlays\ovr-rtnum.asm -l target\ovr-rtnum.lbl -L target\ovr-rtnum.lst -o target\ovr-rtnum
+if errorlevel 1 exit /b 1
+
 for %%F in (basic\*.bas) do (
     .\petcat.exe -w65 -l 2001 -o "target\%%~nF.prg" -- "%%F"
     if errorlevel 1 exit /b 1
@@ -51,7 +55,7 @@ if /I not "%BASIC_SOURCE%"=="basic\source.bas" (
 
 set HAVE_OUT_PRG=0
 if exist target\out.asm.seq (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$out=(Get-Item -LiteralPath 'target\out.asm.seq').LastWriteTime; $deps=@($env:BASIC_SOURCE,'src\basic65c.asm','src\overlays\ovr-rtstr1.asm','src\overlays\ovr-rtstr2.asm','src\overlays\ovr-rtcore.asm','src\overlays\ovr-rtio.asm','src\overlays\ovr-rtgc.asm') + (Get-ChildItem -LiteralPath 'basic' -Filter '*.bas').FullName; foreach($dep in $deps){ if($out -lt (Get-Item -LiteralPath $dep).LastWriteTime){ exit 2 } }"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$out=(Get-Item -LiteralPath 'target\out.asm.seq').LastWriteTime; $deps=@($env:BASIC_SOURCE,'src\basic65c.asm','src\overlays\ovr-rtstr1.asm','src\overlays\ovr-rtstr2.asm','src\overlays\ovr-rtcore.asm','src\overlays\ovr-rtio.asm','src\overlays\ovr-rtgc.asm','src\overlays\ovr-rtnum.asm') + (Get-ChildItem -LiteralPath 'basic' -Filter '*.bas').FullName; foreach($dep in $deps){ if($out -lt (Get-Item -LiteralPath $dep).LastWriteTime){ exit 2 } }"
     if errorlevel 2 (
         echo Warning: target\out.asm.seq is stale; continuing without OUT.PRG
     ) else (
@@ -79,6 +83,8 @@ if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write ovr-rtio ovr-rtio
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write ovr-rtgc ovr-rtgc
+if errorlevel 1 exit /b 1
+..\c1541.exe -attach basic65c.d81 -write ovr-rtnum ovr-rtnum
 if errorlevel 1 exit /b 1
 for %%F in (*.prg) do (
     if /I not "%%F"=="out.prg" (

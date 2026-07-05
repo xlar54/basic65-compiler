@@ -70,6 +70,9 @@ ATTIC_OVR_RTIO_ADDR     = $6000
 ATTIC_OVR_RTGC_MB       = $80
 ATTIC_OVR_RTGC_BANK     = $04
 ATTIC_OVR_RTGC_ADDR     = $8000
+ATTIC_OVR_RTNUM_MB      = $80
+ATTIC_OVR_RTNUM_BANK    = $04
+ATTIC_OVR_RTNUM_ADDR    = $A000
 
 TOK_END                 = $80
 TOK_FOR                 = $81
@@ -166,9 +169,11 @@ VAR_KIND_SCALAR         = 0
 VAR_KIND_ARRAY1         = 1
 VAR_TYPE_INT            = 1
 ; Plain numeric variables are tracked as FLOAT so A and A% are distinct.
-; Until the float runtime lands, FLOAT is emitted by the 16-bit integer backend.
+; Plain numeric scalars use a tagged slot; decimal float math is still future work.
 VAR_TYPE_FLOAT          = 2
 VAR_TYPE_STRING         = 3
+NUM_TAG_INT             = 0
+NUM_TAG_FLOAT_REF       = 1
 STRING_REF_HEAP         = 0
 STRING_REF_LITERAL      = 1
 VAR_BANK                = $01
@@ -230,6 +235,7 @@ main:
         sta asset_ovr_rtcore_ready
         sta asset_ovr_rtio_ready
         sta asset_ovr_rtgc_ready
+        sta asset_ovr_rtnum_ready
         sta runtime_need_string
         sta runtime_need_string_heap
         sta runtime_need_print
@@ -240,6 +246,7 @@ main:
         sta runtime_need_data
         sta runtime_need_array
         sta runtime_need_get
+        sta runtime_need_numvar
         sta runtime_need_decparse
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
@@ -755,6 +762,11 @@ load_runtime_overlays:
         bcs _load_runtime_overlays_fail
         lda #1
         sta asset_ovr_rtgc_ready
+
+        jsr load_ovr_rtnum
+        bcs _load_runtime_overlays_fail
+        lda #1
+        sta asset_ovr_rtnum_ready
         clc
         rts
 
@@ -867,6 +879,27 @@ load_ovr_rtgc:
         sta asset_dst_mb
         jmp asset_load_to_attic
 
+load_ovr_rtnum:
+        lda #<ovr_rtnum_name
+        sta asset_name_ptr
+        lda #>ovr_rtnum_name
+        sta asset_name_ptr+1
+        lda #ovr_rtnum_name_end - ovr_rtnum_name
+        sta asset_name_len
+        lda #<OVR_ASSET_SIZE
+        sta asset_size
+        lda #>OVR_ASSET_SIZE
+        sta asset_size+1
+        lda #<ATTIC_OVR_RTNUM_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTNUM_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTNUM_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTNUM_MB
+        sta asset_dst_mb
+        jmp asset_load_to_attic
+
 asset_load_to_attic:
         lda #ASSET_LOAD_RETRIES
         sta asset_retries
@@ -973,6 +1006,21 @@ ovr_rtcore_emit:
         lda #ATTIC_OVR_RTCORE_BANK
         sta asset_dst_bank
         lda #ATTIC_OVR_RTCORE_MB
+        sta asset_dst_mb
+        jsr ovr_dma_from_attic
+        jsr OVR_WINDOW_ADDR
+        rts
+
+ovr_rtnum_emit:
+        lda asset_ovr_rtnum_ready
+        beq runtime_overlay_missing
+        lda #<ATTIC_OVR_RTNUM_ADDR
+        sta asset_dst_addr
+        lda #>ATTIC_OVR_RTNUM_ADDR
+        sta asset_dst_addr+1
+        lda #ATTIC_OVR_RTNUM_BANK
+        sta asset_dst_bank
+        lda #ATTIC_OVR_RTNUM_MB
         sta asset_dst_mb
         jsr ovr_dma_from_attic
         jsr OVR_WINDOW_ADDR
@@ -1143,6 +1191,11 @@ mark_runtime_string_heap:
 mark_runtime_print:
         lda #1
         sta runtime_need_print
+        rts
+
+mark_runtime_numvar:
+        lda #1
+        sta runtime_need_numvar
         rts
 
 mark_runtime_input:
@@ -2279,6 +2332,8 @@ compile_assignment_with_first_char:
         sta assign_var_data_lo
         lda current_var_data_hi
         sta assign_var_data_hi
+        lda var_type
+        sta assign_var_type
         jsr line_get
         cmp #TOK_EQUAL
         beq _compile_assignment_expr
@@ -2286,9 +2341,17 @@ compile_assignment_with_first_char:
         bne compile_assignment_bad
 
 _compile_assignment_expr:
+        lda assign_var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _compile_assignment_integer_expr
+        jsr try_compile_float_literal_assignment
+        bcc _compile_assignment_done
+
+_compile_assignment_integer_expr:
         jsr compile_expression
         bcs compile_assignment_bad
         jsr emit_store_var
+_compile_assignment_done:
         rts
 
 _compile_string_assignment:
@@ -2305,6 +2368,8 @@ _compile_string_assignment:
         sta assign_var_data_lo
         lda current_var_data_hi
         sta assign_var_data_hi
+        lda var_type
+        sta assign_var_type
         jsr line_get
         cmp #TOK_EQUAL
         beq _compile_string_assignment_value
@@ -2673,6 +2738,26 @@ _compile_array_assignment_expr:
         jsr emit_store_ptr
         rts
 
+try_compile_float_literal_assignment:
+        lda line_idx
+        sta line_idx_save
+        jsr parse_float_literal_to_string_temp
+        bcs _try_float_assign_restore_fail
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcc _try_float_assign_restore_fail
+        jsr intern_string_temp
+        bcs _try_float_assign_restore_fail
+        jsr emit_store_float_literal_current
+        clc
+        rts
+
+_try_float_assign_restore_fail:
+        lda line_idx_save
+        sta line_idx
+        sec
+        rts
+
 compile_assignment_bad:
         lda #<msg_error_bad_assignment
         ldy #>msg_error_bad_assignment
@@ -2695,6 +2780,9 @@ compile_for:
         bcs compile_for_bad
         jsr resolve_var
         bcs compile_for_bad
+        lda var_type
+        sta current_for_var_type
+        sta assign_var_type
         lda current_var_data_lo
         sta current_for_var_data_lo
         sta assign_var_data_lo
@@ -2783,6 +2871,8 @@ compile_next:
         bne compile_next_bad
 
 _compile_next_emit:
+        lda current_for_var_type
+        sta assign_var_type
         lda current_for_var_data_lo
         sta current_var_data_lo
         sta assign_var_data_lo
@@ -4017,6 +4107,10 @@ _print_loop:
 _print_expression:
         jsr try_compile_print_string_var
         bcc _print_string_var_done
+        jsr try_compile_print_numeric_var
+        bcc _print_string_var_done
+        jsr try_compile_print_float_literal
+        bcc _print_string_var_done
         jsr string_expression_starts
         bcs _print_numeric_expression
         jsr emit_string_temp_mark
@@ -4165,6 +4259,8 @@ _compile_input_scalar:
         lda current_var_data_hi
         sta assign_var_data_hi
         lda read_target_type
+        sta assign_var_type
+        lda read_target_type
         cmp #VAR_TYPE_STRING
         beq _compile_input_string_scalar
         jsr emit_input_int
@@ -4263,6 +4359,8 @@ _compile_get_scalar:
         sta assign_var_data_lo
         lda current_var_data_hi
         sta assign_var_data_hi
+        lda read_target_type
+        sta assign_var_type
         lda read_target_type
         cmp #VAR_TYPE_STRING
         beq _compile_get_string_scalar
@@ -4368,6 +4466,74 @@ _try_print_string_var_restore_fail:
         sta line_idx
 
 _try_print_string_var_fail:
+        sec
+        rts
+
+try_compile_print_numeric_var:
+        lda line_idx
+        sta line_idx_save
+        jsr line_at_end
+        bcs _try_print_num_var_fail
+        jsr line_peek
+        jsr is_var_start
+        bcs _try_print_num_var_fail
+        jsr line_get
+        jsr parse_variable_with_first_char
+        bcs _try_print_num_var_restore_fail
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        beq _try_print_num_var_restore_fail
+        jsr var_type_is_numeric
+        bcs _try_print_num_var_restore_fail
+        jsr line_skip_spaces
+        jsr line_at_print_end
+        bcs _try_print_num_var_scalar
+        jsr line_peek
+        cmp #'('
+        beq _try_print_num_var_restore_fail
+        jsr try_print_item_end
+        bcs _try_print_num_var_restore_fail
+
+_try_print_num_var_scalar:
+        jsr resolve_var
+        bcs _try_print_num_var_restore_fail
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        beq _try_print_num_var_float
+        jsr emit_load_var
+        jsr emit_print_uint_expr
+        clc
+        rts
+
+_try_print_num_var_float:
+        jsr emit_print_num_var_current
+        clc
+        rts
+
+_try_print_num_var_restore_fail:
+        lda line_idx_save
+        sta line_idx
+
+_try_print_num_var_fail:
+        sec
+        rts
+
+try_compile_print_float_literal:
+        lda line_idx
+        sta line_idx_save
+        jsr parse_float_literal_to_string_temp
+        bcs _try_print_float_restore_fail
+        jsr try_print_item_end
+        bcs _try_print_float_restore_fail
+        jsr intern_string_temp
+        bcs _try_print_float_restore_fail
+        jsr emit_print_float_literal_current
+        clc
+        rts
+
+_try_print_float_restore_fail:
+        lda line_idx_save
+        sta line_idx
         sec
         rts
 
@@ -4624,6 +4790,8 @@ _compile_read_scalar:
         sta assign_var_data_lo
         lda current_var_data_hi
         sta assign_var_data_hi
+        lda read_target_type
+        sta assign_var_type
         jsr emit_read_for_target
         jsr emit_store_var
         bra _compile_read_after_target
@@ -5395,6 +5563,112 @@ _add_string_fail:
         sec
         rts
 
+parse_float_literal_to_string_temp:
+        jsr line_skip_spaces
+        lda #0
+        sta string_temp_len
+        sta number_digits
+        sta byte_value
+
+        jsr line_at_end
+        bcs _parse_float_fail
+        jsr line_peek
+        cmp #TOK_MINUS
+        beq _parse_float_minus
+        cmp #'-'
+        beq _parse_float_minus
+        cmp #TOK_PLUS
+        beq _parse_float_plus
+        cmp #'+'
+        beq _parse_float_plus
+        bra _parse_float_before
+
+_parse_float_plus:
+        jsr line_get
+        bra _parse_float_before
+
+_parse_float_minus:
+        jsr line_get
+        lda #'-'
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+
+_parse_float_before:
+        jsr line_at_end
+        bcs _parse_float_fail
+        jsr line_peek
+        cmp #'0'
+        bcc _parse_float_dot_check
+        cmp #'9' + 1
+        bcs _parse_float_dot_check
+        jsr line_get
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+        inc number_digits
+        bra _parse_float_before
+
+_parse_float_dot_check:
+        cmp #'.'
+        bne _parse_float_fail
+        jsr line_get
+        lda #'.'
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+
+_parse_float_after:
+        jsr line_at_end
+        bcs _parse_float_after_done
+        jsr line_peek
+        cmp #'0'
+        bcc _parse_float_after_done
+        cmp #'9' + 1
+        bcs _parse_float_after_done
+        jsr line_get
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+        inc byte_value
+        bra _parse_float_after
+
+_parse_float_after_done:
+        lda byte_value
+        beq _parse_float_fail
+        clc
+        rts
+
+_parse_float_fail:
+        sec
+        rts
+
+string_temp_append_a:
+        ldx string_temp_len
+        cpx #LINE_BUF_MAX
+        bcs _string_temp_append_fail
+        sta string_temp,x
+        inc string_temp_len
+        clc
+        rts
+
+_string_temp_append_fail:
+        sec
+        rts
+
+intern_string_temp:
+        ldx string_temp_len
+        lda #0
+        sta string_temp,x
+        jsr find_string_literal
+        bcc _intern_string_temp_done
+        jsr append_string_temp
+        bcs _intern_string_temp_fail
+
+_intern_string_temp_done:
+        clc
+        rts
+
+_intern_string_temp_fail:
+        sec
+        rts
+
 find_string_literal:
         lda #0
         sta string_match_idx
@@ -5650,6 +5924,8 @@ push_for_frame:
         sta for_stack_var_data_lo,x
         lda current_for_var_data_hi
         sta for_stack_var_data_hi,x
+        lda current_for_var_type
+        sta for_stack_var_type,x
         inc for_sp
         clc
         rts
@@ -5669,6 +5945,8 @@ pop_for_frame:
         sta current_for_var_data_lo
         lda for_stack_var_data_hi,x
         sta current_for_var_data_hi
+        lda for_stack_var_type,x
+        sta current_for_var_type
         clc
         rts
 
@@ -5687,6 +5965,8 @@ peek_for_frame:
         sta current_for_var_data_lo
         lda for_stack_var_data_hi,x
         sta current_for_var_data_hi
+        lda for_stack_var_type,x
+        sta current_for_var_type
         clc
         rts
 
@@ -6254,6 +6534,10 @@ emit_variable_runtime:
         lda #<out_var_runtime
         ldy #>out_var_runtime
         jsr out_zstr
+        lda runtime_need_numvar
+        beq _emit_variable_runtime_no_numvar
+        jsr ovr_rtnum_emit
+_emit_variable_runtime_no_numvar:
         rts
 
 emit_line_label:
@@ -6315,6 +6599,13 @@ emit_chout_imm:
 
 emit_print_string_current:
         jsr mark_runtime_print
+        jsr emit_set_rtptr_string_current
+        lda #<out_jsr_printstr
+        ldy #>out_jsr_printstr
+        jsr out_zstr
+        rts
+
+emit_set_rtptr_string_current:
         lda #<out_lda_label_lo_imm
         ldy #>out_lda_label_lo_imm
         jsr out_zstr
@@ -6330,9 +6621,6 @@ emit_print_string_current:
         jsr out_cr
         lda #<out_sta_rtptr_1
         ldy #>out_sta_rtptr_1
-        jsr out_zstr
-        lda #<out_jsr_printstr
-        ldy #>out_jsr_printstr
         jsr out_zstr
         rts
 
@@ -6506,6 +6794,13 @@ emit_print_comma:
         jsr out_zstr
         rts
 
+emit_print_uint_expr:
+        jsr mark_runtime_print
+        lda #<out_jsr_printuint
+        ldy #>out_jsr_printuint
+        jsr out_zstr
+        rts
+
 emit_print_char_expr:
         jsr mark_runtime_print
         lda #<out_lda_exprlo
@@ -6540,8 +6835,19 @@ emit_load_number:
 
 emit_load_var:
         jsr emit_set_varptr_current
+        ldx current_sym_index
+        lda sym_type,x
+        cmp #VAR_TYPE_FLOAT
+        beq _emit_load_num_var
         lda #<out_jsr_loadintvar
         ldy #>out_jsr_loadintvar
+        jsr out_zstr
+        rts
+
+_emit_load_num_var:
+        jsr mark_runtime_numvar
+        lda #<out_jsr_loadnumvar
+        ldy #>out_jsr_loadnumvar
         jsr out_zstr
         rts
 
@@ -6551,7 +6857,48 @@ emit_store_var:
         lda assign_var_data_hi
         sta current_var_data_hi
         jsr emit_set_varptr_current
+        lda assign_var_type
+        cmp #VAR_TYPE_FLOAT
+        beq _emit_store_num_var
         jsr emit_store_ptr
+        rts
+
+_emit_store_num_var:
+        jsr mark_runtime_numvar
+        lda #<out_jsr_storenumvar
+        ldy #>out_jsr_storenumvar
+        jsr out_zstr
+        rts
+
+emit_store_float_literal_current:
+        lda assign_var_data_lo
+        sta current_var_data_lo
+        lda assign_var_data_hi
+        sta current_var_data_hi
+        jsr emit_set_varptr_current
+        jsr emit_set_rtptr_string_current
+        jsr mark_runtime_numvar
+        lda #<out_jsr_storefloatref
+        ldy #>out_jsr_storefloatref
+        jsr out_zstr
+        rts
+
+emit_print_float_literal_current:
+        jsr mark_runtime_print
+        jsr mark_runtime_numvar
+        jsr emit_set_rtptr_string_current
+        lda #<out_jsr_printfloatref
+        ldy #>out_jsr_printfloatref
+        jsr out_zstr
+        rts
+
+emit_print_num_var_current:
+        jsr mark_runtime_print
+        jsr mark_runtime_numvar
+        jsr emit_set_varptr_current
+        lda #<out_jsr_printnumvar
+        ldy #>out_jsr_printnumvar
+        jsr out_zstr
         rts
 
 emit_load_ptr:
@@ -8250,6 +8597,10 @@ ovr_rtgc_name:
         .text "ovr-rtgc"
 ovr_rtgc_name_end:
 
+ovr_rtnum_name:
+        .text "ovr-rtnum"
+ovr_rtnum_name_end:
+
 output_name:
         .text "0:out.tmp,s,w"
 output_name_end:
@@ -8457,6 +8808,8 @@ out_var_runtime_header:
         .text "; bank-1 variable heap: $12000-$1f7ff"
         .byte 13
         .text "; descriptor size 16 bytes; scalar value starts at descriptor + 8"
+        .byte 13
+        .text "; plain numeric slots: tag, low/reflo, high/refhi"
         .byte 13
         .text "varheapstart = $2000"
         .byte 13
@@ -8704,6 +9057,21 @@ out_jsr_loadintvar:
         .byte 13, 0
 out_jsr_storeintvar:
         .text "        jsr storeintvar"
+        .byte 13, 0
+out_jsr_loadnumvar:
+        .text "        jsr loadnumvar"
+        .byte 13, 0
+out_jsr_storenumvar:
+        .text "        jsr storenumvar"
+        .byte 13, 0
+out_jsr_storefloatref:
+        .text "        jsr storefloatref"
+        .byte 13, 0
+out_jsr_printnumvar:
+        .text "        jsr printnumvar"
+        .byte 13, 0
+out_jsr_printfloatref:
+        .text "        jsr printfloatref"
         .byte 13, 0
 out_jsr_readint:
         .text "        jsr readint"
@@ -9211,6 +9579,8 @@ assign_var_data_lo:
         .byte 0
 assign_var_data_hi:
         .byte 0
+assign_var_type:
+        .byte 0
 var_heap_next_lo:
         .byte 0
 var_heap_next_hi:
@@ -9365,6 +9735,8 @@ current_for_var_data_lo:
         .byte 0
 current_for_var_data_hi:
         .byte 0
+current_for_var_type:
+        .byte 0
 number_lo:
         .byte 0
 number_hi:
@@ -9417,6 +9789,8 @@ asset_ovr_rtio_ready:
         .byte 0
 asset_ovr_rtgc_ready:
         .byte 0
+asset_ovr_rtnum_ready:
+        .byte 0
 runtime_need_string:
         .byte 0
 runtime_need_string_heap:
@@ -9436,6 +9810,8 @@ runtime_need_data:
 runtime_need_array:
         .byte 0
 runtime_need_get:
+        .byte 0
+runtime_need_numvar:
         .byte 0
 runtime_need_decparse:
         .byte 0
@@ -9473,6 +9849,8 @@ for_stack_id:
 for_stack_var_data_lo:
         .fill FOR_STACK_MAX, 0
 for_stack_var_data_hi:
+        .fill FOR_STACK_MAX, 0
+for_stack_var_type:
         .fill FOR_STACK_MAX, 0
 do_stack_id:
         .fill DO_STACK_MAX, 0
