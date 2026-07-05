@@ -6521,17 +6521,31 @@ _mou_ydelta:
         sec
         sbc mou_old+1
         sty mou_old+1
-        jsr _mou_sign
-        sta mou_d
+        jsr _mou_sign           ; signed delta in mou_d
+        ldx #0                  ; sign-extend for a 16-bit subtract:
+        lda mou_d               ; a plain borrow check clamps every
+        bpl +                   ; downward (negative-delta) move to 0
+        ldx #$ff
++       stx mou_dh
         lda mou_y
         sec
         sbc mou_d
-        bcs +
+        tay
         lda #0
-+       cmp #200
-        bcc +
-        lda #199
-+       sta mou_y
+        sbc mou_dh
+        beq _mou_yrange
+        bmi _mou_yzero
+        ldy #199                ; went past the bottom
+        bra _mou_ystore
+_mou_yzero:
+        ldy #0                  ; went past the top
+        bra _mou_ystore
+_mou_yrange:
+        cpy #200
+        bcc _mou_ystore
+        ldy #199
+_mou_ystore:
+        sty mou_y
         lda #$ff
         sta $dc00               ; restore keyboard scanning
         ; move the pointer sprite: visible origin offsets 24,50
@@ -6888,6 +6902,7 @@ mou_x:        .byte 160,0
 mou_y:        .byte 100
 mou_old:      .byte 0,0
 mou_d:        .byte 0
+mou_dh:       .byte 0
 mourx:       .byte 0,0
 moury:       .byte 0,0
 mourb:       .byte 0,0
