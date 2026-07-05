@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Derive binary code templates from the compiler's text templates.
+
+Parses every emitted `out_*` text blob in src/basic65c.asm, assembles it with
+64tass against target/runtime.lbl (so runtime entry addresses are baked into
+the bytes), and writes:
+
+  target/bin-templates.inc     64tass include with one record per template
+  target/bin-templates.txt     human-readable report
+
+Record format (consumed by the future binary backend):
+
+  bt_<name>:
+          .byte <kind>, <length>
+          .byte <bytes...>          ; patch slots filled with $00
+
+Patch slots always sit at the END of a record because open fragments only
+ever end mid-operand. Kinds:
+
+  0 code        complete instructions, copy verbatim
+  1 patch_byte  last byte is an 8-bit operand supplied at the call site
+  2 patch_word  last two bytes are a 16-bit address (little-endian)
+  3 patch_lo    last byte is the low byte of a resolved label address
+  4 patch_hi    last byte is the high byte of a resolved label address
+  5 patch_rel8  last byte is a rel8 branch displacement to a resolved label
+
+Text templates remain the single source of truth: never edit the generated
+include by hand. Label-name fragments (forend/iftrue/...) and the tail
+directive templates (header vectors, DATA table, string pool, GC roots,
+FOR storage, comments) are engine special cases and are intentionally not
+represented here; they are listed in the report for bookkeeping.
+"""
+
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+SRC = REPO / "src" / "basic65c.asm"
+RUNTIME_LBL = REPO / "target" / "runtime.lbl"
+OUT_INC = REPO / "target" / "bin-templates.inc"
+OUT_TXT = REPO / "target" / "bin-templates.txt"
+TASS = REPO / "64tass.exe"
+
+KIND_CODE, KIND_BYTE, KIND_WORD, KIND_LO, KIND_HI, KIND_REL8 = range(6)
+KIND_NAMES = ["code", "patch_byte", "patch_word", "patch_lo", "patch_hi", "patch_rel8"]
+
+# open fragments: completed with a dummy operand, patch slot at the end
+OPEN_BYTE = {
+    "out_lda_imm_hex", "out_adc_imm_hex", "out_cmp_imm_hex",
+    "out_cmp_exprhi_imm", "out_cmp_exprlo_imm",
+}
+OPEN_WORD = {"out_jsr_abs", "out_sta_abs"}
+OPEN_LABEL = {"out_jmp_label", "out_jsr_label", "out_lda_label", "out_sta_label"}
+OPEN_LABEL_LO = {"out_lda_label_lo_imm"}
+OPEN_LABEL_HI = {"out_lda_label_hi_imm"}
+OPEN_BRANCH = {
+    "out_bne_label", "out_beq_label", "out_bcc_label", "out_bcs_label",
+    "out_bpl_label", "out_bmi_label", "out_array_check_start",
+}
+
+# emitted through out_zstr but resolved by engine special cases, not records
+NAME_FRAGMENTS = {
+    "out_var_prefix", "out_forend_prefix", "out_forstep_prefix",
+    "out_fortop_prefix", "out_forneg_prefix", "out_forinitneg_prefix",
+    "out_forcont_prefix", "out_fordone_prefix", "out_dotop_prefix",
+    "out_dodone_prefix", "out_iftrue_prefix", "out_ifskip_prefix",
+    "out_ifend_prefix", "out_ifelse_prefix", "out_iftmp_prefix",
+    "out_arrayok_prefix", "out_arraynonneg_prefix", "out_arrayhieq_prefix",
+    "out_onnext_prefix", "out_ondone_prefix",
+}
+SPECIALS = {
+    "out_header", "out_varheapend_def", "out_size_guard",
+    "out_data_table_start", "out_data_byte_prefix", "out_data_byte_sep",
+    "out_data_word_prefix", "out_data_table_end", "out_string_pool_header",
+    "out_strroots_start", "out_for_storage_header", "out_for_word_storage",
+    "out_comment_load_addr", "out_plus_one_cr",
+}
+COMMENTS = {"out_rem", "out_data_comment", "out_dim_comment"}
+
+
+def parse_blobs(path):
+    """Return {label: (text, open_tail)} for every out_* .text/.byte blob."""
+    blobs = {}
+    label = None
+    parts = []
+    terminated = True
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        m = re.match(r"^(out_[a-z0-9_]+):$", line)
+        if m:
+            label, parts, terminated = m.group(1), [], False
+            continue
+        if label is None:
+            continue
+        tm = re.match(r'^\.text\s+"(.*)"\s*$', line)
+        if tm:
+            parts.append(tm.group(1).replace('""', '"'))
+            continue
+        bm = re.match(r"^\.byte\s+(.+)$", line)
+        if bm:
+            done = False
+            for v in (x.strip() for x in bm.group(1).split(",")):
+                if v == "13":
+                    parts.append("\n")
+                elif v == "0":
+                    done = True
+                else:
+                    parts.append(f"<<byte {v}>>")
+            if done:
+                text = "".join(parts)
+                blobs[label] = (text, not text.endswith("\n"))
+                label = None
+            continue
+        # any other line means this label was not a text blob (it was code)
+        label = None
+    return blobs
+
+
+def assemble(source_text):
+    """Assemble a snippet at $1000, return its bytes."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "t.asm"
+        out = Path(td) / "t.prg"
+        src.write_text(source_text, encoding="ascii")
+        r = subprocess.run(
+            [str(TASS), "--cbm-prg", "--m45gs02", "-q", str(src), "-o", str(out)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip() or r.stdout.strip())
+        return out.read_bytes()[2:]  # strip PRG load address
+
+
+def build_record(name, text, kind):
+    body = []
+    for ln in text.split("\n"):
+        if not ln.strip() or ln.strip().startswith(";"):
+            continue
+        body.append(ln)  # keep trailing spaces: open fragments end "jmp "
+    if not body and kind == KIND_CODE:
+        return kind, b""
+
+    # complete an open tail
+    patch_len = 0
+    if kind == KIND_BYTE:
+        body[-1] += "00" if body[-1].endswith("$") else "$00"
+        patch_len = 1
+    elif kind == KIND_WORD:
+        # non-zero-page dummy so lda/sta assemble to the 3-byte absolute form
+        body[-1] += "cdcd" if body[-1].endswith("$") else "$cdcd"
+        patch_len = 2
+    elif kind in (KIND_LO, KIND_HI):
+        body[-1] += "dummyabs"
+        patch_len = 1
+    elif kind == KIND_REL8:
+        body[-1] += "dummybr"
+        patch_len = 1
+    elif name in OPEN_LABEL:
+        body[-1] += "dummyabs"
+        kind = KIND_WORD
+        patch_len = 2  # dummyabs is non-ZP so lda/sta stay absolute
+
+    harness = [
+        '        .cpu "45gs02"',
+        '        .enc "none"',
+        f'        .include "{RUNTIME_LBL.as_posix()}"',
+        "dummyabs = $cdcd",
+        "        * = $1000",
+    ]
+    harness += body
+    if kind == KIND_REL8:
+        harness.append("dummybr:")
+    harness.append("")
+    data = assemble("\n".join(harness))
+    minimum = {KIND_BYTE: 2, KIND_WORD: 3, KIND_LO: 2, KIND_HI: 2, KIND_REL8: 2}
+    if kind in minimum and len(data) < minimum[kind]:
+        raise RuntimeError(
+            f"assembled to {len(data)} bytes, expected at least {minimum[kind]}"
+            " -- fragment completion likely mis-parsed")
+    if patch_len:
+        data = data[:-patch_len] + b"\x00" * patch_len
+    return kind, data
+
+
+def main():
+    if not RUNTIME_LBL.exists():
+        sys.exit(f"missing {RUNTIME_LBL}; assemble the runtime first (build.bat)")
+    blobs = parse_blobs(SRC)
+    records = {}
+    skipped = {"name_fragment": [], "special": [], "comment": []}
+    errors = []
+
+    for name, (text, is_open) in sorted(blobs.items()):
+        if name in NAME_FRAGMENTS:
+            skipped["name_fragment"].append(name)
+            continue
+        if name in SPECIALS:
+            skipped["special"].append(name)
+            continue
+        if name in COMMENTS:
+            records[name] = (KIND_CODE, b"")  # comments vanish in binary
+            continue
+        if name in OPEN_BYTE:
+            kind = KIND_BYTE
+        elif name in OPEN_WORD:
+            kind = KIND_WORD
+        elif name in OPEN_LABEL:
+            kind = KIND_WORD
+        elif name in OPEN_LABEL_LO:
+            kind = KIND_LO
+        elif name in OPEN_LABEL_HI:
+            kind = KIND_HI
+        elif name in OPEN_BRANCH:
+            kind = KIND_REL8
+        elif is_open:
+            errors.append(f"{name}: open fragment not classified in manifest")
+            continue
+        else:
+            kind = KIND_CODE
+        try:
+            records[name] = build_record(name, text, kind)
+        except RuntimeError as e:
+            errors.append(f"{name}: {e}")
+
+    if errors:
+        for e in errors:
+            print("ERROR:", e, file=sys.stderr)
+        sys.exit(1)
+
+    with OUT_INC.open("w", encoding="ascii", newline="\n") as f:
+        f.write("; generated by tools/gen-bin-templates.py -- do not edit\n")
+        f.write("; record: .byte kind, length, bytes... (patch slots are $00)\n\n")
+        for name, (kind, data) in records.items():
+            f.write(f"bt_{name}:\n")
+            f.write(f"        .byte {kind}, {len(data)}\n")
+            if data:
+                for i in range(0, len(data), 12):
+                    chunk = ", ".join(f"${b:02x}" for b in data[i:i + 12])
+                    f.write(f"        .byte {chunk}\n")
+            f.write("\n")
+
+    with OUT_TXT.open("w", encoding="ascii", newline="\n") as f:
+        f.write("template records\n================\n")
+        for name, (kind, data) in records.items():
+            f.write(f"{name:<28} {KIND_NAMES[kind]:<11} {len(data):>3}  "
+                    + " ".join(f"{b:02x}" for b in data) + "\n")
+        for cat, names in skipped.items():
+            f.write(f"\n{cat} (engine special cases)\n")
+            for n in names:
+                f.write(f"  {n}\n")
+
+    total = sum(len(d) for _, d in records.values())
+    print(f"{len(records)} records ({total} bytes), "
+          f"{sum(len(v) for v in skipped.values())} engine specials -> {OUT_INC.name}")
+
+
+if __name__ == "__main__":
+    main()

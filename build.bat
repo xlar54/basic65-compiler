@@ -22,6 +22,17 @@ rem artifact is not shipped on the D81.
 .\64tass.exe --cbm-prg -a src\runtime\runtime.asm -l target\runtime.lbl -L target\runtime.lst -o target\runtime.prg
 if errorlevel 1 exit /b 1
 
+rem Derive binary code templates from the compiler's text templates for the
+rem native backend (see docs\native-backend.md). Requires Python; skipped
+rem with a warning if unavailable because nothing consumes the output yet.
+where python >nul 2>nul
+if %ERRORLEVEL%==0 (
+    python tools\gen-bin-templates.py
+    if errorlevel 1 exit /b 1
+) else (
+    echo Warning: python not found; skipping bin-template generation
+)
+
 for %%F in (basic\*.bas) do (
     .\petcat.exe -w65 -l 2001 -o "target\%%~nF.prg" -- "%%F"
     if errorlevel 1 exit /b 1
