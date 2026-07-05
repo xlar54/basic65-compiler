@@ -2076,7 +2076,11 @@ compile_string_array_assignment:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs compile_assignment_bad
         lda array_base_lo
         sta current_var_data_lo
@@ -2182,7 +2186,11 @@ _string_factor_array_var:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _string_factor_fail
         lda array_base_lo
         sta current_var_data_lo
@@ -2394,11 +2402,18 @@ compile_array_assignment:
         sta var_kind
         jsr resolve_existing_var
         bcs compile_assignment_bad
+        ldx current_sym_index
+        lda sym_type,x
+        sta assign_var_type     ; target array type, safe from nested indexes
         lda current_var_data_lo
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs compile_assignment_bad
         lda array_base_lo
         sta current_var_data_lo
@@ -2417,10 +2432,30 @@ compile_array_assignment:
         bne compile_assignment_bad
 
 _compile_array_assignment_expr:
-        jsr compile_expression
+        jsr compile_num_expression
         bcs compile_assignment_bad
+        lda assign_var_type
+        cmp #VAR_TYPE_FLOAT
+        beq _compile_array_assign_flt
+        lda expr_type
+        beq _compile_array_assign_int
+        jsr emit_qint_expr
+_compile_array_assign_int:
         jsr emit_restore_arrayptr
         jsr emit_store_ptr
+        rts
+
+_compile_array_assign_flt:
+        lda expr_type
+        bne _compile_array_assign_fac
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_compile_array_assign_fac:
+        jsr emit_restore_arrayptr
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
+        jsr out_zstr
         rts
 
 
@@ -3747,34 +3782,21 @@ _term_mul_mixed:
         jsr emit_mul_lhs_expr
         jmp _term_loop
 
+; division always produces a float, matching interpreted BASIC
 _term_div:
         jsr line_get
         lda const_state
         bne _term_div_constlhs
         lda expr_type
         bne _term_div_flhs
-        ldx #0
-        jsr probe_simple_rhs
-        bcs _term_div_general
-        jsr emit_move_expr_to_lhs
-        jsr compile_factor
-        bcs _term_fail
-        jsr materialize_const
-        jsr emit_div_lhs_expr
-        bra _term_loop
-
-_term_div_general:
         jsr emit_push_expr
         jsr compile_factor
         bcs _term_fail
         jsr materialize_const
         lda expr_type
-        bne _term_div_int_flt
-        jsr emit_pop_lhs
-        jsr emit_div_lhs_expr
-        bra _term_loop
-
-_term_div_int_flt:
+        bne _term_div_rhs_f
+        jsr emit_float16_expr
+_term_div_rhs_f:
         jsr emit_pop_promote_lhs
         jsr emit_fdiv_op
         jmp _term_loop
@@ -3797,22 +3819,14 @@ _term_div_constlhs:
         jsr compile_factor
         bcs _term_constlhs_fail
         jsr fold_restore_lhs
+        jsr materialize_const   ; a constant right side must land in expr
         lda expr_type
-        bne _term_div_const_flt
-        lda const_state
-        beq _term_div_mixed
-        jsr fold_udiv16         ; const = fold_lhs / const (unsigned, /0 = 0)
-        jmp _term_loop
-
-_term_div_const_flt:
+        bne _term_div_cf
+        jsr emit_float16_expr
+_term_div_cf:
         jsr emit_load_lhs_const
         jsr emit_pop_promote_lhs_none
         jsr emit_fdiv_op
-        jmp _term_loop
-
-_term_div_mixed:
-        jsr emit_load_lhs_const
-        jsr emit_div_lhs_expr
         jmp _term_loop
 
 _term_constlhs_fail:
@@ -3849,50 +3863,6 @@ _fold_mul_skip:
         ror const_lo
         dex
         bne _fold_mul_loop
-        lda fold_res_lo
-        sta const_lo
-        lda fold_res_hi
-        sta const_hi
-        rts
-
-fold_udiv16:
-        lda #0
-        sta fold_res_lo         ; quotient
-        sta fold_res_hi
-        lda const_lo
-        ora const_hi
-        beq _fold_div_zero
-        lda #0
-        sta fold_rem_lo
-        sta fold_rem_hi
-        ldx #16
-_fold_div_loop:
-        asl fold_lhs_lo
-        rol fold_lhs_hi
-        rol fold_rem_lo
-        rol fold_rem_hi
-        asl fold_res_lo
-        rol fold_res_hi
-        lda fold_rem_hi
-        cmp const_hi
-        bcc _fold_div_next
-        bne _fold_div_sub
-        lda fold_rem_lo
-        cmp const_lo
-        bcc _fold_div_next
-_fold_div_sub:
-        sec
-        lda fold_rem_lo
-        sbc const_lo
-        sta fold_rem_lo
-        lda fold_rem_hi
-        sbc const_hi
-        sta fold_rem_hi
-        inc fold_res_lo
-_fold_div_next:
-        dex
-        bne _fold_div_loop
-_fold_div_zero:
         lda fold_res_lo
         sta const_lo
         lda fold_res_hi
@@ -4031,14 +4001,31 @@ _factor_array_variable:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index   ; index expressions may contain other arrays
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _factor_fail
         lda array_base_lo
         sta current_var_data_lo
         lda array_base_hi
         sta current_var_data_hi
         jsr emit_set_arrayptr_current
+        ldx array_sym_index
+        lda sym_type,x
+        cmp #VAR_TYPE_FLOAT
+        beq _factor_array_float
         jsr emit_load_ptr
+        clc
+        rts
+
+_factor_array_float:
+        lda #<out_jsr_floadvar
+        ldy #>out_jsr_floadvar
+        jsr out_zstr
+        lda #1
+        sta expr_type
         clc
         rts
 
@@ -4563,7 +4550,11 @@ _compile_input_array:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _compile_input_target_bad
         lda array_base_lo
         sta current_var_data_lo
@@ -4581,8 +4572,22 @@ _compile_input_string_array:
         jsr emit_input_string
 
 _compile_input_array_store:
+        lda read_target_type
+        cmp #VAR_TYPE_FLOAT
+        beq _compile_input_array_flt
         jsr emit_restore_arrayptr
         jsr emit_store_ptr
+        clc
+        rts
+
+_compile_input_array_flt:
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+        jsr emit_restore_arrayptr
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
+        jsr out_zstr
         clc
         rts
 
@@ -4664,7 +4669,11 @@ _compile_get_array:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _compile_get_target_bad
         lda array_base_lo
         sta current_var_data_lo
@@ -4682,8 +4691,22 @@ _compile_get_string_array:
         jsr emit_get_string
 
 _compile_get_array_store:
+        lda read_target_type
+        cmp #VAR_TYPE_FLOAT
+        beq _compile_get_array_flt
         jsr emit_restore_arrayptr
         jsr emit_store_ptr
+        clc
+        rts
+
+_compile_get_array_flt:
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+        jsr emit_restore_arrayptr
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
+        jsr out_zstr
         clc
         rts
 
@@ -4729,7 +4752,11 @@ _try_print_string_var_array:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _try_print_string_var_restore_fail
         lda array_base_lo
         sta current_var_data_lo
@@ -5073,7 +5100,11 @@ _compile_read_array:
         sta array_base_lo
         lda current_var_data_hi
         sta array_base_hi
+        lda current_sym_index
+        pha
         jsr compile_array_index
+        pla
+        sta array_sym_index
         bcs _compile_read_bad
         lda array_base_lo
         sta current_var_data_lo
@@ -5082,8 +5113,21 @@ _compile_read_array:
         jsr emit_set_arrayptr_current
         jsr emit_save_arrayptr
         jsr emit_read_for_target
+        lda read_target_type
+        cmp #VAR_TYPE_FLOAT
+        beq _compile_read_array_flt
         jsr emit_restore_arrayptr
         jsr emit_store_ptr
+        bra _compile_read_after_target
+
+_compile_read_array_flt:
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+        jsr emit_restore_arrayptr
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
+        jsr out_zstr
 
 _compile_read_after_target:
         jsr line_skip_spaces
@@ -5390,9 +5434,33 @@ _create_array_new:
 
         jsr compute_array_element_count
         bcs _create_array_fail
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        beq _create_array_float
         asl work2_lo
         rol work2_hi
         bcs _create_array_fail
+        bra _create_array_sized
+_create_array_float:
+        lda work2_lo            ; bytes = count*4 + count
+        sta work_lo
+        lda work2_hi
+        sta work_hi
+        asl work2_lo
+        rol work2_hi
+        bcs _create_array_fail
+        asl work2_lo
+        rol work2_hi
+        bcs _create_array_fail
+        clc
+        lda work2_lo
+        adc work_lo
+        sta work2_lo
+        lda work2_hi
+        adc work_hi
+        sta work2_hi
+        bcs _create_array_fail
+_create_array_sized:
 
         lda var_heap_next_lo
         clc
@@ -7482,9 +7550,19 @@ emit_set_varptr_current:
         rts
 
 emit_set_arrayptr_current:
+        ldx array_sym_index
+        lda sym_type,x
+        cmp #VAR_TYPE_FLOAT
+        beq _emit_set_arrayptr_f
         lda #<out_array_index_shift
         ldy #>out_array_index_shift
         jsr out_zstr
+        bra _emit_set_arrayptr_add
+_emit_set_arrayptr_f:
+        lda #<out_array_index_shift5
+        ldy #>out_array_index_shift5
+        jsr out_zstr
+_emit_set_arrayptr_add:
         lda #<out_adc_imm_hex
         ldy #>out_adc_imm_hex
         jsr out_zstr
@@ -7625,12 +7703,6 @@ emit_sub_lhs_expr:
 emit_mul_lhs_expr:
         lda #<out_jsr_mul16
         ldy #>out_jsr_mul16
-        jsr out_zstr
-        rts
-
-emit_div_lhs_expr:
-        lda #<out_jsr_div16
-        ldy #>out_jsr_div16
         jsr out_zstr
         rts
 
@@ -10009,6 +10081,42 @@ out_cmp_exprlo_imm:
 out_jmp_arraybounds:
         .text "        jmp arraybounds"
         .byte 13, 0
+out_array_index_shift5:
+        .text "        lda exprlo"
+        .byte 13
+        .text "        sta lhslo"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        sta lhshi"
+        .byte 13
+        .text "        asl exprlo"
+        .byte 13
+        .text "        rol exprhi"
+        .byte 13
+        .text "        asl exprlo"
+        .byte 13
+        .text "        rol exprhi"
+        .byte 13
+        .text "        clc"
+        .byte 13
+        .text "        lda exprlo"
+        .byte 13
+        .text "        adc lhslo"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        adc lhshi"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13
+        .text "        clc"
+        .byte 13
+        .text "        lda exprlo"
+        .byte 13, 0
+
 out_array_index_shift:
         .text "        asl exprlo"
         .byte 13
@@ -10816,8 +10924,8 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
-LBL_IF_IDS      = 768
-LBL_ON_IDS      = 384
+LBL_IF_IDS      = 640
+LBL_ON_IDS      = 256
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 64
 

@@ -12,11 +12,15 @@ promotion at operators and comparisons, emits float codegen against FAC and
 the float stack, converts float literals once at rtinit through a sixth
 header vector (start is $400c; program-side table label fltlits), and
 auto-coerces at every integer context via the split
-compile_expression/compile_num_expression boundary. Full fixture sweep
-green, all native PRGs byte-identical. Remaining (stage 5): float arrays
-(plain arrays are still 16-bit with boundary conversions), float
-READ/INPUT fields, and the deliberate int/int division question
-(interpreter always floats; we keep integer division for now).
+compile_expression/compile_num_expression boundary. Stage 5 is also
+in: plain-typed arrays hold 5-byte MFLP elements (x5 index scaling, typed
+stores for assignment/READ/INPUT/GET, nested-index-safe target typing at
+all eight index sites), and division always produces a float exactly like
+the interpreter (1/4 = .25; integer constant folding no longer applies to
+/). Full fixture sweep green, all native PRGs byte-identical. Remaining
+niceties: float DATA constants, fractional INPUT/VAL fields (both still
+parse as integers then convert), and the interpreter-differential harness
+mode.
 
 ## Format
 

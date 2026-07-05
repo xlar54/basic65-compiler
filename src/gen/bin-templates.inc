@@ -20,6 +20,13 @@ bt_out_array_index_shift:
         .byte 0, 10
         .byte $0e, $2a, $3c, $2e, $2b, $3c, $18, $ad, $2a, $3c
 
+bt_out_array_index_shift5:
+        .byte 0, 47
+        .byte $ad, $2a, $3c, $8d, $2c, $3c, $ad, $2b, $3c, $8d, $2d, $3c
+        .byte $0e, $2a, $3c, $2e, $2b, $3c, $0e, $2a, $3c, $2e, $2b, $3c
+        .byte $18, $ad, $2a, $3c, $6d, $2c, $3c, $8d, $2a, $3c, $ad, $2b
+        .byte $3c, $6d, $2d, $3c, $8d, $2b, $3c, $18, $ad, $2a, $3c
+
 bt_out_arrayhieq_prefix:
         .byte 6, 0
 
@@ -638,6 +645,7 @@ bt_map:
         .word out_add_lhs_expr, bt_out_add_lhs_expr
         .word out_array_check_start, bt_out_array_check_start
         .word out_array_index_shift, bt_out_array_index_shift
+        .word out_array_index_shift5, bt_out_array_index_shift5
         .word out_arrayhieq_prefix, bt_out_arrayhieq_prefix
         .word out_arraynonneg_prefix, bt_out_arraynonneg_prefix
         .word out_arrayok_prefix, bt_out_arrayok_prefix

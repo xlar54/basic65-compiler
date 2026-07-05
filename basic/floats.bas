@@ -16,4 +16,10 @@
 190 d=abs(b):print " abs:";d
 200 d=sgn(b):print " sgn:";d
 210 d=(a+h)*2:print " paren:";d
-220 print "floats done"
+220 dim p(3)
+230 p(0)=1.5:p(1)=p(0)*2:p(2)=p(0)+p(1)
+240 print " arr:";p(0);p(1);p(2)
+250 restore 500:read p(3):print " arrd:";p(3)
+260 d=1/4:print " intdiv:";d
+270 print "floats done"
+500 data 42
