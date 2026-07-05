@@ -82,6 +82,9 @@ TOK_CLR                 = $9C
 TOK_HEX_STR             = $D2
 TOK_DEC                 = $D1
 TOK_INSTR               = $D4
+TOK_OPEN                = $9F
+TOK_CLOSE               = $A0
+TOK_INPUT_HASH          = $84
 TOK_SPC                 = $A6
 TOK_LEN                 = $C3
 TOK_STR_STR             = $C4
@@ -151,7 +154,7 @@ DATA_LINE_MAX           = LINE_MAX
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $0D00
+STRING_POOL_MAX         = $0A00
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -1812,7 +1815,13 @@ _compile_line_loop:
         cmp #TOK_ELSE
         beq _compile_else
         cmp #TOK_PRINT_HASH
-        beq _compile_unsupported_token
+        beq _compile_print_hash
+        cmp #TOK_OPEN
+        beq _compile_open
+        cmp #TOK_CLOSE
+        beq _compile_close
+        cmp #TOK_INPUT_HASH
+        beq _compile_input_hash
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -1928,6 +1937,22 @@ _compile_clr:
         lda #<out_jsr_rtclr
         ldy #>out_jsr_rtclr
         jsr out_zstr
+        jmp _compile_line_loop
+
+_compile_print_hash:
+        jsr compile_print_hash
+        jmp _compile_line_loop
+
+_compile_open:
+        jsr compile_open
+        jmp _compile_line_loop
+
+_compile_close:
+        jsr compile_close
+        jmp _compile_line_loop
+
+_compile_input_hash:
+        jsr compile_input_hash
         jmp _compile_line_loop
 
 _compile_if:
@@ -4219,6 +4244,21 @@ _factor_scalar_variable:
         clc
         rts
 _factor_scalar_plain:
+        lda var_name_1
+        cmp #$53                ; letter S
+        bne _factor_scalar_var2
+        lda var_name_2
+        cmp #$54                ; letter T
+        bne _factor_scalar_var2
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _factor_scalar_var2
+        lda #<out_jsr_rdst      ; ST reads the KERNAL status byte
+        ldy #>out_jsr_rdst
+        jsr out_zstr
+        clc
+        rts
+_factor_scalar_var2:
         jsr resolve_var
         bcs _factor_fail
         jsr emit_load_var_typed
@@ -4832,6 +4872,157 @@ _print_finish:
 _print_done:
         rts
 
+compile_open:
+        lda #<out_jsr_fiodefaults
+        ldy #>out_jsr_fiodefaults
+        jsr out_zstr
+        jsr compile_expression
+        bcs _compile_open_bad
+        lda #<out_jsr_fiosetlf
+        ldy #>out_jsr_fiosetlf
+        jsr out_zstr
+        jsr _open_comma
+        bcs _compile_open_done
+        jsr compile_expression
+        bcs _compile_open_bad
+        lda #<out_jsr_fiosetdev
+        ldy #>out_jsr_fiosetdev
+        jsr out_zstr
+        jsr _open_comma
+        bcs _compile_open_done
+        jsr compile_expression
+        bcs _compile_open_bad
+        lda #<out_jsr_fiosetsa
+        ldy #>out_jsr_fiosetsa
+        jsr out_zstr
+        jsr _open_comma
+        bcs _compile_open_done
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _compile_open_bad
+        lda #<out_jsr_fiosetname
+        ldy #>out_jsr_fiosetname
+        jsr out_zstr
+        lda #<out_jsr_fopen
+        ldy #>out_jsr_fopen
+        jsr out_zstr
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_compile_open_done:
+        lda #<out_jsr_fopen
+        ldy #>out_jsr_fopen
+        jsr out_zstr
+        clc
+        rts
+
+_compile_open_bad:
+        lda #<msg_error_bad_open
+        ldy #>msg_error_bad_open
+        jsr fatal_statement_error
+        rts
+
+; consume a comma between OPEN arguments; carry set at statement end
+_open_comma:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _open_comma_end
+        jsr line_get
+        cmp #','
+        bne _open_comma_end
+        clc
+        rts
+_open_comma_end:
+        sec
+        rts
+
+compile_close:
+        jsr compile_expression
+        bcs _compile_close_bad
+        lda #<out_jsr_fclose
+        ldy #>out_jsr_fclose
+        jsr out_zstr
+        clc
+        rts
+
+_compile_close_bad:
+        lda #<msg_error_bad_open
+        ldy #>msg_error_bad_open
+        jsr fatal_statement_error
+        rts
+
+compile_print_hash:
+        jsr compile_expression
+        bcs _compile_print_hash_bad
+        lda #<out_jsr_fiochkout
+        ldy #>out_jsr_fiochkout
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_print_hash_items
+        jsr line_peek
+        cmp #','
+        bne _compile_print_hash_items
+        jsr line_get
+_compile_print_hash_items:
+        jsr compile_print
+        lda #<out_jsr_fiodone
+        ldy #>out_jsr_fiodone
+        jsr out_zstr
+        rts
+
+_compile_print_hash_bad:
+        lda #<msg_error_bad_open
+        ldy #>msg_error_bad_open
+        jsr fatal_statement_error
+        rts
+
+compile_input_hash:
+        jsr compile_expression
+        bcs _compile_input_hash_bad
+        lda #<out_jsr_fiochkin
+        ldy #>out_jsr_fiochkin
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_hash_bad
+        jsr line_get
+        cmp #','
+        bne _compile_input_hash_bad
+        lda #1
+        sta io_from_file
+        jsr emit_input_line
+        jsr _compile_input_hash_targets
+        lda #0
+        sta io_from_file
+        lda #<out_jsr_fiodone
+        ldy #>out_jsr_fiodone
+        jsr out_zstr
+        rts
+
+_compile_input_hash_targets:
+        jsr compile_input_target
+        bcs _compile_input_hash_tbad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_input_hash_tdone
+        jsr line_get
+        cmp #','
+        beq _compile_input_hash_targets
+_compile_input_hash_tbad:
+        lda #<msg_error_bad_input
+        ldy #>msg_error_bad_input
+        jsr fatal_statement_error
+_compile_input_hash_tdone:
+        rts
+
+_compile_input_hash_bad:
+        lda #<msg_error_bad_input
+        ldy #>msg_error_bad_input
+        jsr fatal_statement_error
+        rts
+
 compile_input:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
@@ -4975,6 +5166,41 @@ _compile_input_target_bad:
         rts
 
 compile_get:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_get_target_loop
+        jsr line_peek
+        cmp #'#'
+        bne _compile_get_target_loop
+        jsr line_get
+        jsr compile_expression
+        bcs _compile_get_hash_bad
+        lda #<out_jsr_fiochkin
+        ldy #>out_jsr_fiochkin
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_get_hash_bad
+        jsr line_get
+        cmp #','
+        bne _compile_get_hash_bad
+        lda #1
+        sta io_from_file
+        jsr _compile_get_loop_entry
+        lda #0
+        sta io_from_file
+        lda #<out_jsr_fiodone
+        ldy #>out_jsr_fiodone
+        jsr out_zstr
+        rts
+
+_compile_get_hash_bad:
+        lda #<msg_error_bad_get
+        ldy #>msg_error_bad_get
+        jsr fatal_statement_error
+        rts
+
+_compile_get_loop_entry:
 _compile_get_target_loop:
         jsr compile_get_target
         bcs _compile_get_bad
@@ -7794,8 +8020,15 @@ emit_read_string:
         rts
 
 emit_input_line:
+        lda io_from_file
+        bne _emit_input_line_file
         lda #<out_jsr_inputline
         ldy #>out_jsr_inputline
+        jsr out_zstr
+        rts
+_emit_input_line_file:
+        lda #<out_jsr_fioreadline
+        ldy #>out_jsr_fioreadline
         jsr out_zstr
         rts
 
@@ -7812,14 +8045,28 @@ emit_input_string:
         rts
 
 emit_get_key:
+        lda io_from_file
+        bne _emit_get_key_file
         lda #<out_jsr_getkey
         ldy #>out_jsr_getkey
         jsr out_zstr
         rts
+_emit_get_key_file:
+        lda #<out_jsr_fiogetbyte
+        ldy #>out_jsr_fiogetbyte
+        jsr out_zstr
+        rts
 
 emit_get_string:
+        lda io_from_file
+        bne _emit_get_string_file
         lda #<out_jsr_getstr
         ldy #>out_jsr_getstr
+        jsr out_zstr
+        rts
+_emit_get_string_file:
+        lda #<out_jsr_fiogetstr
+        ldy #>out_jsr_fiogetstr
         jsr out_zstr
         rts
 
@@ -9930,6 +10177,9 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_open:
+        .text "bad open/close"
+        .byte 13, 0
 msg_error_bad_begin:
         .text "bad begin"
         .byte 13, 0
@@ -10291,6 +10541,48 @@ out_jsr_fcmpgtb:
         .byte 13, 0
 out_jsr_fcmpgeb:
         .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_jsr_fiodefaults:
+        .text "        jsr fiodefaults"
+        .byte 13, 0
+out_jsr_fiosetlf:
+        .text "        jsr fiosetlf"
+        .byte 13, 0
+out_jsr_fiosetdev:
+        .text "        jsr fiosetdev"
+        .byte 13, 0
+out_jsr_fiosetsa:
+        .text "        jsr fiosetsa"
+        .byte 13, 0
+out_jsr_fiosetname:
+        .text "        jsr fiosetname"
+        .byte 13, 0
+out_jsr_fopen:
+        .text "        jsr fopen"
+        .byte 13, 0
+out_jsr_fclose:
+        .text "        jsr fclose"
+        .byte 13, 0
+out_jsr_fiochkout:
+        .text "        jsr fiochkout"
+        .byte 13, 0
+out_jsr_fiochkin:
+        .text "        jsr fiochkin"
+        .byte 13, 0
+out_jsr_fiodone:
+        .text "        jsr fiodone"
+        .byte 13, 0
+out_jsr_fioreadline:
+        .text "        jsr fioreadline"
+        .byte 13, 0
+out_jsr_fiogetbyte:
+        .text "        jsr fiogetbyte"
+        .byte 13, 0
+out_jsr_fiogetstr:
+        .text "        jsr fiogetstr"
+        .byte 13, 0
+out_jsr_rdst:
+        .text "        jsr rdst"
         .byte 13, 0
 out_jsr_fpowi:
         .text "        jsr fpowi"
@@ -11138,6 +11430,8 @@ probe_mode:
 BEGIN_STACK_MAX = 8
 begin_sp:
         .byte 0
+io_from_file:
+        .byte 0
 if_begin_taken:
         .byte 0
 if_block_open:
@@ -11315,7 +11609,7 @@ string_pool:
 ;=======================================================================================
 
 LBL_IF_IDS      = 512
-LBL_ON_IDS      = 256
+LBL_ON_IDS      = 128
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 64
 

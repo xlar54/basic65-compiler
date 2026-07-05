@@ -48,6 +48,16 @@ kernalscreen = $ffed
 kernalplot   = $fff0
 kernalgetin  = $ffe4
 kernalrdtim  = $ffde
+kernalsetbnk = $ff6b
+kernalsetlfs = $ffba
+kernalsetnam = $ffbd
+kernalopen   = $ffc0
+kernalclose  = $ffc3
+kernalchkin  = $ffc6
+kernalchkout = $ffc9
+kernalclrchn = $ffcc
+kernalchrin2 = $ffcf
+kernalreadst = $ffb7
 
 varptr = $f7
 rtptr  = $fb
@@ -1614,6 +1624,199 @@ pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
+; File I/O layer: OPEN/CLOSE/PRINT#/INPUT#/GET#/ST. Channels are selected
+; only around file operations; fio_out routes printch straight to CHROUT.
+;=======================================================================================
+
+; map the ROMs in/out around KERNAL file calls (A preserved)
+fio_rom_on:
+        pha
+        lda rtd030save
+        sta $d030
+        pla
+        rts
+
+fio_rom_off:
+        pha
+        lda rtd030save
+        and #%11000111
+        sta $d030
+        pla
+        rts
+
+fiodefaults:
+        lda #8
+        sta fio_dev
+        lda #0
+        sta fio_sa
+        sta fio_name_lo
+        sta fio_name_hi
+        rts
+
+fiosetlf:
+        lda exprlo
+        sta fio_lf
+        rts
+
+fiosetdev:
+        lda exprlo
+        sta fio_dev
+        rts
+
+fiosetsa:
+        lda exprlo
+        sta fio_sa
+        rts
+
+fiosetname:
+        lda exprlo
+        sta fio_name_lo
+        lda exprhi
+        sta fio_name_hi
+        rts
+
+fopen:
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose         ; forgiving re-open
+        lda fio_name_lo
+        ora fio_name_hi
+        beq _fopen_noname
+        lda #0                  ; data bank 0, filename in bank 1
+        ldx #1
+        jsr kernalsetbnk
+        lda fio_name_lo
+        sta varptr
+        lda fio_name_hi
+        sta varptr+1
+        ldz #0
+        lda [varptr],z
+        pha
+        lda fio_name_lo
+        clc
+        adc #1
+        tax
+        lda fio_name_hi
+        adc #0
+        tay
+        pla
+        jsr kernalsetnam
+        bra _fopen_lfs
+_fopen_noname:
+        lda #0
+        tax
+        jsr kernalsetbnk
+        lda #0
+        tax
+        tay
+        jsr kernalsetnam
+_fopen_lfs:
+        lda fio_lf
+        ldx fio_dev
+        ldy fio_sa
+        jsr kernalsetlfs
+        jsr kernalopen
+        jmp fio_rom_off
+
+fclose:
+        jsr fio_rom_on
+        lda exprlo
+        jsr kernalclose
+        jsr kernalclrchn
+        jmp fio_rom_off
+
+fiochkout:
+        jsr fio_rom_on
+        ldx exprlo
+        jsr kernalchkout
+        jsr fio_rom_off
+        lda #1
+        sta fio_out
+        rts
+
+fiochkin:
+        jsr fio_rom_on
+        ldx exprlo
+        jsr kernalchkin
+        jmp fio_rom_off
+
+fiodone:
+        jsr fio_rom_on
+        jsr kernalclrchn
+        jsr fio_rom_off
+        lda #0
+        sta fio_out
+        rts
+
+; read one record (to CR or end of file) into inputbuf for the INPUT#
+; field parsers
+fioreadline:
+        jsr fio_rom_on
+        lda #0
+        sta inputpos
+        sta inputlen
+_frl_loop:
+        jsr kernalchrin2
+        cmp #$0d
+        beq _frl_done
+        ldx inputlen
+        cpx #80
+        bcs _frl_status
+        sta inputbuf,x
+        inc inputlen
+_frl_status:
+        jsr kernalreadst
+        beq _frl_loop
+_frl_done:
+        ldx inputlen
+        lda #0
+        sta inputbuf,x
+        jmp fio_rom_off
+
+; one byte from the selected input channel
+fiogetbyte:
+        jsr fio_rom_on
+        jsr kernalchrin2
+        jsr fio_rom_off
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; one byte as a one-character heap string
+fiogetstr:
+        jsr fio_rom_on
+        jsr kernalchrin2
+        jsr fio_rom_off
+        sta digit
+        lda #1
+        sta strlen
+        jsr stralloc
+        bcs _fiogetstr_done
+        ldz #0
+        lda #1
+        sta [varptr],z
+        ldz #1
+        lda digit
+        sta [varptr],z
+        lda strdstlo
+        sta exprlo
+        lda strdsthi
+        sta exprhi
+_fiogetstr_done:
+        rts
+
+; ST: the KERNAL status byte
+rdst:
+        jsr fio_rom_on
+        jsr kernalreadst
+        jsr fio_rom_off
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+;=======================================================================================
 ; Tier-1 function runtime: RND, SQR, ASC, TAB(, SPC(, POS
 ;=======================================================================================
 
@@ -2312,7 +2515,12 @@ cmpfalse:
 ;=======================================================================================
 
 printch:
-        cmp #$0d
+        ldx fio_out
+        beq +
+        jsr fio_rom_on          ; file output: raw byte through the DOS
+        jsr kernalchrout
+        jmp fio_rom_off
++       cmp #$0d
         beq printchcr
         pha
         jsr kernalchrout
@@ -2639,7 +2847,7 @@ inputloop:
         cmp #$2c
         beq inputcomma
         cmp #$20
-        beq inputadvance
+        beq _input_space
         cmp #$2d
         beq inputminus
         cmp #$2b
@@ -2655,6 +2863,9 @@ inputloop:
         inc inputdigits
         inc inputpos
         jmp inputloop
+_input_space:
+        lda inputdigits         ; a space ends a started number (CBM-style)
+        bne inputdone
 inputadvance:
         inc inputpos
         jmp inputloop
@@ -4150,6 +4361,12 @@ pow_neg:      .byte 0
 ti_lo:        .byte 0
 instr_pos:    .byte 0
 hex_val:      .byte 0,0
+fio_lf:       .byte 0
+fio_dev:      .byte 0
+fio_sa:       .byte 0
+fio_name_lo:  .byte 0
+fio_name_hi:  .byte 0
+fio_out:      .byte 0
 
 ; integer runtime storage
 exprlo:       .byte 0
