@@ -117,6 +117,8 @@ TOK_EXT_CE              = $CE
 TOK_EXT_FE              = $FE
 TOK_CE_WPEEK            = $10
 TOK_FE_WPOKE            = $1D
+TOK_FE_BEGIN            = $18
+TOK_FE_BEND             = $19
 
 COND_EQ                 = 1
 COND_NE                 = 2
@@ -373,6 +375,8 @@ reset_emit_counters:
         sta pending_kind
         sta const_state
         sta expr_type
+        sta begin_sp
+        sta if_begin_taken
         rts
 
 ; walk pass 2 in size mode: no output, but every template record and patch
@@ -1979,6 +1983,10 @@ _compile_extended_fe:
         jsr line_peek
         cmp #TOK_FE_WPOKE
         beq _compile_wpoke
+        cmp #TOK_FE_BEGIN
+        beq _compile_begin
+        cmp #TOK_FE_BEND
+        beq _compile_bend
 
 _compile_unsupported_extended_fe:
         lda #TOK_EXT_FE
@@ -1988,6 +1996,16 @@ _compile_wpoke:
         jsr line_get
         jsr compile_wpoke
         bra _compile_line_loop
+
+_compile_begin:
+        jsr line_get
+        jsr compile_begin
+        jmp _compile_line_loop
+
+_compile_bend:
+        jsr line_get
+        jsr compile_bend
+        jmp _compile_line_loop
 
 _compile_unsupported_statement:
         lda #<msg_error_unsupported_statement
@@ -2816,6 +2834,75 @@ _compile_loop_condition_fail:
         sec
         rts
 
+; IF ... THEN BEGIN defers the false-branch labels to a matching BEND on
+; a later line. BEGIN records the enclosing IF's else/end label ids on the
+; begin stack and flags the IF to skip its end-of-line definitions.
+compile_begin:
+        lda compile_stop_on_else
+        bne +
+        lda #<msg_error_bad_begin
+        ldy #>msg_error_bad_begin
+        jsr fatal_statement_error
+        rts
++       ldx begin_sp
+        cpx #BEGIN_STACK_MAX
+        bcc +
+        lda #<msg_error_bad_begin
+        ldy #>msg_error_bad_begin
+        jsr fatal_statement_error
+        rts
++       lda if_else_lo
+        sta begin_stack_else_lo,x
+        lda if_else_hi
+        sta begin_stack_else_hi,x
+        lda if_end_lo
+        sta begin_stack_end_lo,x
+        lda if_end_hi
+        sta begin_stack_end_hi,x
+        inc begin_sp
+        lda #1
+        sta if_begin_taken
+        rts
+
+compile_bend:
+        lda begin_sp
+        bne +
+        lda #<msg_error_bad_bend
+        ldy #>msg_error_bad_bend
+        jsr fatal_statement_error
+        rts
++       dec begin_sp
+        ; define the deferred labels without disturbing any IF that is
+        ; active on this line
+        lda if_else_lo
+        pha
+        lda if_else_hi
+        pha
+        lda if_end_lo
+        pha
+        lda if_end_hi
+        pha
+        ldx begin_sp
+        lda begin_stack_else_lo,x
+        sta if_else_lo
+        lda begin_stack_else_hi,x
+        sta if_else_hi
+        lda begin_stack_end_lo,x
+        sta if_end_lo
+        lda begin_stack_end_hi,x
+        sta if_end_hi
+        jsr emit_if_else_label_def
+        jsr emit_if_end_label_def
+        pla
+        sta if_end_hi
+        pla
+        sta if_end_lo
+        pla
+        sta if_else_hi
+        pla
+        sta if_else_lo
+        rts
+
 compile_if:
         jsr alloc_if_labels
         jsr compile_condition_boolean
@@ -2844,13 +2931,20 @@ _compile_if_inline:
         pha
         lda compile_found_else
         pha
+        lda if_begin_taken
+        pha
         lda #1
         sta compile_stop_on_else
         lda #0
         sta compile_found_else
+        sta if_begin_taken
         jsr compile_line_statements
         lda compile_found_else
         sta if_else_found
+        lda if_begin_taken
+        sta if_block_open
+        pla
+        sta if_begin_taken
         pla
         sta compile_found_else
         pla
@@ -2861,6 +2955,10 @@ _compile_if_inline:
         rts
 +       jsr pop_if_labels
         bcs compile_if_bad
+        lda if_block_open
+        beq _compile_if_not_block
+        rts                     ; labels are defined by the matching BEND
+_compile_if_not_block:
         lda if_else_found
         beq _compile_if_no_else
         jsr emit_jmp_if_end
@@ -9832,6 +9930,12 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_begin:
+        .text "bad begin"
+        .byte 13, 0
+msg_error_bad_bend:
+        .text "bad bend"
+        .byte 13, 0
 msg_bin_size:
         .text "native size: ends $"
         .byte 0
@@ -11031,6 +11135,21 @@ rt_chunk_len:
         .byte 0
 probe_mode:
         .byte 0
+BEGIN_STACK_MAX = 8
+begin_sp:
+        .byte 0
+if_begin_taken:
+        .byte 0
+if_block_open:
+        .byte 0
+begin_stack_else_lo:
+        .fill BEGIN_STACK_MAX, 0
+begin_stack_else_hi:
+        .fill BEGIN_STACK_MAX, 0
+begin_stack_end_lo:
+        .fill BEGIN_STACK_MAX, 0
+begin_stack_end_hi:
+        .fill BEGIN_STACK_MAX, 0
 probe_saved_idx:
         .byte 0
 const_state:
