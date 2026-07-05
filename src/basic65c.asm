@@ -205,18 +205,6 @@ main:
         sta for_sp
         sta do_sp
         sta if_sp
-        sta runtime_need_string
-        sta runtime_need_string_heap
-        sta runtime_need_print
-        sta runtime_need_input
-        sta runtime_need_math
-        sta runtime_need_cmp
-        sta runtime_need_strtemp
-        sta runtime_need_data
-        sta runtime_need_array
-        sta runtime_need_get
-        sta runtime_need_numvar
-        sta runtime_need_decparse
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
         lda #>VAR_HEAP_START
@@ -769,76 +757,6 @@ _read_line_done:
         rts
 
 ;=======================================================================================
-; Runtime feature linker flags
-;=======================================================================================
-
-mark_runtime_string:
-        lda #1
-        sta runtime_need_string
-        sta runtime_need_decparse
-        jsr mark_runtime_print
-        rts
-
-mark_runtime_string_heap:
-        jsr mark_runtime_string
-        lda #1
-        sta runtime_need_string_heap
-        sta runtime_need_decparse
-        rts
-
-mark_runtime_print:
-        lda #1
-        sta runtime_need_print
-        rts
-
-mark_runtime_numvar:
-        lda #1
-        sta runtime_need_numvar
-        rts
-
-mark_runtime_input:
-        jsr mark_runtime_print
-        jsr mark_runtime_string_heap
-        lda #1
-        sta runtime_need_input
-        sta runtime_need_decparse
-        rts
-
-mark_runtime_math:
-        lda #1
-        sta runtime_need_math
-        rts
-
-mark_runtime_cmp:
-        lda #1
-        sta runtime_need_cmp
-        rts
-
-mark_runtime_strtemp:
-        lda #1
-        sta runtime_need_strtemp
-        rts
-
-mark_runtime_data:
-        jsr mark_runtime_print
-        jsr mark_runtime_string_heap
-        lda #1
-        sta runtime_need_data
-        rts
-
-mark_runtime_array:
-        jsr mark_runtime_print
-        lda #1
-        sta runtime_need_array
-        rts
-
-mark_runtime_get:
-        jsr mark_runtime_string_heap
-        lda #1
-        sta runtime_need_get
-        rts
-
-;=======================================================================================
 ; Pass 1 scanner
 ;=======================================================================================
 
@@ -866,7 +784,6 @@ _scan_program_next:
 +       jsr record_line_number
         jsr scan_line_variables
         jsr scan_line_branches
-        jsr scan_line_runtime
         bra _scan_program_next
 
 _scan_program_done:
@@ -1048,132 +965,6 @@ _scan_branch_extended:
 _scan_branch_done:
         rts
 
-scan_line_runtime:
-        lda #0
-        sta line_idx
-
-_scan_runtime_loop:
-        jsr line_at_end
-        bcs _scan_runtime_done
-        jsr line_get
-        cmp #'"'
-        beq _scan_runtime_string_literal
-        cmp #TOK_REM
-        beq _scan_runtime_done
-        cmp #TOK_DATA
-        beq _scan_runtime_data_stmt
-        cmp #TOK_EXT_CE
-        beq _scan_runtime_extended
-        cmp #TOK_EXT_FE
-        beq _scan_runtime_extended
-        cmp #TOK_PRINT
-        beq _scan_runtime_print
-        cmp #TOK_INPUT
-        beq _scan_runtime_input
-        cmp #TOK_GET
-        beq _scan_runtime_get
-        cmp #TOK_READ
-        beq _scan_runtime_data
-        cmp #TOK_RESTORE
-        beq _scan_runtime_data
-        cmp #TOK_FOR
-        beq _scan_runtime_cmp
-        cmp #TOK_NEXT
-        beq _scan_runtime_cmp
-        cmp #TOK_MUL
-        beq _scan_runtime_math
-        cmp #TOK_DIV
-        beq _scan_runtime_math
-        cmp #TOK_EQUAL
-        beq _scan_runtime_cmp
-        cmp #TOK_LT
-        beq _scan_runtime_cmp
-        cmp #TOK_GT
-        beq _scan_runtime_cmp
-        cmp #TOK_CHR_STR
-        beq _scan_runtime_print
-        cmp #TOK_LEN
-        beq _scan_runtime_string
-        cmp #TOK_VAL
-        beq _scan_runtime_string_heap
-        cmp #TOK_STR_STR
-        beq _scan_runtime_string_heap
-        cmp #TOK_LEFT_STR
-        beq _scan_runtime_string_heap
-        cmp #TOK_RIGHT_STR
-        beq _scan_runtime_string_heap
-        cmp #TOK_MID_STR
-        beq _scan_runtime_string_heap
-
-        sta token_value
-        lda token_value
-        bmi _scan_runtime_loop
-        jsr is_var_start
-        bcs _scan_runtime_loop
-        lda token_value
-        jsr parse_variable_with_first_char
-        bcs _scan_runtime_loop
-        lda var_type
-        cmp #VAR_TYPE_STRING
-        bne _scan_runtime_check_array
-        jsr mark_runtime_string
-
-_scan_runtime_check_array:
-        jsr line_skip_spaces
-        jsr line_at_end
-        bcs _scan_runtime_loop
-        jsr line_peek
-        cmp #'('
-        bne _scan_runtime_loop
-        jsr mark_runtime_array
-        bra _scan_runtime_loop
-
-_scan_runtime_string_literal:
-        jsr scan_skip_string
-        bra _scan_runtime_loop
-
-_scan_runtime_data_stmt:
-        jsr line_skip_to_stmt_end
-        bra _scan_runtime_loop
-
-_scan_runtime_extended:
-        jsr scan_skip_token_argument
-        bra _scan_runtime_loop
-
-_scan_runtime_print:
-        jsr mark_runtime_print
-        bra _scan_runtime_loop
-
-_scan_runtime_input:
-        jsr mark_runtime_input
-        bra _scan_runtime_loop
-
-_scan_runtime_get:
-        jsr mark_runtime_get
-        bra _scan_runtime_loop
-
-_scan_runtime_data:
-        jsr mark_runtime_data
-        bra _scan_runtime_loop
-
-_scan_runtime_cmp:
-        jsr mark_runtime_cmp
-        bra _scan_runtime_loop
-
-_scan_runtime_math:
-        jsr mark_runtime_math
-        bra _scan_runtime_loop
-
-_scan_runtime_string:
-        jsr mark_runtime_string
-        bra _scan_runtime_loop
-
-_scan_runtime_string_heap:
-        jsr mark_runtime_string_heap
-        bra _scan_runtime_loop
-
-_scan_runtime_done:
-        rts
 
 scan_dim_statement:
 _scan_dim_next:
@@ -2363,7 +2154,6 @@ compile_assignment_bad:
         rts
 
 compile_for:
-        jsr mark_runtime_cmp
         jsr alloc_for_label
         bcs compile_for_bad
 
@@ -2446,7 +2236,6 @@ compile_for_bad:
         rts
 
 compile_next:
-        jsr mark_runtime_cmp
         jsr pop_for_frame
         bcs compile_next_bad
 
@@ -3721,7 +3510,6 @@ _print_expression:
 _print_numeric_expression:
         jsr compile_expression
         bcs _print_expression_bad
-        jsr mark_runtime_print
         lda #<out_jsr_printuint
         ldy #>out_jsr_printuint
         jsr out_zstr
@@ -4450,7 +4238,6 @@ compile_restore:
         rts
 
 _compile_restore_all:
-        jsr mark_runtime_data
         lda #<out_jsr_datainit
         ldy #>out_jsr_datainit
         jsr out_zstr
@@ -6086,7 +5873,6 @@ out_string_ref:
 
 emit_chout_imm:
         sta byte_value
-        jsr mark_runtime_print
         lda #<out_lda_imm_hex
         ldy #>out_lda_imm_hex
         jsr out_zstr
@@ -6099,7 +5885,6 @@ emit_chout_imm:
         rts
 
 emit_print_string_current:
-        jsr mark_runtime_print
         jsr emit_set_rtptr_string_current
         lda #<out_jsr_printstr
         ldy #>out_jsr_printstr
@@ -6145,7 +5930,6 @@ emit_load_string_ref_to_expr:
         rts
 
 emit_string_literal_to_heap_expr:
-        jsr mark_runtime_string_heap
         lda #<out_lda_label_lo_imm
         ldy #>out_lda_label_lo_imm
         jsr out_zstr
@@ -6172,49 +5956,42 @@ emit_print_string_var_current:
         ; FALLTHROUGH
 
 emit_print_string_expr:
-        jsr mark_runtime_string
         lda #<out_jsr_printheapstr
         ldy #>out_jsr_printheapstr
         jsr out_zstr
         rts
 
 emit_copy_string_expr:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_strcopyexpr
         ldy #>out_jsr_strcopyexpr
         jsr out_zstr
         rts
 
 emit_concat_strings:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_concatstr
         ldy #>out_jsr_concatstr
         jsr out_zstr
         rts
 
 emit_string_len_expr:
-        jsr mark_runtime_string
         lda #<out_jsr_strlenexpr
         ldy #>out_jsr_strlenexpr
         jsr out_zstr
         rts
 
 emit_string_from_int:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_strfromint
         ldy #>out_jsr_strfromint
         jsr out_zstr
         rts
 
 emit_val_string_expr:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_valstr
         ldy #>out_jsr_valstr
         jsr out_zstr
         rts
 
 emit_string_temp_mark:
-        jsr mark_runtime_strtemp
         lda #<out_jsr_strmark
         ldy #>out_jsr_strmark
         jsr out_zstr
@@ -6231,14 +6008,12 @@ emit_string_left:
         bra emit_string_mid
 
 emit_string_right:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_strright
         ldy #>out_jsr_strright
         jsr out_zstr
         rts
 
 emit_string_mid:
-        jsr mark_runtime_string_heap
         lda #<out_jsr_strsub
         ldy #>out_jsr_strsub
         jsr out_zstr
@@ -6289,21 +6064,18 @@ emit_save_expr_to_strarg1:
         rts
 
 emit_print_comma:
-        jsr mark_runtime_print
         lda #<out_jsr_printcomma
         ldy #>out_jsr_printcomma
         jsr out_zstr
         rts
 
 emit_print_uint_expr:
-        jsr mark_runtime_print
         lda #<out_jsr_printuint
         ldy #>out_jsr_printuint
         jsr out_zstr
         rts
 
 emit_print_char_expr:
-        jsr mark_runtime_print
         lda #<out_lda_exprlo
         ldy #>out_lda_exprlo
         jsr out_zstr
@@ -6346,7 +6118,6 @@ emit_load_var:
         rts
 
 _emit_load_num_var:
-        jsr mark_runtime_numvar
         lda #<out_jsr_loadnumvar
         ldy #>out_jsr_loadnumvar
         jsr out_zstr
@@ -6365,7 +6136,6 @@ emit_store_var:
         rts
 
 _emit_store_num_var:
-        jsr mark_runtime_numvar
         lda #<out_jsr_storenumvar
         ldy #>out_jsr_storenumvar
         jsr out_zstr
@@ -6378,15 +6148,12 @@ emit_store_float_literal_current:
         sta current_var_data_hi
         jsr emit_set_varptr_current
         jsr emit_set_rtptr_string_current
-        jsr mark_runtime_numvar
         lda #<out_jsr_storefloatref
         ldy #>out_jsr_storefloatref
         jsr out_zstr
         rts
 
 emit_print_float_literal_current:
-        jsr mark_runtime_print
-        jsr mark_runtime_numvar
         jsr emit_set_rtptr_string_current
         lda #<out_jsr_printfloatref
         ldy #>out_jsr_printfloatref
@@ -6394,8 +6161,6 @@ emit_print_float_literal_current:
         rts
 
 emit_print_num_var_current:
-        jsr mark_runtime_print
-        jsr mark_runtime_numvar
         jsr emit_set_varptr_current
         lda #<out_jsr_printnumvar
         ldy #>out_jsr_printnumvar
@@ -6415,49 +6180,42 @@ emit_store_ptr:
         rts
 
 emit_read_int:
-        jsr mark_runtime_data
         lda #<out_jsr_readint
         ldy #>out_jsr_readint
         jsr out_zstr
         rts
 
 emit_read_string:
-        jsr mark_runtime_data
         lda #<out_jsr_readstr
         ldy #>out_jsr_readstr
         jsr out_zstr
         rts
 
 emit_input_line:
-        jsr mark_runtime_input
         lda #<out_jsr_inputline
         ldy #>out_jsr_inputline
         jsr out_zstr
         rts
 
 emit_input_int:
-        jsr mark_runtime_input
         lda #<out_jsr_inputint
         ldy #>out_jsr_inputint
         jsr out_zstr
         rts
 
 emit_input_string:
-        jsr mark_runtime_input
         lda #<out_jsr_inputstr
         ldy #>out_jsr_inputstr
         jsr out_zstr
         rts
 
 emit_get_key:
-        jsr mark_runtime_get
         lda #<out_jsr_getkey
         ldy #>out_jsr_getkey
         jsr out_zstr
         rts
 
 emit_get_string:
-        jsr mark_runtime_get
         lda #<out_jsr_getstr
         ldy #>out_jsr_getstr
         jsr out_zstr
@@ -6495,7 +6253,6 @@ emit_restore_arrayptr:
         rts
 
 emit_array_bounds_check:
-        jsr mark_runtime_array
         jsr alloc_array_ok_label
         lda #<out_array_check_start
         ldy #>out_array_check_start
@@ -6660,14 +6417,12 @@ emit_sub_lhs_expr:
         rts
 
 emit_mul_lhs_expr:
-        jsr mark_runtime_math
         lda #<out_jsr_mul16
         ldy #>out_jsr_mul16
         jsr out_zstr
         rts
 
 emit_div_lhs_expr:
-        jsr mark_runtime_math
         lda #<out_jsr_div16
         ldy #>out_jsr_div16
         jsr out_zstr
@@ -6775,7 +6530,6 @@ emit_not_expr:
         rts
 
 emit_compare_expr_to_bool:
-        jsr mark_runtime_cmp
         lda cond_op
         cmp #COND_EQ
         beq _emit_bool_cmp_eq
@@ -6826,7 +6580,6 @@ _emit_bool_cmp_call:
         rts
 
 emit_string_compare_to_bool:
-        jsr mark_runtime_string
         lda cond_op
         cmp #COND_EQ
         beq _emit_str_cmp_eq
@@ -6877,7 +6630,6 @@ _emit_str_cmp_call:
         rts
 
 emit_string_ref_compare_to_bool:
-        jsr mark_runtime_string
         lda cond_op
         cmp #COND_EQ
         beq _emit_strref_cmp_eq
@@ -9108,31 +8860,6 @@ diag_msg_lo:
         .byte 0
 diag_msg_hi:
         .byte 0
-runtime_need_string:
-        .byte 0
-runtime_need_string_heap:
-        .byte 0
-runtime_need_print:
-        .byte 0
-runtime_need_input:
-        .byte 0
-runtime_need_math:
-        .byte 0
-runtime_need_cmp:
-        .byte 0
-runtime_need_strtemp:
-        .byte 0
-runtime_need_data:
-        .byte 0
-runtime_need_array:
-        .byte 0
-runtime_need_get:
-        .byte 0
-runtime_need_numvar:
-        .byte 0
-runtime_need_decparse:
-        .byte 0
-
 line_buf:
         .fill LINE_BUF_MAX, 0
 source_filename_len:
