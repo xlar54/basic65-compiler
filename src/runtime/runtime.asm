@@ -18,6 +18,7 @@
 ;                   progbase+4  .word datastart    (DATA table start)
 ;                   progbase+6  .word dataend      (DATA table end)
 ;                   progbase+8  .word strroots     (string GC root table)
+;                   progbase+10 .word fltinit      (float literal table)
 ;
 ; rtinit copies the header vectors into runtime variables, initializes the
 ; bank-1 variable heap, string heap, and DATA pointer, then jumps through the
@@ -49,6 +50,7 @@ kernalgetin  = $ffe4
 
 varptr = $f7
 rtptr  = $fb
+rtfltptr = $fd
 
 progbase     = $4000
 varheapstart = $2000
@@ -91,6 +93,10 @@ rtinit:
         sta rtstrroots
         lda progbase+9
         sta rtstrroots+1
+        lda progbase+10
+        sta rtfltinit
+        lda progbase+11
+        sta rtfltinit+1
         jsr varinit
         jsr strinit
         jsr datainit
@@ -108,6 +114,7 @@ rtinit:
         sta varptr+2
         lda #$00
         sta varptr+3
+        jsr fltinit             ; convert float literals (needs the above)
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff so large
         ; programs can execute there; the KERNAL stays mapped at $e000 for
         ; CHROUT and friends, and the ROM bits are restored before returning
@@ -187,80 +194,46 @@ storeintvar:
         rts
 
 ;=======================================================================================
-; Tagged numeric variable runtime
+; Float literal pool conversion, run once by rtinit: the program header's
+; sixth vector points at a table of {bank-1 slot address, literal text}
+; word pairs (zero address terminates); each text converts through valflt
+; and packs into its slot, so compiled code just funpacks a hidden variable.
 ;=======================================================================================
 
-loadnumvar:
-        ldz #0
-        lda [varptr],z
-        beq loadnumint
-        lda #0
-        sta exprlo
-        sta exprhi
-        rts
-loadnumint:
-        ldz #1
-        lda [varptr],z
-        sta exprlo
-        ldz #2
-        lda [varptr],z
-        sta exprhi
-        rts
-
-storenumvar:
-        ldz #0
-        lda #0
-        sta [varptr],z
-        ldz #1
-        lda exprlo
-        sta [varptr],z
-        ldz #2
-        lda exprhi
-        sta [varptr],z
-        rts
-
-storefloatref:
-        ldz #0
-        lda #1
-        sta [varptr],z
-        ldz #1
-        lda rtptr
-        sta [varptr],z
-        ldz #2
-        lda rtptr+1
-        sta [varptr],z
-        rts
-
-printnumvar:
-        ldz #0
-        lda [varptr],z
-        beq printnumint
-        ldz #1
-        lda [varptr],z
-        sta rtptr
-        ldz #2
-        lda [varptr],z
-        sta rtptr+1
-        jmp printfloatref
-printnumint:
-        jsr loadnumvar
-        jmp printuint
-
-printfloatref:
-        lda rtptr
-        ora rtptr+1
-        beq printfloatdone
+fltinit:
+        lda rtfltinit
+        sta rtfltptr
+        lda rtfltinit+1
+        sta rtfltptr+1
+_fltinit_loop:
         ldy #0
-        lda (rtptr),y
-        cmp #'-'
-        beq printfloatbody
-        lda #' '
-        jsr printch
-printfloatbody:
-        jsr printstr
-        lda #' '
-        jsr printch
-printfloatdone:
+        lda (rtfltptr),y
+        iny
+        ora (rtfltptr),y
+        beq _fltinit_done
+        ldy #2
+        lda (rtfltptr),y
+        sta rtptr
+        iny
+        lda (rtfltptr),y
+        sta rtptr+1
+        jsr valflt
+        ldy #0
+        lda (rtfltptr),y
+        sta varptr
+        iny
+        lda (rtfltptr),y
+        sta varptr+1
+        ldz #0
+        jsr fpack
+        clc
+        lda rtfltptr
+        adc #4
+        sta rtfltptr
+        bcc _fltinit_loop
+        inc rtfltptr+1
+        bra _fltinit_loop
+_fltinit_done:
         rts
 
 ;=======================================================================================
@@ -940,6 +913,148 @@ fpoparg:
         sta argm2
         lda fltstack+4,x
         sta argm3
+        rts
+
+; float variable access: 5-byte MFLP at [varptr] (bank 1)
+floadvar:
+        ldz #0
+        jmp funpack
+
+fstorevar:
+        ldz #0
+        jmp fpack
+
+; pop the float stack into FAC (rare; fpoparg is the common direction)
+fpopfac:
+        lda fltsp
+        sec
+        sbc #5
+        sta fltsp
+        tax
+        lda #0
+        sta facext
+        lda fltstack,x
+        sta facexp
+        bne +
+        lda #0
+        sta facm0
+        sta facm1
+        sta facm2
+        sta facm3
+        sta facsgn
+        rts
++       lda fltstack+1,x
+        pha
+        ora #$80
+        sta facm0
+        lda #0
+        sta facsgn
+        pla
+        bpl +
+        lda #$ff
+        sta facsgn
++       lda fltstack+2,x
+        sta facm1
+        lda fltstack+3,x
+        sta facm2
+        lda fltstack+4,x
+        sta facm3
+        rts
+
+; promote the 16-bit integer in lhslo/lhshi to a float in ARG, preserving FAC
+fpromotelhs:
+        jsr fpush
+        lda lhslo
+        sta exprlo
+        lda lhshi
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        jmp fpopfac
+
+; unary and function helpers on FAC
+fneg:
+        lda facexp
+        beq +
+        lda facsgn
+        eor #$ff
+        sta facsgn
++       rts
+
+fabsf:
+        lda #0
+        sta facsgn
+        rts
+
+fsgnf:
+        lda facexp
+        beq +
+        lda facsgn
+        pha
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        pla
+        sta facsgn
++       rts
+
+fintf:
+        jsr qint
+        jmp float16
+
+; FAC as a boolean into exprlo/exprhi (1 nonzero, 0 zero)
+ftruth:
+        ldx #0
+        lda facexp
+        beq +
+        inx
++       stx exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; float comparison wrappers: FAC = right operand, ARG = left operand
+; (fcmp: 0 equal, 1 FAC > ARG, $ff FAC < ARG); boolean into exprlo/exprhi
+fcmpeqb:
+        jsr fcmp
+        cmp #0
+        beq fcbtrue
+        bra fcbfalse
+fcmpneb:
+        jsr fcmp
+        cmp #0
+        bne fcbtrue
+        bra fcbfalse
+fcmpltb:
+        jsr fcmp
+        cmp #1                  ; left < right means FAC (right) > ARG (left)
+        beq fcbtrue
+        bra fcbfalse
+fcmpleb:
+        jsr fcmp
+        cmp #$ff
+        bne fcbtrue
+        bra fcbfalse
+fcmpgtb:
+        jsr fcmp
+        cmp #$ff                ; left > right means FAC (right) < ARG (left)
+        beq fcbtrue
+        bra fcbfalse
+fcmpgeb:
+        jsr fcmp
+        cmp #1
+        bne fcbtrue
+fcbfalse:
+        lda #0
+        bra fcbstore
+fcbtrue:
+        lda #1
+fcbstore:
+        sta exprlo
+        lda #0
+        sta exprhi
         rts
 
 fzero:
@@ -3486,6 +3601,7 @@ rtvheapend:   .byte 0,0
 rtdatastart:  .byte 0,0
 rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
+rtfltinit:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 

@@ -56,6 +56,7 @@ SYNTHETIC = {
     "out_data_byte_sep": (KIND_BYTE, b"\x00"),      # ",$" + hex
     "out_data_word_prefix": (KIND_WORD, b"\x00\x00"),  # ".word " + label ref
     "out_for_word_storage": (KIND_CODE, b"\x00\x00"),  # ":  .byte 0,0"
+    "out_word_hex_prefix": (KIND_WORD, b"\x00\x00"),   # ".word $" + hex word
 }
 
 # open fragments: completed with a dummy operand, patch slot at the end
@@ -95,6 +96,7 @@ SPECIALS = {
 COMMENTS = {
     "out_rem", "out_data_comment", "out_dim_comment", "out_size_guard",
     "out_string_pool_header", "out_strroots_start", "out_data_table_start",
+    "out_fltinit_label",
     "out_data_table_end", "out_for_storage_header",
 }
 

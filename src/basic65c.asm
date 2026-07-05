@@ -197,6 +197,7 @@ main:
         sta string_pool_next_hi
         sta backend_mode
         sta backend_error
+        sta flt_lit_count
         jsr reset_emit_counters
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
@@ -360,6 +361,7 @@ reset_emit_counters:
         sta line_emit_idx
         sta pending_kind
         sta const_state
+        sta expr_type
         rts
 
 ; walk pass 2 in size mode: no output, but every template record and patch
@@ -2015,17 +2017,26 @@ compile_assignment_with_first_char:
         bne compile_assignment_bad
 
 _compile_assignment_expr:
+        jsr compile_num_expression
+        bcs compile_assignment_bad
         lda assign_var_type
         cmp #VAR_TYPE_FLOAT
-        bne _compile_assignment_integer_expr
-        jsr try_compile_float_literal_assignment
-        bcc _compile_assignment_done
-
-_compile_assignment_integer_expr:
-        jsr compile_expression
-        bcs compile_assignment_bad
+        beq _compile_assignment_float
+        lda expr_type
+        beq _compile_assignment_int
+        jsr emit_qint_expr
+_compile_assignment_int:
         jsr emit_store_var
-_compile_assignment_done:
+        rts
+
+_compile_assignment_float:
+        lda expr_type
+        bne _compile_assignment_fac
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_compile_assignment_fac:
+        jsr emit_store_var_fac
         rts
 
 _compile_string_assignment:
@@ -2412,25 +2423,6 @@ _compile_array_assignment_expr:
         jsr emit_store_ptr
         rts
 
-try_compile_float_literal_assignment:
-        lda line_idx
-        sta line_idx_save
-        jsr parse_float_literal_to_string_temp
-        bcs _try_float_assign_restore_fail
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcc _try_float_assign_restore_fail
-        jsr intern_string_temp
-        bcs _try_float_assign_restore_fail
-        jsr emit_store_float_literal_current
-        clc
-        rts
-
-_try_float_assign_restore_fail:
-        lda line_idx_save
-        sta line_idx
-        sec
-        rts
 
 compile_assignment_bad:
         lda #<msg_error_bad_assignment
@@ -3046,25 +3038,56 @@ _cond_not_fail:
 compile_condition_compare:
         jsr string_expression_starts
         bcc _cond_compare_string
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cond_compare_fail
         jsr parse_if_compare_op
-        bcs _cond_compare_done
+        bcs _cond_compare_truthy
+        lda expr_type
+        bne _cond_compare_flhs
         ldx #2
         jsr probe_simple_rhs
         bcs _cond_compare_general
         jsr emit_move_expr_to_lhs
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cond_compare_fail
         jsr emit_compare_expr_to_bool
         bra _cond_compare_done
 
 _cond_compare_general:
         jsr emit_push_expr
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cond_compare_fail
+        lda expr_type
+        bne _cond_compare_int_flt
         jsr emit_pop_lhs
         jsr emit_compare_expr_to_bool
+        bra _cond_compare_done
+
+_cond_compare_int_flt:
+        jsr emit_pop_promote_lhs
+        jsr emit_fcompare_bool
+        bra _cond_compare_done
+
+_cond_compare_flhs:
+        jsr emit_fpush_expr
+        jsr compile_num_expression
+        bcs _cond_compare_fail
+        lda expr_type
+        bne _cond_compare_ff
+        jsr emit_float16_expr
+_cond_compare_ff:
+        jsr emit_fpoparg_expr
+        jsr emit_fcompare_bool
+        bra _cond_compare_done
+
+_cond_compare_truthy:
+        lda expr_type
+        beq _cond_compare_done
+        lda #<out_jsr_ftruth
+        ldy #>out_jsr_ftruth
+        jsr out_zstr
+        lda #0
+        sta expr_type
 
 _cond_compare_done:
         clc
@@ -3343,6 +3366,22 @@ simple_strref_tail_fail:
 ; public entry: constants surviving to this boundary are emitted here, so
 ; every consumer still finds the value in exprlo/exprhi
 compile_expression:
+        jsr compile_num_expression
+        bcs +
+        lda expr_type
+        beq +
+        jsr emit_qint_expr
+        clc
++       rts
+
+emit_qint_expr:
+        lda #0
+        sta expr_type
+        lda #<out_jsr_qint
+        ldy #>out_jsr_qint
+        jmp out_zstr
+
+compile_num_expression:
         jsr compile_expression_inner
         bcs +
         jsr materialize_const
@@ -3383,6 +3422,8 @@ _expr_add:
         jsr line_get
         lda const_state
         bne _expr_add_constlhs
+        lda expr_type
+        bne _expr_add_flhs
         ldx #1
         jsr probe_simple_rhs
         bcs _expr_add_general
@@ -3398,15 +3439,37 @@ _expr_add_general:
         jsr compile_term
         bcs _expr_fail
         jsr materialize_const
+        lda expr_type
+        bne _expr_add_int_flt
         jsr emit_pop_lhs
         jsr emit_add_lhs_expr
         bra _expr_loop
+
+_expr_add_int_flt:
+        jsr emit_pop_promote_lhs
+        jsr emit_fadd_op
+        jmp _expr_loop
+
+_expr_add_flhs:
+        jsr emit_fpush_expr
+        jsr compile_term
+        bcs _expr_fail
+        jsr materialize_const
+        lda expr_type
+        bne _expr_add_ff
+        jsr emit_float16_expr
+_expr_add_ff:
+        jsr emit_fpoparg_expr
+        jsr emit_fadd_op
+        jmp _expr_loop
 
 _expr_add_constlhs:
         jsr fold_save_lhs
         jsr compile_term
         bcs _expr_constlhs_fail
         jsr fold_restore_lhs
+        lda expr_type
+        bne _expr_add_const_flt
         lda const_state
         beq _expr_add_mixed
         clc                     ; fold: left + right with 16-bit wrap
@@ -3416,17 +3479,25 @@ _expr_add_constlhs:
         lda fold_lhs_hi
         adc const_hi
         sta const_hi
-        bra _expr_loop
+        jmp _expr_loop
+
+_expr_add_const_flt:
+        jsr emit_load_lhs_const
+        jsr emit_pop_promote_lhs_none
+        jsr emit_fadd_op
+        jmp _expr_loop
 
 _expr_add_mixed:
         jsr emit_load_lhs_const
         jsr emit_add_lhs_expr
-        bra _expr_loop
+        jmp _expr_loop
 
 _expr_sub:
         jsr line_get
         lda const_state
         bne _expr_sub_constlhs
+        lda expr_type
+        bne _expr_sub_flhs
         ldx #1
         jsr probe_simple_rhs
         bcs _expr_sub_general
@@ -3442,15 +3513,37 @@ _expr_sub_general:
         jsr compile_term
         bcs _expr_fail
         jsr materialize_const
+        lda expr_type
+        bne _expr_sub_int_flt
         jsr emit_pop_lhs
         jsr emit_sub_lhs_expr
         bra _expr_loop
+
+_expr_sub_int_flt:
+        jsr emit_pop_promote_lhs
+        jsr emit_fsub_op
+        jmp _expr_loop
+
+_expr_sub_flhs:
+        jsr emit_fpush_expr
+        jsr compile_term
+        bcs _expr_fail
+        jsr materialize_const
+        lda expr_type
+        bne _expr_sub_ff
+        jsr emit_float16_expr
+_expr_sub_ff:
+        jsr emit_fpoparg_expr
+        jsr emit_fsub_op
+        jmp _expr_loop
 
 _expr_sub_constlhs:
         jsr fold_save_lhs
         jsr compile_term
         bcs _expr_constlhs_fail
         jsr fold_restore_lhs
+        lda expr_type
+        bne _expr_sub_const_flt
         lda const_state
         beq _expr_sub_mixed
         sec                     ; fold: left - right with 16-bit wrap
@@ -3460,12 +3553,18 @@ _expr_sub_constlhs:
         lda fold_lhs_hi
         sbc const_hi
         sta const_hi
-        bra _expr_loop
+        jmp _expr_loop
+
+_expr_sub_const_flt:
+        jsr emit_load_lhs_const
+        jsr emit_pop_promote_lhs_none
+        jsr emit_fsub_op
+        jmp _expr_loop
 
 _expr_sub_mixed:
         jsr emit_load_lhs_const
         jsr emit_sub_lhs_expr
-        bra _expr_loop
+        jmp _expr_loop
 
 _expr_constlhs_fail:
         pla                     ; discard the saved left constant
@@ -3508,6 +3607,60 @@ fold_restore_lhs:
         pha
         rts
 
+
+; left operand was integer and already pushed on the CPU stack; right side
+; turned out to be float: pop the integer and promote it into ARG
+emit_pop_promote_lhs:
+        jsr emit_pop_lhs
+        lda #<out_jsr_fpromotelhs
+        ldy #>out_jsr_fpromotelhs
+        jmp out_zstr
+
+; right side is integer but a float operation is needed
+emit_float16_expr:
+        lda #1
+        sta expr_type
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jmp out_zstr
+
+emit_fpush_expr:
+        lda #<out_jsr_fpush
+        ldy #>out_jsr_fpush
+        jmp out_zstr
+
+emit_fpoparg_expr:
+        lda #<out_jsr_fpoparg
+        ldy #>out_jsr_fpoparg
+        jmp out_zstr
+
+; promote the folded-constant left operand (already in lhslo/hi via
+; emit_load_lhs_const) into ARG while the float right side sits in FAC
+emit_pop_promote_lhs_none:
+        lda #<out_jsr_fpromotelhs
+        ldy #>out_jsr_fpromotelhs
+        jmp out_zstr
+
+emit_fadd_op:
+        lda #<out_jsr_fadd
+        ldy #>out_jsr_fadd
+        jmp out_zstr
+
+emit_fsub_op:
+        lda #<out_jsr_fsub
+        ldy #>out_jsr_fsub
+        jmp out_zstr
+
+emit_fmul_op:
+        lda #<out_jsr_fmul
+        ldy #>out_jsr_fmul
+        jmp out_zstr
+
+emit_fdiv_op:
+        lda #<out_jsr_fdiv
+        ldy #>out_jsr_fdiv
+        jmp out_zstr
+
 compile_term:
         jsr compile_factor
         bcc _term_loop
@@ -3530,6 +3683,8 @@ _term_mul:
         jsr line_get
         lda const_state
         bne _term_mul_constlhs
+        lda expr_type
+        bne _term_mul_flhs
         ldx #0
         jsr probe_simple_rhs
         bcs _term_mul_general
@@ -3545,29 +3700,59 @@ _term_mul_general:
         jsr compile_factor
         bcs _term_fail
         jsr materialize_const
+        lda expr_type
+        bne _term_mul_int_flt
         jsr emit_pop_lhs
         jsr emit_mul_lhs_expr
         bra _term_loop
+
+_term_mul_int_flt:
+        jsr emit_pop_promote_lhs
+        jsr emit_fmul_op
+        jmp _term_loop
+
+_term_mul_flhs:
+        jsr emit_fpush_expr
+        jsr compile_factor
+        bcs _term_fail
+        jsr materialize_const
+        lda expr_type
+        bne _term_mul_ff
+        jsr emit_float16_expr
+_term_mul_ff:
+        jsr emit_fpoparg_expr
+        jsr emit_fmul_op
+        jmp _term_loop
 
 _term_mul_constlhs:
         jsr fold_save_lhs
         jsr compile_factor
         bcs _term_constlhs_fail
         jsr fold_restore_lhs
+        lda expr_type
+        bne _term_mul_const_flt
         lda const_state
         beq _term_mul_mixed
         jsr fold_mul16          ; const = fold_lhs * const (low 16, like mul16)
-        bra _term_loop
+        jmp _term_loop
+
+_term_mul_const_flt:
+        jsr emit_load_lhs_const
+        jsr emit_pop_promote_lhs_none
+        jsr emit_fmul_op
+        jmp _term_loop
 
 _term_mul_mixed:
         jsr emit_load_lhs_const
         jsr emit_mul_lhs_expr
-        bra _term_loop
+        jmp _term_loop
 
 _term_div:
         jsr line_get
         lda const_state
         bne _term_div_constlhs
+        lda expr_type
+        bne _term_div_flhs
         ldx #0
         jsr probe_simple_rhs
         bcs _term_div_general
@@ -3583,24 +3768,52 @@ _term_div_general:
         jsr compile_factor
         bcs _term_fail
         jsr materialize_const
+        lda expr_type
+        bne _term_div_int_flt
         jsr emit_pop_lhs
         jsr emit_div_lhs_expr
         bra _term_loop
+
+_term_div_int_flt:
+        jsr emit_pop_promote_lhs
+        jsr emit_fdiv_op
+        jmp _term_loop
+
+_term_div_flhs:
+        jsr emit_fpush_expr
+        jsr compile_factor
+        bcs _term_fail
+        jsr materialize_const
+        lda expr_type
+        bne _term_div_ff
+        jsr emit_float16_expr
+_term_div_ff:
+        jsr emit_fpoparg_expr
+        jsr emit_fdiv_op
+        jmp _term_loop
 
 _term_div_constlhs:
         jsr fold_save_lhs
         jsr compile_factor
         bcs _term_constlhs_fail
         jsr fold_restore_lhs
+        lda expr_type
+        bne _term_div_const_flt
         lda const_state
         beq _term_div_mixed
         jsr fold_udiv16         ; const = fold_lhs / const (unsigned, /0 = 0)
-        bra _term_loop
+        jmp _term_loop
+
+_term_div_const_flt:
+        jsr emit_load_lhs_const
+        jsr emit_pop_promote_lhs_none
+        jsr emit_fdiv_op
+        jmp _term_loop
 
 _term_div_mixed:
         jsr emit_load_lhs_const
         jsr emit_div_lhs_expr
-        bra _term_loop
+        jmp _term_loop
 
 _term_constlhs_fail:
         pla                     ; discard the saved left constant
@@ -3711,10 +3924,13 @@ emit_load_lhs_const:
 compile_factor:
         lda #0
         sta const_state         ; every factor kind except literals emits
+        sta expr_type
         jsr line_skip_spaces
         jsr line_at_end
         bcs _factor_fail
         jsr line_peek
+        cmp #'.'
+        beq _factor_number      ; leading-dot float literal
         cmp #'$'
         beq _factor_number
         cmp #'0'
@@ -3750,8 +3966,14 @@ _factor_fail:
         rts
 
 _factor_number:
+        lda line_idx
+        sta flt_saved_idx
+        jsr parse_float_literal_to_string_temp
+        bcc _factor_float_literal
+        lda flt_saved_idx
+        sta line_idx
         jsr line_parse_number
-        bcs _factor_fail
+        bcs _factor_number_fail
         lda number_lo
         sta const_lo
         lda number_hi
@@ -3759,6 +3981,24 @@ _factor_number:
         lda #1
         sta const_state
         clc
+        rts
+
+_factor_float_literal:
+        jsr intern_string_temp
+        bcs _factor_number_fail
+        jsr flt_slot_for_string
+        bcs _factor_number_fail
+        jsr emit_set_varptr_current
+        lda #<out_jsr_floadvar
+        ldy #>out_jsr_floadvar
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        clc
+        rts
+
+_factor_number_fail:
+        sec
         rts
 
 _factor_variable:
@@ -3778,7 +4018,7 @@ _factor_variable:
 _factor_scalar_variable:
         jsr resolve_var
         bcs _factor_fail
-        jsr emit_load_var
+        jsr emit_load_var_typed
         clc
         rts
 
@@ -3831,6 +4071,14 @@ _factor_unary_minus:
         clc
         rts
 _factor_minus_emit:
+        lda expr_type
+        beq _factor_minus_int
+        lda #<out_jsr_fneg
+        ldy #>out_jsr_fneg
+        jsr out_zstr
+        clc
+        rts
+_factor_minus_int:
         jsr emit_neg_expr
         clc
         rts
@@ -3855,6 +4103,10 @@ _factor_not_store:
         clc
         rts
 _factor_not_emit:
+        lda expr_type
+        beq _factor_not_int
+        jsr emit_qint_expr
+_factor_not_int:
         jsr emit_not_expr
         clc
         rts
@@ -3899,10 +4151,18 @@ _factor_abs:
         jsr line_get
         jsr parse_open_paren
         bcs _factor_fail
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
+        lda expr_type
+        beq _factor_abs_int
+        lda #<out_jsr_fabsf
+        ldy #>out_jsr_fabsf
+        jsr out_zstr
+        clc
+        rts
+_factor_abs_int:
         jsr emit_abs_expr
         clc
         rts
@@ -3911,10 +4171,18 @@ _factor_sgn:
         jsr line_get
         jsr parse_open_paren
         bcs _factor_fail
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
+        lda expr_type
+        beq _factor_sgn_int
+        lda #<out_jsr_fsgnf
+        ldy #>out_jsr_fsgnf
+        jsr out_zstr
+        clc
+        rts
+_factor_sgn_int:
         jsr emit_sgn_expr
         clc
         rts
@@ -3923,10 +4191,16 @@ _factor_int:
         jsr line_get
         jsr parse_open_paren
         bcs _factor_fail
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
+        lda expr_type
+        beq _factor_int_done
+        lda #<out_jsr_fintf
+        ldy #>out_jsr_fintf
+        jsr out_zstr
+_factor_int_done:
         clc
         rts
 
@@ -4110,8 +4384,6 @@ _print_expression:
         bcc _print_string_var_done
         jsr try_compile_print_numeric_var
         bcc _print_string_var_done
-        jsr try_compile_print_float_literal
-        bcc _print_string_var_done
         jsr string_expression_starts
         bcs _print_numeric_expression
         jsr emit_string_temp_mark
@@ -4122,10 +4394,18 @@ _print_expression:
         bra _print_string_var_done
 
 _print_numeric_expression:
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _print_expression_bad
+        lda expr_type
+        bne _print_numeric_float
         lda #<out_jsr_printuint
         ldy #>out_jsr_printuint
+        jsr out_zstr
+        bra _print_string_var_done
+
+_print_numeric_float:
+        lda #<out_jsr_printflt
+        ldy #>out_jsr_printflt
         jsr out_zstr
 
 _print_string_var_done:
@@ -4506,7 +4786,13 @@ _try_print_num_var_scalar:
         rts
 
 _try_print_num_var_float:
-        jsr emit_print_num_var_current
+        jsr emit_set_varptr_current
+        lda #<out_jsr_floadvar
+        ldy #>out_jsr_floadvar
+        jsr out_zstr
+        lda #<out_jsr_printflt
+        ldy #>out_jsr_printflt
+        jsr out_zstr
         clc
         rts
 
@@ -4518,24 +4804,6 @@ _try_print_num_var_fail:
         sec
         rts
 
-try_compile_print_float_literal:
-        lda line_idx
-        sta line_idx_save
-        jsr parse_float_literal_to_string_temp
-        bcs _try_print_float_restore_fail
-        jsr try_print_item_end
-        bcs _try_print_float_restore_fail
-        jsr intern_string_temp
-        bcs _try_print_float_restore_fail
-        jsr emit_print_float_literal_current
-        clc
-        rts
-
-_try_print_float_restore_fail:
-        lda line_idx_save
-        sta line_idx
-        sec
-        rts
 
 try_print_item_end:
         jsr line_skip_spaces
@@ -5651,6 +5919,53 @@ _string_temp_append_fail:
         sec
         rts
 
+; find or allocate the bank-1 5-byte slot for the float literal whose text
+; was just interned as current_string_id; result in current_var_data_lo/hi
+flt_slot_for_string:
+        ldx #0
+_flt_slot_scan:
+        cpx flt_lit_count
+        beq _flt_slot_new
+        lda flt_lit_sid,x
+        cmp current_string_id
+        beq _flt_slot_found
+        inx
+        bra _flt_slot_scan
+_flt_slot_found:
+        lda flt_lit_addr_lo,x
+        sta current_var_data_lo
+        lda flt_lit_addr_hi,x
+        sta current_var_data_hi
+        clc
+        rts
+_flt_slot_new:
+        cpx #FLT_LIT_MAX
+        bcs _flt_slot_fail
+        lda var_heap_next_hi
+        cmp #>VAR_HEAP_LIMIT
+        bcs _flt_slot_fail
+        lda current_string_id
+        sta flt_lit_sid,x
+        lda var_heap_next_lo
+        sta flt_lit_addr_lo,x
+        sta current_var_data_lo
+        lda var_heap_next_hi
+        sta flt_lit_addr_hi,x
+        sta current_var_data_hi
+        inc flt_lit_count
+        clc
+        lda var_heap_next_lo
+        adc #5
+        sta var_heap_next_lo
+        bcc _flt_slot_done
+        inc var_heap_next_hi
+_flt_slot_done:
+        clc
+        rts
+_flt_slot_fail:
+        sec
+        rts
+
 intern_string_temp:
         ldx string_temp_len
         lda #0
@@ -6147,14 +6462,14 @@ emit_generated_header:
 
 _emit_generated_header_bin:
         ; program header at progbase: start, varheapend, datastart, dataend,
-        ; strroots vectors (5 words); start label sits right after them
+        ; strroots, fltinit vectors (6 words); start label follows them
         cpx #BK_EMIT
         beq _emit_header_vectors
-        lda #10
+        lda #12
         jmp bin_add_pc
 
 _emit_header_vectors:
-        lda #$0a                ; start = $400a
+        lda #$0c                ; start = $400c
         jsr bin_write_byte
         lda #$40
         jsr bin_write_byte
@@ -6173,6 +6488,10 @@ _emit_header_vectors:
         lda strroots_addr
         jsr bin_write_byte
         lda strroots_addr+1
+        jsr bin_write_byte
+        lda fltinit_addr
+        jsr bin_write_byte
+        lda fltinit_addr+1
         jmp bin_write_byte
 
 emit_generated_tail:
@@ -6183,10 +6502,64 @@ emit_generated_tail:
         jsr emit_string_pool
         jsr emit_data_table
         jsr emit_string_roots
+        jsr emit_flt_table
         jsr emit_for_storage
         lda #<out_size_guard
         ldy #>out_size_guard
         jsr out_zstr
+        rts
+
+emit_flt_table:
+        ldx backend_mode
+        beq _emit_flt_text
+        lda bin_pc
+        sta fltinit_addr
+        lda bin_pc+1
+        sta fltinit_addr+1
+_emit_flt_text:
+        lda #<out_fltinit_label
+        ldy #>out_fltinit_label
+        jsr out_zstr
+        lda #0
+        sta root_emit_idx
+_emit_flt_loop:
+        lda root_emit_idx
+        cmp flt_lit_count
+        bcs _emit_flt_term
+        tax
+        lda flt_lit_addr_lo,x
+        sta number_lo
+        lda flt_lit_addr_hi,x
+        sta number_hi
+        lda flt_lit_sid,x
+        sta current_string_id
+        lda #<out_word_hex_prefix
+        ldy #>out_word_hex_prefix
+        jsr out_zstr
+        jsr out_hex_word_number
+        jsr out_cr
+        lda #<out_data_word_prefix
+        ldy #>out_data_word_prefix
+        jsr out_zstr
+        jsr out_string_ref
+        jsr out_cr
+        inc root_emit_idx
+        bra _emit_flt_loop
+_emit_flt_term:
+        lda #0
+        sta number_lo
+        sta number_hi
+        lda #<out_word_hex_prefix
+        ldy #>out_word_hex_prefix
+        jsr out_zstr
+        jsr out_hex_word_number
+        jsr out_cr
+        lda #<out_word_hex_prefix
+        ldy #>out_word_hex_prefix
+        jsr out_zstr
+        jsr out_hex_word_number
+        jsr out_cr
+        jsr out_cr
         rts
 
 emit_varheapend:
@@ -6873,23 +7246,49 @@ emit_load_number:
         jsr out_zstr
         rts
 
+; integer-semantics load: float variables convert through qint, so FOR,
+; READ, INPUT, and GET keep their 16-bit machinery
 emit_load_var:
         jsr emit_set_varptr_current
         ldx current_sym_index
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
-        beq _emit_load_num_var
+        beq _emit_load_var_float
         lda #<out_jsr_loadintvar
         ldy #>out_jsr_loadintvar
         jsr out_zstr
         rts
 
-_emit_load_num_var:
-        lda #<out_jsr_loadnumvar
-        ldy #>out_jsr_loadnumvar
+_emit_load_var_float:
+        lda #<out_jsr_floadvar
+        ldy #>out_jsr_floadvar
+        jsr out_zstr
+        lda #<out_jsr_qint
+        ldy #>out_jsr_qint
         jsr out_zstr
         rts
 
+; typed load for expression factors: float variables land in FAC
+emit_load_var_typed:
+        jsr emit_set_varptr_current
+        ldx current_sym_index
+        lda sym_type,x
+        cmp #VAR_TYPE_FLOAT
+        beq _emit_load_var_typed_f
+        lda #<out_jsr_loadintvar
+        ldy #>out_jsr_loadintvar
+        jsr out_zstr
+        rts
+
+_emit_load_var_typed_f:
+        lda #<out_jsr_floadvar
+        ldy #>out_jsr_floadvar
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        rts
+
+; integer-source store: float variables convert through float16
 emit_store_var:
         lda assign_var_data_lo
         sta current_var_data_lo
@@ -6898,39 +7297,28 @@ emit_store_var:
         jsr emit_set_varptr_current
         lda assign_var_type
         cmp #VAR_TYPE_FLOAT
-        beq _emit_store_num_var
+        beq _emit_store_var_float
         jsr emit_store_ptr
         rts
 
-_emit_store_num_var:
-        lda #<out_jsr_storenumvar
-        ldy #>out_jsr_storenumvar
+_emit_store_var_float:
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
         jsr out_zstr
         rts
 
-emit_store_float_literal_current:
+; float-source store (assignment right side already in FAC)
+emit_store_var_fac:
         lda assign_var_data_lo
         sta current_var_data_lo
         lda assign_var_data_hi
         sta current_var_data_hi
         jsr emit_set_varptr_current
-        jsr emit_set_rtptr_string_current
-        lda #<out_jsr_storefloatref
-        ldy #>out_jsr_storefloatref
-        jsr out_zstr
-        rts
-
-emit_print_float_literal_current:
-        jsr emit_set_rtptr_string_current
-        lda #<out_jsr_printfloatref
-        ldy #>out_jsr_printfloatref
-        jsr out_zstr
-        rts
-
-emit_print_num_var_current:
-        jsr emit_set_varptr_current
-        lda #<out_jsr_printnumvar
-        ldy #>out_jsr_printnumvar
+        lda #<out_jsr_fstorevar
+        ldy #>out_jsr_fstorevar
         jsr out_zstr
         rts
 
@@ -7163,8 +7551,8 @@ _probe_not_number:
         jsr parse_variable_with_first_char
         bcs _probe_fail
         lda var_type
-        jsr var_type_is_numeric
-        bcs _probe_fail
+        cmp #VAR_TYPE_INT
+        bne _probe_fail
         jsr line_skip_spaces
         jsr line_at_end
         bcs _probe_ok
@@ -7176,6 +7564,15 @@ _probe_not_number:
 _probe_number:
         jsr line_parse_number
         bcs _probe_fail
+        jsr line_at_end
+        bcs _probe_ok
+        jsr line_peek
+        cmp #'.'
+        beq _probe_fail
+        cmp #$65                ; ASCII 'e'
+        beq _probe_fail
+        cmp #$45                ; PETSCII 'e'
+        beq _probe_fail
         jsr line_skip_spaces
         jsr line_at_end
         bcs _probe_ok
@@ -7337,6 +7734,48 @@ emit_not_expr:
         jsr emit_load_number
         jsr emit_ondone_label_def
         rts
+
+emit_fcompare_bool:
+        lda #0
+        sta expr_type
+        lda cond_op
+        cmp #COND_EQ
+        beq _emit_fbool_eq
+        cmp #COND_NE
+        beq _emit_fbool_ne
+        cmp #COND_LT
+        beq _emit_fbool_lt
+        cmp #COND_LE
+        beq _emit_fbool_le
+        cmp #COND_GT
+        beq _emit_fbool_gt
+        cmp #COND_GE
+        beq _emit_fbool_ge
+        rts
+_emit_fbool_eq:
+        lda #<out_jsr_fcmpeqb
+        ldy #>out_jsr_fcmpeqb
+        jmp out_zstr
+_emit_fbool_ne:
+        lda #<out_jsr_fcmpneb
+        ldy #>out_jsr_fcmpneb
+        jmp out_zstr
+_emit_fbool_lt:
+        lda #<out_jsr_fcmpltb
+        ldy #>out_jsr_fcmpltb
+        jmp out_zstr
+_emit_fbool_le:
+        lda #<out_jsr_fcmpleb
+        ldy #>out_jsr_fcmpleb
+        jmp out_zstr
+_emit_fbool_gt:
+        lda #<out_jsr_fcmpgtb
+        ldy #>out_jsr_fcmpgtb
+        jmp out_zstr
+_emit_fbool_ge:
+        lda #<out_jsr_fcmpgeb
+        ldy #>out_jsr_fcmpgeb
+        jmp out_zstr
 
 emit_compare_expr_to_bool:
         lda cond_op
@@ -9236,6 +9675,8 @@ out_header:
         .text "        .word dataend"
         .byte 13
         .text "        .word strroots"
+        .byte 13
+        .text "        .word fltlits"
         .byte 13, 13
         .text "start:"
         .byte 13
@@ -9397,21 +9838,83 @@ out_jsr_loadintvar:
 out_jsr_storeintvar:
         .text "        jsr storeintvar"
         .byte 13, 0
-out_jsr_loadnumvar:
-        .text "        jsr loadnumvar"
+out_jsr_floadvar:
+        .text "        jsr floadvar"
         .byte 13, 0
-out_jsr_storenumvar:
-        .text "        jsr storenumvar"
+out_jsr_fstorevar:
+        .text "        jsr fstorevar"
         .byte 13, 0
-out_jsr_storefloatref:
-        .text "        jsr storefloatref"
+out_jsr_float16:
+        .text "        jsr float16"
         .byte 13, 0
-out_jsr_printnumvar:
-        .text "        jsr printnumvar"
+out_jsr_qint:
+        .text "        jsr qint"
         .byte 13, 0
-out_jsr_printfloatref:
-        .text "        jsr printfloatref"
+out_jsr_printflt:
+        .text "        jsr printflt"
         .byte 13, 0
+out_jsr_fpush:
+        .text "        jsr fpush"
+        .byte 13, 0
+out_jsr_fpoparg:
+        .text "        jsr fpoparg"
+        .byte 13, 0
+out_jsr_fadd:
+        .text "        jsr fadd"
+        .byte 13, 0
+out_jsr_fsub:
+        .text "        jsr fsub"
+        .byte 13, 0
+out_jsr_fmul:
+        .text "        jsr fmul"
+        .byte 13, 0
+out_jsr_fdiv:
+        .text "        jsr fdiv"
+        .byte 13, 0
+out_jsr_fneg:
+        .text "        jsr fneg"
+        .byte 13, 0
+out_jsr_fabsf:
+        .text "        jsr fabsf"
+        .byte 13, 0
+out_jsr_fsgnf:
+        .text "        jsr fsgnf"
+        .byte 13, 0
+out_jsr_fintf:
+        .text "        jsr fintf"
+        .byte 13, 0
+out_jsr_ftruth:
+        .text "        jsr ftruth"
+        .byte 13, 0
+out_jsr_fpromotelhs:
+        .text "        jsr fpromotelhs"
+        .byte 13, 0
+out_jsr_fcmpeqb:
+        .text "        jsr fcmpeqb"
+        .byte 13, 0
+out_jsr_fcmpneb:
+        .text "        jsr fcmpneb"
+        .byte 13, 0
+out_jsr_fcmpltb:
+        .text "        jsr fcmpltb"
+        .byte 13, 0
+out_jsr_fcmpleb:
+        .text "        jsr fcmpleb"
+        .byte 13, 0
+out_jsr_fcmpgtb:
+        .text "        jsr fcmpgtb"
+        .byte 13, 0
+out_jsr_fcmpgeb:
+        .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_fltinit_label:
+        .text "; float literal slots"
+        .byte 13
+        .text "fltlits:"
+        .byte 13, 0
+out_word_hex_prefix:
+        .text "        .word $"
+        .byte 0
 out_jsr_readint:
         .text "        jsr readint"
         .byte 13, 0
@@ -10173,6 +10676,21 @@ fold_ret_lo:
         .byte 0
 fold_ret_hi:
         .byte 0
+expr_type:
+        .byte 0
+flt_saved_idx:
+        .byte 0
+flt_lit_count:
+        .byte 0
+fltinit_addr:
+        .word 0
+FLT_LIT_MAX = 64
+flt_lit_sid:
+        .fill FLT_LIT_MAX, 0
+flt_lit_addr_lo:
+        .fill FLT_LIT_MAX, 0
+flt_lit_addr_hi:
+        .fill FLT_LIT_MAX, 0
 line_emit_idx:
         .byte 0
 datastart_addr:
@@ -10298,8 +10816,8 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
-LBL_IF_IDS      = 1024
-LBL_ON_IDS      = 512
+LBL_IF_IDS      = 768
+LBL_ON_IDS      = 384
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 64
 
