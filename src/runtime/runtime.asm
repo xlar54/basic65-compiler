@@ -117,6 +117,15 @@ _rtinit_vecs:
         sta varptr+2
         lda #$00
         sta varptr+3
+        ; bank the C65 BASIC and editor ROMs out of $8000-$cfff BEFORE
+        ; fltinit: large programs keep their literal text above $8000, and
+        ; reading it through the ROMs hands valflt garbage (zero or
+        ; OVERFLOW floats, varying with ROM content). The KERNAL stays
+        ; mapped at $e000; the bits are restored before returning to BASIC
+        lda $d030
+        sta rtd030save
+        and #%11000111
+        sta $d030
         jsr fltinit             ; convert float literals (needs the above)
         lda $dc04               ; seed RND from the CIA timer
         sta rndseed
@@ -126,16 +135,8 @@ _rtinit_vecs:
         sta rndseed+1
         eor #$2f
         sta rndseed+3
-        ; bank the C65 BASIC and editor ROMs out of $8000-$cfff so large
-        ; programs can execute there; the KERNAL stays mapped at $e000 for
-        ; CHROUT and friends, and the ROM bits are restored before returning
-        ; to the BASIC SYS caller
         tsx
         stx rtspsave
-        lda $d030
-        sta rtd030save
-        and #%11000111
-        sta $d030
         jsr rtcallprog
         jsr rtsndshut
         lda rtd030save
