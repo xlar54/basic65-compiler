@@ -171,7 +171,11 @@ FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 DATA_MAX                = 128
+.if TEXT_EMITTER
+DATA_LINE_MAX           = 48    ; checked build: squeezed under $c000
+.else
 DATA_LINE_MAX           = 64
+.fi
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
@@ -2039,6 +2043,21 @@ _compile_let:
         bra _compile_line_loop
 
 _compile_clr:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_clr_plain
+        jsr line_peek
+        cmp #$54                ; CLR TI resets the seconds timer
+        bne _compile_clr_plain
+        jsr line_get
+        jsr line_get
+        cmp #$49
+        bne _compile_clr_plain
+        lda #<out_jsr_clrti
+        ldy #>out_jsr_clrti
+        jsr out_zstr
+        jmp _compile_line_loop
+_compile_clr_plain:
         lda #<out_jsr_rtclr
         ldy #>out_jsr_rtclr
         jsr out_zstr
@@ -12537,6 +12556,13 @@ out_jsr_fpowi:
 out_jsr_rdti:
 .if TEXT_EMITTER
         .text "        jsr rdti"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_clrti:
+.if TEXT_EMITTER
+        .text "        jsr clrti"
         .byte 13, 0
 .else
         .byte 0

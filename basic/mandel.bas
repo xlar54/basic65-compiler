@@ -1,5 +1,5 @@
 10 print chr$(147);:print "mandelbrot benchmark"
-20 t0=ti
+20 clr ti
 30 for py=0 to 20
 40 for px=0 to 39
 50 x0=px/40*3.5-2.5:y0=py/21*2-1
@@ -14,5 +14,5 @@
 140 print
 150 next py
 160 t1=ti
-170 print "jiffies:";t1-t0;" seconds:";(t1-t0)/50
+170 print "seconds:";t1
 180 print "mandel done"

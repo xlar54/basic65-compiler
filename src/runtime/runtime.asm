@@ -2179,9 +2179,43 @@ floadx_fac:
         sta facext
         rts
 
-; TI: the 24-bit jiffy clock as a float
+; TI: seconds since CLR TI as a float (BASIC65 semantics; jiffy
+; granularity here, not the ROM timer's microseconds)
 rdti:
         jsr kernalrdtim         ; A = low, X = mid, Y = high
+        sec
+        sbc ti_base
+        sta ti_j
+        txa
+        sbc ti_base+1
+        sta ti_j+1
+        tya
+        sbc ti_base+2
+        tay
+        lda ti_j
+        ldx ti_j+1
+        jsr rdti24              ; FAC = jiffy delta from A/X/Y
+        jsr fpush
+        lda #50                 ; PAL 50 jiffies/second, NTSC 60
+        sta exprlo
+        lda $d06f
+        bpl +
+        lda #60
+        sta exprlo
++       lda #0
+        sta exprhi
+        jsr float16
+        jsr fpoparg
+        jmp fdiv                ; seconds = jiffies / rate
+
+clrti:
+        jsr kernalrdtim
+        sta ti_base
+        stx ti_base+1
+        sty ti_base+2
+        rts
+
+rdti24:
         sta ti_lo
         stx exprlo
         sty exprhi
@@ -4317,6 +4351,8 @@ rtfltinit:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
+ti_base:      .byte 0,0,0
+ti_j:         .byte 0,0
 rtpbhi:       .byte >rtpb       ; native writer patches this during copy
 mthbuf:       .fill 21, 0
 mth_ptr:      .byte 0,0
