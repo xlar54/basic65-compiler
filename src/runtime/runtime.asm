@@ -98,6 +98,8 @@ rtinit:
         ; programs can execute there; the KERNAL stays mapped at $e000 for
         ; CHROUT and friends, and the ROM bits are restored before returning
         ; to the BASIC SYS caller
+        tsx
+        stx rtspsave
         lda $d030
         sta rtd030save
         and #%11000111
@@ -108,6 +110,15 @@ rtinit:
         rts
 rtcallprog:
         jmp (progbase)
+
+; END/STOP from any GOSUB depth: unwind the stack to the pre-program mark,
+; restore the ROM mapping, and return to the BASIC SYS caller
+rtexit:
+        ldx rtspsave
+        txs
+        lda rtd030save
+        sta $d030
+        rts
 
 ;=======================================================================================
 ; Variable heap runtime
@@ -2236,6 +2247,7 @@ rtdatastart:  .byte 0,0
 rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
 rtd030save:   .byte 0
+rtspsave:     .byte 0
 
 ; integer runtime storage
 exprlo:       .byte 0

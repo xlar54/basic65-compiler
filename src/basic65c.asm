@@ -1568,8 +1568,8 @@ _compile_return:
         bra _compile_line_loop
 
 _compile_end:
-        lda #<out_rts
-        ldy #>out_rts
+        lda #<out_jmp_rtexit
+        ldy #>out_jmp_rtexit
         jsr out_zstr
         jsr line_skip_to_end
         bra _compile_line_loop
@@ -7996,7 +7996,7 @@ out_comment_load_addr:
         .byte 0
 
 out_tail:
-        .text "        rts"
+        .text "        jmp rtexit"
         .byte 13
         .byte 13
         .byte 0
@@ -8578,6 +8578,9 @@ out_sta_abs:
         .byte 0
 out_rts:
         .text "        rts"
+        .byte 13, 0
+out_jmp_rtexit:
+        .text "        jmp rtexit"
         .byte 13, 0
 out_rem:
         .text "        ; rem"

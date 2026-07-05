@@ -58,6 +58,27 @@ projects. When the SEQ is exported back to the PC, keep it as
 64tass --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg
 ```
 
+## Automated Testing
+
+`tools\emu-test.ps1` runs a fixture end-to-end without touching the emulator:
+
+```bat
+powershell -File tools\emu-test.ps1 -Fixture basic\strings.bas
+powershell -File tools\emu-test.ps1 -All
+```
+
+It builds the D81, boots xemu with `tools\bootstrap.bas` (which answers the
+source-file prompt through the `$D619` PETSCII keyboard-injection register and
+chain-loads the compiler), polls the D81 until `OUT.ASM` appears, links it
+with the runtime, then chain-loads `OUT.PRG` with `tools\bootstrap-run.bas`
+and captures the final screen. `bad_data.bas` is treated as a negative test
+(it must fail to compile), and `ioarray.bas` is skipped because it blocks on
+`INPUT`. Fixture output containing `FAIL` marks the fixture suspect; the exit
+code is nonzero when anything fails.
+
+Point `-Xemu` at your `xmega65.exe` if it is not at
+`C:\Emulation\Mega65\xmega65.exe`.
+
 ## Token Reference
 
 Token values come from the project-provided BASIC65 keyword/token charts,
@@ -201,7 +222,8 @@ Supported BASIC today:
 - `ON integer-expression GOTO`
 - `ON integer-expression GOSUB`
 - `RETURN`
-- `END`, `STOP`
+- `END`, `STOP`, terminating from any `GOSUB` depth via the runtime's `rtexit`
+  stack unwind (falling off the end of the program behaves the same way)
 - `SYS`
 - `POKE` with expression address and expression value
 - `REM`
@@ -224,6 +246,10 @@ numbers. `OUT.ASM` is only replaced after a clean compile.
 - Numeric arguments can be decimal or hex with a `$` prefix.
 - `SYS` currently accepts a literal 16-bit address.
 - Generated code calls the KERNAL `CHROUT` vector for compiled `PRINT` output.
+- The runtime banks the C65 BASIC and editor ROMs out of `$8000-$cfff` while
+  the program runs (VIC-III `$D030` ROM bits, restored on exit), so programs
+  can grow to `$d000`. The compiler emits a `.cerror` guard that fails the
+  PC-side assembly if a program would cross into I/O space.
 - The compiler and generated code avoid using `STZ` as "store zero"; on 45GS02
   `STZ` stores the Z register.
 - Keep all readable BASIC test fixtures in `basic\`.
