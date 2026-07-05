@@ -4452,10 +4452,10 @@ rtshutnop:
 rtendcore:
 
 .weak
-RT_SOUND = 1                    ; OUT.ASM sets 0 when the program uses no sound
+RTSOUND = 1                    ; OUT.ASM sets 0 when the program uses no sound
 .endweak
 
-.if RT_SOUND != 0
+.if RTSOUND != 0
 
 ;=======================================================================================
 ; Optional sections below: programs that never use sound, PLAY, or
