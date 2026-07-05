@@ -1598,6 +1598,178 @@ pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
+; Sprites and joystick: SPRITE attribute form, MOVSPR absolute position,
+; SPRCOLOR, JOY(), BUMP(). Attribute setters write the VIC-II registers
+; directly so omitted SPRITE arguments leave state untouched, like the
+; interpreter. MOVSPR uses raw VIC coordinates (x MSB via $d010).
+;=======================================================================================
+
+sprbit:
+        .byte $01, $02, $04, $08, $10, $20, $40, $80
+
+sprsetn:
+        lda exprlo
+        and #7
+        sta spr_n
+        rts
+
+sprswitch:
+        ldx spr_n
+        lda exprlo
+        beq _sprswitch_off
+        lda sprbit,x
+        ora $d015
+        sta $d015
+        rts
+_sprswitch_off:
+        lda sprbit,x
+        eor #$ff
+        and $d015
+        sta $d015
+        rts
+
+sprsetfg:
+        ldx spr_n
+        lda exprlo
+        sta $d027,x
+        rts
+
+; prio 1 = sprite in front of screen data = $d01b bit CLEAR
+sprsetprio:
+        ldx spr_n
+        lda exprlo
+        beq _sprprio_behind
+        lda sprbit,x
+        eor #$ff
+        and $d01b
+        sta $d01b
+        rts
+_sprprio_behind:
+        lda sprbit,x
+        ora $d01b
+        sta $d01b
+        rts
+
+sprsetexpx:
+        lda #<$d01d
+        sta rtptr
+        bra sprbitreg
+sprsetexpy:
+        lda #<$d017
+        sta rtptr
+        bra sprbitreg
+sprsetmode:
+        lda #<$d01c
+        sta rtptr
+
+; set or clear this sprite's bit in the VIC register at $d0xx (low byte
+; staged in rtptr) according to exprlo being nonzero or zero
+sprbitreg:
+        lda #>$d000
+        sta rtptr+1
+        ldx spr_n
+        ldz #0
+        lda exprlo
+        beq _sprbitreg_clear
+        lda sprbit,x
+        ora (rtptr),z
+        sta (rtptr),z
+        rts
+_sprbitreg_clear:
+        lda sprbit,x
+        eor #$ff
+        and (rtptr),z
+        sta (rtptr),z
+        rts
+
+sprsetx:
+        lda exprlo
+        sta spr_x
+        lda exprhi
+        sta spr_x+1
+        rts
+
+; MOVSPR n,x,y: y arrives in exprlo, x was staged by sprsetx
+movsprgo:
+        lda spr_n
+        asl a
+        tay
+        lda spr_x
+        sta $d000,y
+        lda exprlo
+        sta $d001,y
+        ldx spr_n
+        lda spr_x+1
+        beq _movspr_msboff
+        lda sprbit,x
+        ora $d010
+        sta $d010
+        rts
+_movspr_msboff:
+        lda sprbit,x
+        eor #$ff
+        and $d010
+        sta $d010
+        rts
+
+sprmc1:
+        lda exprlo
+        sta $d025
+        rts
+
+sprmc2:
+        lda exprlo
+        sta $d026
+        rts
+
+; JOY(port): 0 centre, 1-8 clockwise from up, bit 7 = fire
+joyf:
+        lda exprlo
+        cmp #1
+        bne _joy_port2
+        lda $dc01
+        bra _joy_decode
+_joy_port2:
+        lda $dc00
+_joy_decode:
+        eor #$ff
+        tay
+        and #$0f
+        tax
+        lda joytab,x
+        sta exprlo
+        tya
+        and #$10
+        beq _joy_nofire
+        lda exprlo
+        ora #$80
+        sta exprlo
+_joy_nofire:
+        lda #0
+        sta exprhi
+        rts
+
+; index bits: 0=up 1=down 2=left 3=right (already inverted to active-high)
+joytab:
+        .byte 0, 1, 5, 0, 7, 8, 6, 0, 3, 2, 4, 0, 0, 0, 0, 0
+
+; BUMP(type): 1 sprite-sprite ($d01e), else sprite-data ($d01f);
+; the VIC latches collisions and clears the register on read
+bumpf:
+        lda exprlo
+        cmp #1
+        bne _bump_data
+        lda $d01e
+        bra _bump_done
+_bump_data:
+        lda $d01f
+_bump_done:
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+;=======================================================================================
 ; Sound: VOL and SOUND voice,freq,dur[,dir,min,sweep,wave,pulse] per the
 ; BASIC65 spec: voices 1-3 on SID2 ($d420), 4-6 on SID4 ($d460); default
 ; waveform is square with 50% duty. Durations and sweeps tick once per
@@ -4729,6 +4901,8 @@ snd_pmin_lo:  .fill 6, 0
 snd_pmin_hi:  .fill 6, 0
 snd_pswp_lo:  .fill 6, 0
 snd_pswp_hi:  .fill 6, 0
+spr_n:        .byte 0
+spr_x:        .byte 0,0
 snd_pdir:     .fill 6, 0
 snd_phase:    .fill 6, 0
 snd_vectab:   .fill 64, 0       ; KERNAL vector table copy (with headroom)

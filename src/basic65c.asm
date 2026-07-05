@@ -88,6 +88,7 @@ TOK_INPUT_HASH          = $84
 TOK_TRAP                = $D7
 TOK_RESUME              = $D6
 TOK_SOUND               = $DA
+TOK_JOY                 = $CF
 TOK_VOL                 = $DB
 TOK_SPC                 = $A6
 TOK_LEN                 = $C3
@@ -158,7 +159,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $0A00
+STRING_POOL_MAX         = $0780
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -1841,6 +1842,8 @@ _compile_line_loop:
         beq _compile_sound
         cmp #TOK_VOL
         beq _compile_vol
+        cmp #TOK_EXT_FE
+        beq _compile_ext_fe
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -1988,6 +1991,10 @@ _compile_sound:
 
 _compile_vol:
         jsr compile_vol
+        jmp _compile_line_loop
+
+_compile_ext_fe:
+        jsr compile_ext_fe
         jmp _compile_line_loop
 
 _compile_if:
@@ -4205,6 +4212,8 @@ _factor_not_number:
         beq _factor_instr
         cmp #TOK_EXT_CE
         beq _factor_ext_ce
+        cmp #TOK_JOY
+        beq _factor_joy
         jsr is_var_start
         bcc _factor_variable
 _factor_fail:
@@ -4655,6 +4664,8 @@ _factor_ext_ce:
         bcs _factor_fail
         jsr line_get
         cmp #TOK_CE_WPEEK
+        beq _factor_wpeek
+        cmp #$03                ; BUMP
         bne _factor_fail
         jsr parse_open_paren
         bcs _factor_fail
@@ -4662,7 +4673,34 @@ _factor_ext_ce:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
+        lda #<out_jsr_bumpf
+        ldy #>out_jsr_bumpf
+        jsr out_zstr
+        clc
+        rts
+
+_factor_wpeek:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
         jsr emit_wpeek_expr
+        clc
+        rts
+
+_factor_joy:
+        jsr line_get            ; consume the JOY token
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_joyf
+        ldy #>out_jsr_joyf
+        jsr out_zstr
         clc
         rts
 
@@ -5003,6 +5041,154 @@ _compile_trap_arm:
         ldy #>out_sta_traphi
         jsr out_zstr
         rts
+
+; dispatch $FE-prefixed statements by their second token byte
+compile_ext_fe:
+        jsr line_get
+        cmp #$06
+        beq _compile_ext_movspr
+        cmp #$07
+        beq _compile_ext_sprite
+        cmp #$08
+        beq _compile_ext_sprcolor
+        lda #<msg_error_bad_sprite
+        ldy #>msg_error_bad_sprite
+        jsr fatal_statement_error
+        rts
+_compile_ext_movspr:
+        jmp compile_movspr
+_compile_ext_sprite:
+        jmp compile_sprite
+_compile_ext_sprcolor:
+        jmp compile_sprcolor
+
+; MOVSPR num, x, y -- absolute pixel position form only
+compile_movspr:
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsetn
+        ldy #>out_jsr_sprsetn
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sprite_bad
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsetx
+        ldy #>out_jsr_sprsetx
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sprite_bad
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_movsprgo
+        ldy #>out_jsr_movsprgo
+        jsr out_zstr
+        clc
+        rts
+
+compile_sprite_bad:
+        lda #<msg_error_bad_sprite
+        ldy #>msg_error_bad_sprite
+        jsr fatal_statement_error
+        rts
+
+compile_sprcolor:
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprmc1
+        ldy #>out_jsr_sprmc1
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sprite_bad
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprmc2
+        ldy #>out_jsr_sprmc2
+        jsr out_zstr
+        clc
+        rts
+
+; SPRITE num [{, switch, colour, prio, expx, expy, mode}] -- empty slots
+; (adjacent commas) leave that attribute unchanged, like the interpreter
+compile_sprite:
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsetn
+        ldy #>out_jsr_sprsetn
+        jsr out_zstr
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_1
+        lda #<out_jsr_sprswitch
+        ldy #>out_jsr_sprswitch
+        jsr out_zstr
+_compile_sprite_1:
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_2
+        lda #<out_jsr_sprsetfg
+        ldy #>out_jsr_sprsetfg
+        jsr out_zstr
+_compile_sprite_2:
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_3
+        lda #<out_jsr_sprsetprio
+        ldy #>out_jsr_sprsetprio
+        jsr out_zstr
+_compile_sprite_3:
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_4
+        lda #<out_jsr_sprsetexpx
+        ldy #>out_jsr_sprsetexpx
+        jsr out_zstr
+_compile_sprite_4:
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_5
+        lda #<out_jsr_sprsetexpy
+        ldy #>out_jsr_sprsetexpy
+        jsr out_zstr
+_compile_sprite_5:
+        jsr sprite_slot
+        bcs _compile_sprite_done
+        bne _compile_sprite_done
+        lda #<out_jsr_sprsetmode
+        ldy #>out_jsr_sprsetmode
+        jsr out_zstr
+_compile_sprite_done:
+        clc
+        rts
+
+; parse one optional SPRITE slot: carry set = no more arguments;
+; carry clear + Z set = expression compiled (emit the setter);
+; carry clear + Z clear = empty slot, attribute untouched
+sprite_slot:
+        jsr parse_opt_comma
+        bcs _sprite_slot_end
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _sprite_slot_end
+        jsr line_peek
+        cmp #','
+        beq _sprite_slot_empty
+        jsr compile_expression
+        bcs _sprite_slot_bad
+        lda #0
+        clc
+        rts
+_sprite_slot_empty:
+        lda #1
+        clc
+        rts
+_sprite_slot_end:
+        sec
+        rts
+_sprite_slot_bad:
+        pla
+        pla
+        jmp compile_sprite_bad
 
 ; SOUND voice, freq, dur [, dir [, min [, sweep [, wave [, pulse]]]]]
 compile_sound:
@@ -10438,6 +10624,9 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_sprite:
+        .text "bad sprite/movspr"
+        .byte 13, 0
 msg_error_bad_sound:
         .text "bad sound/vol"
         .byte 13, 0
@@ -10817,6 +11006,45 @@ out_jsr_sndsetf:
         .byte 13, 0
 out_jsr_sndsetd:
         .text "        jsr sndsetd"
+        .byte 13, 0
+out_jsr_sprsetn:
+        .text "        jsr sprsetn"
+        .byte 13, 0
+out_jsr_sprswitch:
+        .text "        jsr sprswitch"
+        .byte 13, 0
+out_jsr_sprsetfg:
+        .text "        jsr sprsetfg"
+        .byte 13, 0
+out_jsr_sprsetprio:
+        .text "        jsr sprsetprio"
+        .byte 13, 0
+out_jsr_sprsetexpx:
+        .text "        jsr sprsetexpx"
+        .byte 13, 0
+out_jsr_sprsetexpy:
+        .text "        jsr sprsetexpy"
+        .byte 13, 0
+out_jsr_sprsetmode:
+        .text "        jsr sprsetmode"
+        .byte 13, 0
+out_jsr_sprsetx:
+        .text "        jsr sprsetx"
+        .byte 13, 0
+out_jsr_movsprgo:
+        .text "        jsr movsprgo"
+        .byte 13, 0
+out_jsr_sprmc1:
+        .text "        jsr sprmc1"
+        .byte 13, 0
+out_jsr_sprmc2:
+        .text "        jsr sprmc2"
+        .byte 13, 0
+out_jsr_joyf:
+        .text "        jsr joyf"
+        .byte 13, 0
+out_jsr_bumpf:
+        .text "        jsr bumpf"
         .byte 13, 0
 out_jsr_sndsetdr:
         .text "        jsr sndsetdr"
