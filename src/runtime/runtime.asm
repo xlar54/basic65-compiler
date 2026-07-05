@@ -126,8 +126,8 @@ rtinit:
         lda #$00
         sta varptr+3
         jsr fltinit             ; convert float literals (needs the above)
-        lda #1
-        sta snd_w               ; SOUND defaults: sawtooth, 50% pulse
+        lda #2
+        sta snd_w               ; SOUND defaults: square wave, 50% pulse
         lda #$08
         sta snd_p+1
         lda #$0f
@@ -1597,11 +1597,13 @@ pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
-; Sound: VOL and C128-style SOUND over both SIDs (voices 1-3 at $d400,
-; 4-6 at $d420). Durations count down against RDTIM jiffy deltas in
-; sndservice, called from TI reads, GET, and SOUND itself -- the usual
-; BASIC delay idioms service it naturally. No IRQ hook: the C65 ROM's
-; interrupt chain is undocumented, and chaining through $0314 crashed.
+; Sound: VOL and SOUND voice,freq,dur[,dir,min,sweep,wave,pulse] per the
+; BASIC65 spec: voices 1-3 on SID2 ($d420), 4-6 on SID4 ($d460); default
+; waveform is square with 50% duty. Durations and sweeps advance against
+; VIC-IV FRAMECOUNT ($d7fa) deltas in sndservice, called from TI reads,
+; GET, and SOUND itself -- the usual BASIC delay idioms service it
+; naturally. No IRQ hook: the C65 ROM's interrupt chain is undocumented,
+; and chaining through $0314 crashed.
 ;=======================================================================================
 
 sndservice:
@@ -1634,7 +1636,22 @@ _sndsvc_loop:
         sta snd_dur_hi,x
         lda snd_dur_lo,x
         ora snd_dur_hi,x
-        bne _sndsvc_next
+        beq _sndsvc_expire
+        lda snd_pswp_lo,x       ; sweep armed for this voice?
+        ora snd_pswp_hi,x
+        beq _sndsvc_next
+        lda snd_delta           ; one sweep step per elapsed jiffy
+        sta snd_i
+_sndsvc_swploop:
+        jsr sndsweepstep
+        dec snd_i
+        bne _sndsvc_swploop
+        ldy snd_regoff,x
+        lda snd_frq_lo,x
+        sta $d400,y
+        lda snd_frq_hi,x
+        sta $d401,y
+        bra _sndsvc_next
 _sndsvc_expire:
         lda #0
         sta snd_dur_lo,x
@@ -1649,7 +1666,88 @@ _sndsvc_next:
 _sndsvc_done:
         rts
 
-; called from rtexit: silence both SIDs
+; advance the sweep of voice X by one jiffy: dir 0 climbs from freq,
+; 1 falls toward min, 2 bounces between min and the starting freq
+sndsweepstep:
+        lda snd_pdir,x
+        cmp #1
+        beq _swpstep_down
+        cmp #2
+        bne _swpstep_up
+        lda snd_phase,x         ; oscillate: phase 0 falls, 1 climbs
+        beq _swpstep_oscdown
+        clc
+        lda snd_frq_lo,x
+        adc snd_pswp_lo,x
+        sta snd_frq_lo,x
+        lda snd_frq_hi,x
+        adc snd_pswp_hi,x
+        sta snd_frq_hi,x
+        bcs _swpstep_turndown
+        lda snd_frq_lo,x        ; reached the starting freq again?
+        cmp snd_pmax_lo,x
+        lda snd_frq_hi,x
+        sbc snd_pmax_hi,x
+        bcc _swpstep_done
+_swpstep_turndown:
+        lda snd_pmax_lo,x
+        sta snd_frq_lo,x
+        lda snd_pmax_hi,x
+        sta snd_frq_hi,x
+        lda #0
+        sta snd_phase,x
+        rts
+_swpstep_oscdown:
+        jsr _swpstep_down
+        lda snd_frq_lo,x        ; bottomed out at min?
+        cmp snd_pmin_lo,x
+        bne _swpstep_done
+        lda snd_frq_hi,x
+        cmp snd_pmin_hi,x
+        bne _swpstep_done
+        lda #1
+        sta snd_phase,x
+_swpstep_done:
+        rts
+
+_swpstep_up:
+        clc
+        lda snd_frq_lo,x
+        adc snd_pswp_lo,x
+        sta snd_frq_lo,x
+        lda snd_frq_hi,x
+        adc snd_pswp_hi,x
+        sta snd_frq_hi,x
+        bcc _swpstep_done
+        lda #$ff                ; clamp at the top of the range
+        sta snd_frq_lo,x
+        sta snd_frq_hi,x
+        rts
+
+_swpstep_down:
+        sec
+        lda snd_frq_lo,x
+        sbc snd_pswp_lo,x
+        sta snd_frq_lo,x
+        lda snd_frq_hi,x
+        sbc snd_pswp_hi,x
+        sta snd_frq_hi,x
+        bcc _swpstep_floor
+        lda snd_frq_lo,x        ; fell below min?
+        cmp snd_pmin_lo,x
+        lda snd_frq_hi,x
+        sbc snd_pmin_hi,x
+        bcs _swpstep_done2
+_swpstep_floor:
+        lda snd_pmin_lo,x
+        sta snd_frq_lo,x
+        lda snd_pmin_hi,x
+        sta snd_frq_hi,x
+_swpstep_done2:
+        rts
+
+; called from rtexit: gate off every SOUND voice (volume is left alone
+; so interpreter sound keeps working after the program returns)
 sndshutdown:
         ldx #5
 _sndshut_gates:
@@ -1660,24 +1758,26 @@ _sndshut_gates:
         sta snd_dur_hi,x
         dex
         bpl _sndshut_gates
-        lda #0
-        sta $d418
-        sta $d438
         rts
 
+; voice register offsets from $d400: SID2 voices 1-3, SID4 voices 4-6
 snd_regoff:
-        .byte $00, $07, $0e, $20, $27, $2e
+        .byte $20, $27, $2e, $60, $67, $6e
 
-; waveform control values, gate on: triangle, sawtooth, pulse, noise
+; waveform control values, gate on: triangle, sawtooth, square, noise
 snd_wftab:
         .byte $11, $21, $41, $81
 
+; VOL affects all voices (SOUND and PLAY), so write all four SIDs
 volsnd:
         lda exprlo
         and #$0f
         sta snd_vol
+volsndall:
         sta $d418
         sta $d438
+        sta $d458
+        sta $d478
         rts
 
 sndsetv:
@@ -1704,6 +1804,28 @@ sndsetd:
         sta snd_d+1
         rts
 
+sndsetdr:
+        lda exprlo
+        cmp #3
+        bcc +
+        lda #0
++       sta snd_dir
+        rts
+
+sndsetm:
+        lda exprlo
+        sta snd_m
+        lda exprhi
+        sta snd_m+1
+        rts
+
+sndsets:
+        lda exprlo
+        sta snd_s
+        lda exprhi
+        sta snd_s+1
+        rts
+
 sndsetw:
         lda exprlo
         and #3
@@ -1720,15 +1842,18 @@ sndsetp:
 sndgo:
         jsr sndservice
         lda snd_vol
-        sta $d418
-        sta $d438
+        jsr volsndall
         ldx snd_v
         ldy snd_regoff,x
         lda #0                  ; gate off, reset envelope
         sta $d404,y
         lda snd_f
+        sta snd_frq_lo,x
+        sta snd_pmax_lo,x
         sta $d400,y
         lda snd_f+1
+        sta snd_frq_hi,x
+        sta snd_pmax_hi,x
         sta $d401,y
         lda snd_p
         sta $d402,y
@@ -1739,20 +1864,37 @@ sndgo:
         sta $d405,y
         lda #$f8                ; full sustain, medium release
         sta $d406,y
-        ldx snd_w
-        lda snd_wftab,x
-        ldx snd_v
+        lda snd_m
+        sta snd_pmin_lo,x
+        lda snd_m+1
+        sta snd_pmin_hi,x
+        lda snd_s
+        sta snd_pswp_lo,x
+        lda snd_s+1
+        sta snd_pswp_hi,x
+        lda snd_dir
+        sta snd_pdir,x
+        lda #0
+        sta snd_phase,x
+        ldy snd_w
+        lda snd_wftab,y
         sta snd_ctrl,x
+        ldy snd_regoff,x
         sta $d404,y
         lda snd_d
         sta snd_dur_lo,x
         lda snd_d+1
         sta snd_dur_hi,x
         ; reset optional parameters for the next SOUND statement
-        lda #1
-        sta snd_w               ; sawtooth default
+        lda #2
+        sta snd_w               ; square default
         lda #0
         sta snd_p
+        sta snd_dir
+        sta snd_m
+        sta snd_m+1
+        sta snd_s
+        sta snd_s+1
         lda #$08
         sta snd_p+1             ; 50% pulse default
         rts
@@ -4549,9 +4691,23 @@ snd_f:        .byte 0,0
 snd_d:        .byte 0,0
 snd_w:        .byte 0
 snd_p:        .byte 0,0
+snd_dir:      .byte 0
+snd_m:        .byte 0,0
+snd_s:        .byte 0,0
+snd_i:        .byte 0
 snd_ctrl:     .fill 6, 0
 snd_dur_lo:   .fill 6, 0
 snd_dur_hi:   .fill 6, 0
+snd_frq_lo:   .fill 6, 0
+snd_frq_hi:   .fill 6, 0
+snd_pmax_lo:  .fill 6, 0
+snd_pmax_hi:  .fill 6, 0
+snd_pmin_lo:  .fill 6, 0
+snd_pmin_hi:  .fill 6, 0
+snd_pswp_lo:  .fill 6, 0
+snd_pswp_hi:  .fill 6, 0
+snd_pdir:     .fill 6, 0
+snd_phase:    .fill 6, 0
 
 ; integer runtime storage
 exprlo:       .byte 0

@@ -5004,7 +5004,7 @@ _compile_trap_arm:
         jsr out_zstr
         rts
 
-; SOUND voice, freq, dur [, waveform [, pulse]]
+; SOUND voice, freq, dur [, dir [, min [, sweep [, wave [, pulse]]]]]
 compile_sound:
         jsr compile_expression
         bcs compile_sound_bad
@@ -5024,6 +5024,27 @@ compile_sound:
         bcs compile_sound_bad
         lda #<out_jsr_sndsetd
         ldy #>out_jsr_sndsetd
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_sound_go
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetdr
+        ldy #>out_jsr_sndsetdr
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_sound_go
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetm
+        ldy #>out_jsr_sndsetm
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_sound_go
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsets
+        ldy #>out_jsr_sndsets
         jsr out_zstr
         jsr parse_opt_comma
         bcs _compile_sound_go
@@ -10796,6 +10817,15 @@ out_jsr_sndsetf:
         .byte 13, 0
 out_jsr_sndsetd:
         .text "        jsr sndsetd"
+        .byte 13, 0
+out_jsr_sndsetdr:
+        .text "        jsr sndsetdr"
+        .byte 13, 0
+out_jsr_sndsetm:
+        .text "        jsr sndsetm"
+        .byte 13, 0
+out_jsr_sndsets:
+        .text "        jsr sndsets"
         .byte 13, 0
 out_jsr_sndsetw:
         .text "        jsr sndsetw"
