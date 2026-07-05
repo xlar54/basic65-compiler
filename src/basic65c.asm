@@ -49,31 +49,6 @@ SOURCE_BANK             = $04
 SOURCE_BUF              = $0000
 SOURCE_BODY             = SOURCE_BUF + 2
 
-ASSET_LOAD_RETRIES      = 3
-ASSET_STAGE_BANK        = $05
-ASSET_STAGE_ADDR        = $0000
-OVR_WINDOW_ADDR         = $A000
-OVR_WINDOW_SIZE         = $2000
-OVR_ASSET_SIZE          = OVR_WINDOW_SIZE
-ATTIC_OVR_RTSTR1_MB     = $80
-ATTIC_OVR_RTSTR1_BANK   = $04
-ATTIC_OVR_RTSTR1_ADDR   = $0000
-ATTIC_OVR_RTSTR2_MB     = $80
-ATTIC_OVR_RTSTR2_BANK   = $04
-ATTIC_OVR_RTSTR2_ADDR   = $2000
-ATTIC_OVR_RTCORE_MB     = $80
-ATTIC_OVR_RTCORE_BANK   = $04
-ATTIC_OVR_RTCORE_ADDR   = $4000
-ATTIC_OVR_RTIO_MB       = $80
-ATTIC_OVR_RTIO_BANK     = $04
-ATTIC_OVR_RTIO_ADDR     = $6000
-ATTIC_OVR_RTGC_MB       = $80
-ATTIC_OVR_RTGC_BANK     = $04
-ATTIC_OVR_RTGC_ADDR     = $8000
-ATTIC_OVR_RTNUM_MB      = $80
-ATTIC_OVR_RTNUM_BANK    = $04
-ATTIC_OVR_RTNUM_ADDR    = $A000
-
 TOK_END                 = $80
 TOK_FOR                 = $81
 TOK_NEXT                = $82
@@ -230,12 +205,6 @@ main:
         sta for_sp
         sta do_sp
         sta if_sp
-        sta asset_ovr_rtstr1_ready
-        sta asset_ovr_rtstr2_ready
-        sta asset_ovr_rtcore_ready
-        sta asset_ovr_rtio_ready
-        sta asset_ovr_rtgc_ready
-        sta asset_ovr_rtnum_ready
         sta runtime_need_string
         sta runtime_need_string_heap
         sta runtime_need_print
@@ -257,17 +226,7 @@ main:
         ldy #>msg_banner
         jsr screen_zstr
 
-        lda #<msg_loading_overlays
-        ldy #>msg_loading_overlays
-        jsr screen_zstr
-        jsr load_runtime_overlays
-        bcc +
-        lda #<msg_overlay_fail
-        ldy #>msg_overlay_fail
-        jsr screen_zstr
-        rts
-
-+       lda #<msg_opening_in
+        lda #<msg_opening_in
         ldy #>msg_opening_in
         jsr screen_zstr
         jsr prompt_source_name
@@ -731,367 +690,6 @@ init_source_reader:
         sta source_ptr+2
         lda #0
         sta source_ptr+3
-        rts
-
-;=======================================================================================
-; Runtime emitter overlays
-;=======================================================================================
-
-load_runtime_overlays:
-        jsr load_ovr_rtstr1
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtstr1_ready
-
-        jsr load_ovr_rtstr2
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtstr2_ready
-
-        jsr load_ovr_rtcore
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtcore_ready
-
-        jsr load_ovr_rtio
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtio_ready
-
-        jsr load_ovr_rtgc
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtgc_ready
-
-        jsr load_ovr_rtnum
-        bcs _load_runtime_overlays_fail
-        lda #1
-        sta asset_ovr_rtnum_ready
-        clc
-        rts
-
-_load_runtime_overlays_fail:
-        sec
-        rts
-
-load_ovr_rtstr1:
-        lda #<ovr_rtstr1_name
-        sta asset_name_ptr
-        lda #>ovr_rtstr1_name
-        sta asset_name_ptr+1
-        lda #ovr_rtstr1_name_end - ovr_rtstr1_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTSTR1_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTSTR1_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTSTR1_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTSTR1_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-load_ovr_rtstr2:
-        lda #<ovr_rtstr2_name
-        sta asset_name_ptr
-        lda #>ovr_rtstr2_name
-        sta asset_name_ptr+1
-        lda #ovr_rtstr2_name_end - ovr_rtstr2_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTSTR2_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTSTR2_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTSTR2_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTSTR2_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-load_ovr_rtcore:
-        lda #<ovr_rtcore_name
-        sta asset_name_ptr
-        lda #>ovr_rtcore_name
-        sta asset_name_ptr+1
-        lda #ovr_rtcore_name_end - ovr_rtcore_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTCORE_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTCORE_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTCORE_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTCORE_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-load_ovr_rtio:
-        lda #<ovr_rtio_name
-        sta asset_name_ptr
-        lda #>ovr_rtio_name
-        sta asset_name_ptr+1
-        lda #ovr_rtio_name_end - ovr_rtio_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTIO_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTIO_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTIO_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTIO_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-load_ovr_rtgc:
-        lda #<ovr_rtgc_name
-        sta asset_name_ptr
-        lda #>ovr_rtgc_name
-        sta asset_name_ptr+1
-        lda #ovr_rtgc_name_end - ovr_rtgc_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTGC_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTGC_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTGC_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTGC_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-load_ovr_rtnum:
-        lda #<ovr_rtnum_name
-        sta asset_name_ptr
-        lda #>ovr_rtnum_name
-        sta asset_name_ptr+1
-        lda #ovr_rtnum_name_end - ovr_rtnum_name
-        sta asset_name_len
-        lda #<OVR_ASSET_SIZE
-        sta asset_size
-        lda #>OVR_ASSET_SIZE
-        sta asset_size+1
-        lda #<ATTIC_OVR_RTNUM_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTNUM_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTNUM_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTNUM_MB
-        sta asset_dst_mb
-        jmp asset_load_to_attic
-
-asset_load_to_attic:
-        lda #ASSET_LOAD_RETRIES
-        sta asset_retries
-
-_asset_load_attempt:
-        lda #ASSET_STAGE_BANK
-        ldx #0
-        jsr KERNAL_SETBNK
-
-        lda #0
-        ldx #DEVICE_DISK
-        ldy #0
-        jsr KERNAL_SETLFS
-
-        lda asset_name_len
-        ldx asset_name_ptr
-        ldy asset_name_ptr+1
-        jsr KERNAL_SETNAM
-
-        lda #$40
-        ldx #<ASSET_STAGE_ADDR
-        ldy #>ASSET_STAGE_ADDR
-        jsr KERNAL_LOAD
-        bcc _asset_load_loaded
-        dec asset_retries
-        bne _asset_load_attempt
-        jsr KERNAL_CLRCHN
-        sec
-        rts
-
-_asset_load_loaded:
-        jsr KERNAL_CLRCHN
-        lda asset_size
-        sta _asset_dma_count
-        lda asset_size+1
-        sta _asset_dma_count+1
-        lda asset_dst_addr
-        sta _asset_dma_dst
-        lda asset_dst_addr+1
-        sta _asset_dma_dst+1
-        lda asset_dst_bank
-        sta _asset_dma_dst_bank
-        lda asset_dst_mb
-        sta _asset_dma_dst_mb
-
-        lda #$00
-        sta $D707
-        .byte $80, $00
-        .byte $81
-_asset_dma_dst_mb:
-        .byte $00
-        .byte $00
-        .byte $00
-_asset_dma_count:
-        .word 0
-        .word ASSET_STAGE_ADDR + 2
-        .byte ASSET_STAGE_BANK
-_asset_dma_dst:
-        .word 0
-_asset_dma_dst_bank:
-        .byte 0
-        .byte $00
-        .word $0000
-        clc
-        rts
-
-ovr_rtstr1_emit:
-        lda asset_ovr_rtstr1_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTSTR1_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTSTR1_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTSTR1_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTSTR1_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-ovr_rtstr2_emit:
-        lda asset_ovr_rtstr2_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTSTR2_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTSTR2_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTSTR2_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTSTR2_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-ovr_rtcore_emit:
-        lda asset_ovr_rtcore_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTCORE_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTCORE_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTCORE_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTCORE_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-ovr_rtnum_emit:
-        lda asset_ovr_rtnum_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTNUM_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTNUM_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTNUM_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTNUM_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-ovr_rtio_emit:
-        lda asset_ovr_rtio_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTIO_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTIO_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTIO_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTIO_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-ovr_rtgc_emit:
-        lda asset_ovr_rtgc_ready
-        beq runtime_overlay_missing
-        lda #<ATTIC_OVR_RTGC_ADDR
-        sta asset_dst_addr
-        lda #>ATTIC_OVR_RTGC_ADDR
-        sta asset_dst_addr+1
-        lda #ATTIC_OVR_RTGC_BANK
-        sta asset_dst_bank
-        lda #ATTIC_OVR_RTGC_MB
-        sta asset_dst_mb
-        jsr ovr_dma_from_attic
-        jsr OVR_WINDOW_ADDR
-        rts
-
-runtime_overlay_missing:
-        lda #1
-        sta compile_error
-        jsr KERNAL_CLRCHN
-        lda #<msg_overlay_missing
-        ldy #>msg_overlay_missing
-        jsr screen_zstr
-        jmp select_output
-
-ovr_dma_from_attic:
-        lda asset_dst_addr
-        sta _ovr_dma_src
-        lda asset_dst_addr+1
-        sta _ovr_dma_src+1
-        lda asset_dst_bank
-        sta _ovr_dma_src_bank
-        lda asset_dst_mb
-        sta _ovr_dma_src_mb
-
-        lda #$00
-        sta $D707
-        .byte $80
-_ovr_dma_src_mb:
-        .byte $00
-        .byte $81, $00
-        .byte $00
-        .byte $00
-        .word OVR_ASSET_SIZE
-_ovr_dma_src:
-        .word 0
-_ovr_dma_src_bank:
-        .byte 0
-        .word OVR_WINDOW_ADDR
-        .byte $00
-        .byte $00
-        .word $0000
         rts
 
 ;=======================================================================================
@@ -6148,101 +5746,23 @@ emit_generated_tail:
         lda #<out_tail
         ldy #>out_tail
         jsr out_zstr
-        jsr emit_runtime_init
+        jsr emit_varheapend
         jsr emit_string_pool
-        jsr emit_variable_runtime
-        lda runtime_need_string
-        beq _emit_generated_tail_after_strings
-        jsr ovr_rtstr1_emit
-        lda compile_error
-        bne _emit_generated_tail_done
-        jsr ovr_rtstr2_emit
-        lda compile_error
-        bne _emit_generated_tail_done
-
-_emit_generated_tail_after_strings:
-        jsr ovr_rtcore_emit
-        lda compile_error
-        bne _emit_generated_tail_done
-        lda runtime_need_print
-        beq _emit_generated_tail_after_io
-        jsr ovr_rtio_emit
-        lda compile_error
-        bne _emit_generated_tail_done
-
-_emit_generated_tail_after_io:
         jsr emit_data_table
-        jsr has_string_roots
-        beq _emit_generated_tail_strgc_stub
-        jsr ovr_rtgc_emit
-        lda compile_error
-        bne _emit_generated_tail_done
         jsr emit_string_roots
-        bra _emit_generated_tail_after_gc
-
-_emit_generated_tail_strgc_stub:
-        lda #<out_strgc_stub
-        ldy #>out_strgc_stub
-        jsr out_zstr
-
-_emit_generated_tail_after_gc:
         jsr emit_for_storage
-_emit_generated_tail_done:
         rts
 
-emit_runtime_init:
-        lda #<out_runtimeinit_start
-        ldy #>out_runtimeinit_start
+emit_varheapend:
+        lda #<out_varheapend_def
+        ldy #>out_varheapend_def
         jsr out_zstr
-        lda #<out_jsr_varinit
-        ldy #>out_jsr_varinit
-        jsr out_zstr
-        lda runtime_need_string_heap
-        beq _emit_runtime_init_no_str
-        lda #<out_jsr_strinit
-        ldy #>out_jsr_strinit
-        jsr out_zstr
-_emit_runtime_init_no_str:
-        lda runtime_need_data
-        beq _emit_runtime_init_no_data
-        lda #<out_jsr_datainit
-        ldy #>out_jsr_datainit
-        jsr out_zstr
-_emit_runtime_init_no_data:
-        lda #<out_rts
-        ldy #>out_rts
-        jsr out_zstr
+        lda var_heap_next_hi
+        jsr out_hex_byte
+        lda var_heap_next_lo
+        jsr out_hex_byte
         jsr out_cr
-        rts
-
-has_string_roots:
-        lda #0
-        sta root_emit_idx
-
-_has_string_roots_loop:
-        lda root_emit_idx
-        cmp sym_count
-        bcs _has_string_roots_no
-        tax
-        lda sym_type,x
-        cmp #VAR_TYPE_STRING
-        bne _has_string_roots_next
-        lda sym_kind,x
-        cmp #VAR_KIND_SCALAR
-        beq _has_string_roots_yes
-        cmp #VAR_KIND_ARRAY1
-        beq _has_string_roots_yes
-
-_has_string_roots_next:
-        inc root_emit_idx
-        bra _has_string_roots_loop
-
-_has_string_roots_yes:
-        lda #1
-        rts
-
-_has_string_roots_no:
-        lda #0
+        jsr out_cr
         rts
 
 emit_for_storage:
@@ -6519,25 +6039,6 @@ _emit_data_label_next:
         bra _emit_data_label_loop
 
 _emit_data_label_done:
-        rts
-
-emit_variable_runtime:
-        lda #<out_var_runtime_header
-        ldy #>out_var_runtime_header
-        jsr out_zstr
-        lda var_heap_next_hi
-        jsr out_hex_byte
-        lda var_heap_next_lo
-        jsr out_hex_byte
-        jsr out_cr
-        jsr out_cr
-        lda #<out_var_runtime
-        ldy #>out_var_runtime
-        jsr out_zstr
-        lda runtime_need_numvar
-        beq _emit_variable_runtime_no_numvar
-        jsr ovr_rtnum_emit
-_emit_variable_runtime_no_numvar:
         rts
 
 emit_line_label:
@@ -8577,30 +8078,6 @@ source_name:
         .text "source.prg"
 source_name_end:
 
-ovr_rtstr1_name:
-        .text "ovr-rtstr1"
-ovr_rtstr1_name_end:
-
-ovr_rtstr2_name:
-        .text "ovr-rtstr2"
-ovr_rtstr2_name_end:
-
-ovr_rtcore_name:
-        .text "ovr-rtcore"
-ovr_rtcore_name_end:
-
-ovr_rtio_name:
-        .text "ovr-rtio"
-ovr_rtio_name_end:
-
-ovr_rtgc_name:
-        .text "ovr-rtgc"
-ovr_rtgc_name_end:
-
-ovr_rtnum_name:
-        .text "ovr-rtnum"
-ovr_rtnum_name_end:
-
 output_name:
         .text "0:out.tmp,s,w"
 output_name_end:
@@ -8624,9 +8101,6 @@ msg_banner:
         .byte 13
         .text "basic65c: source.prg -> out.asm"
         .byte 13, 0
-msg_loading_overlays:
-        .text "loading runtime overlays"
-        .byte 13, 0
 msg_opening_in:
         .text "source file? "
         .byte 0
@@ -8647,12 +8121,6 @@ msg_open_in_fail:
         .byte 13, 0
 msg_open_out_fail:
         .text "basic65c: cannot open out.asm"
-        .byte 13, 0
-msg_overlay_fail:
-        .text "basic65c: cannot load runtime overlay"
-        .byte 13, 0
-msg_overlay_missing:
-        .text "basic65c: runtime overlay missing"
         .byte 13, 0
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
@@ -8748,43 +8216,23 @@ msg_error_bad_exit:
 out_header:
         .text "; generated by basic65c"
         .byte 13
+        .text "; link: 64tass --cbm-prg --m45gs02 runtime.asm out.asm -o out.prg"
+        .byte 13
         .text "        .enc ""none"""
         .byte 13, 13
-        .text "kernalchrout = $ffd2"
+        .text "        * = $4000"
         .byte 13
-        .text "kernalchrin = $ffcf"
+        .text "        .word start"
         .byte 13
-        .text "kernalscreen = $ffed"
+        .text "        .word varheapend"
         .byte 13
-        .text "kernalplot = $fff0"
+        .text "        .word datastart"
         .byte 13
-        .text "kernalgetin = $ffe4"
+        .text "        .word dataend"
         .byte 13
-        .text "varptr = $f7"
-        .byte 13
-        .text "rtptr = $fb"
+        .text "        .word strroots"
         .byte 13, 13
-        .text "        * = $2001"
-        .byte 13
-        .text "        .word (+), 2026"
-        .byte 13
-        .text "        .byte $fe, $02, $30"
-        .byte 13
-        .text "        .byte ':'"
-        .byte 13
-        .text "        .byte $9e"
-        .byte 13
-        .text "        .text ""8210"""
-        .byte 13
-        .text "        .byte 0"
-        .byte 13
-        .text "+       .word 0"
-        .byte 13, 13
-        .text "        * = $2012"
-        .byte 13
         .text "start:"
-        .byte 13
-        .text "        jsr runtimeinit"
         .byte 13
         .byte 0
 
@@ -8798,112 +8246,8 @@ out_tail:
         .byte 13
         .byte 0
 
-out_runtimeinit_start:
-        .text "runtimeinit:"
-        .byte 13, 0
-
-out_var_runtime_header:
-        .text "; variable heap runtime"
-        .byte 13
-        .text "; bank-1 variable heap: $12000-$1f7ff"
-        .byte 13
-        .text "; descriptor size 16 bytes; scalar value starts at descriptor + 8"
-        .byte 13
-        .text "; plain numeric slots: tag, low/reflo, high/refhi"
-        .byte 13
-        .text "varheapstart = $2000"
-        .byte 13
+out_varheapend_def:
         .text "varheapend = $"
-        .byte 0
-
-out_var_runtime:
-        .text "varinit:"
-        .byte 13
-        .text "        lda #<varheapstart"
-        .byte 13
-        .text "        sta varptr"
-        .byte 13
-        .text "        lda #>varheapstart"
-        .byte 13
-        .text "        sta varptr+1"
-        .byte 13
-        .text "        lda #$01"
-        .byte 13
-        .text "        sta varptr+2"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        sta varptr+3"
-        .byte 13
-        .text "varinitloop:"
-        .byte 13
-        .text "        lda varptr+1"
-        .byte 13
-        .text "        cmp #>varheapend"
-        .byte 13
-        .text "        bne varinitclear"
-        .byte 13
-        .text "        lda varptr"
-        .byte 13
-        .text "        cmp #<varheapend"
-        .byte 13
-        .text "        beq varinitdone"
-        .byte 13
-        .text "varinitclear:"
-        .byte 13
-        .text "        lda #0"
-        .byte 13
-        .text "        ldz #0"
-        .byte 13
-        .text "        sta [varptr],z"
-        .byte 13
-        .text "        inc varptr"
-        .byte 13
-        .text "        bne varinitloop"
-        .byte 13
-        .text "        inc varptr+1"
-        .byte 13
-        .text "        jmp varinitloop"
-        .byte 13
-        .text "varinitdone:"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "loadintvar:"
-        .byte 13
-        .text "        ldz #0"
-        .byte 13
-        .text "        lda [varptr],z"
-        .byte 13
-        .text "        sta exprlo"
-        .byte 13
-        .text "        ldz #1"
-        .byte 13
-        .text "        lda [varptr],z"
-        .byte 13
-        .text "        sta exprhi"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
-        .text "storeintvar:"
-        .byte 13
-        .text "        ldz #0"
-        .byte 13
-        .text "        lda exprlo"
-        .byte 13
-        .text "        sta [varptr],z"
-        .byte 13
-        .text "        ldz #1"
-        .byte 13
-        .text "        lda exprhi"
-        .byte 13
-        .text "        sta [varptr],z"
-        .byte 13
-        .text "        rts"
-        .byte 13
-        .byte 13
         .byte 0
 
 out_data_table_start:
@@ -8931,15 +8275,6 @@ out_strroots_start:
         .text "; string gc roots: rootlo, roothi, bytelenlo, bytelenhi"
         .byte 13
         .text "strroots:"
-        .byte 13, 0
-
-out_strgc_stub:
-        .text "; no string gc roots"
-        .byte 13
-        .text "strgc:"
-        .byte 13
-        .text "        rts"
-        .byte 13
         .byte 13, 0
 
 out_for_storage_header:
@@ -9045,12 +8380,6 @@ out_jsr_strrefge:
         .byte 13, 0
 out_jsr_printcomma:
         .text "        jsr printcomma"
-        .byte 13, 0
-out_jsr_varinit:
-        .text "        jsr varinit"
-        .byte 13, 0
-out_jsr_strinit:
-        .text "        jsr strinit"
         .byte 13, 0
 out_jsr_loadintvar:
         .text "        jsr loadintvar"
@@ -9779,18 +9108,6 @@ diag_msg_lo:
         .byte 0
 diag_msg_hi:
         .byte 0
-asset_ovr_rtstr1_ready:
-        .byte 0
-asset_ovr_rtstr2_ready:
-        .byte 0
-asset_ovr_rtcore_ready:
-        .byte 0
-asset_ovr_rtio_ready:
-        .byte 0
-asset_ovr_rtgc_ready:
-        .byte 0
-asset_ovr_rtnum_ready:
-        .byte 0
 runtime_need_string:
         .byte 0
 runtime_need_string_heap:
@@ -9814,20 +9131,6 @@ runtime_need_get:
 runtime_need_numvar:
         .byte 0
 runtime_need_decparse:
-        .byte 0
-asset_retries:
-        .byte 0
-asset_name_ptr:
-        .word 0
-asset_name_len:
-        .byte 0
-asset_size:
-        .word 0
-asset_dst_addr:
-        .word 0
-asset_dst_bank:
-        .byte 0
-asset_dst_mb:
         .byte 0
 
 line_buf:
@@ -9937,4 +9240,4 @@ string_temp:
 string_pool:
         .fill STRING_POOL_MAX, 0
 
-        .cerror * >= OVR_WINDOW_ADDR, "resident compiler grew into the overlay window"
+        .cerror * >= $a000, "resident compiler grew past $a000"

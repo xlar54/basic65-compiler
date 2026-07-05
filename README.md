@@ -14,10 +14,12 @@ build.bat
 This creates `target\basic65c.d81` containing:
 
 - `basic65c` - the compiler PRG
-- `ovr-rtstr1`, `ovr-rtstr2`, `ovr-rtcore`, `ovr-rtio`, `ovr-rtgc`,
-  `ovr-rtnum` - runtime emitter overlays
 - `source.prg` - a tiny tokenized BASIC PRG fixture built from `basic\source.bas`
 - `out.prg` - the assembled compiler output, when `target\out.asm.seq` exists
+
+It also assembles `src\runtime\runtime.asm` standalone as a syntax/size check
+and publishes its label map to `target\runtime.lbl`. The runtime is not
+shipped on the D81; it is linked with the compiler's output on the PC side.
 
 The BASIC fixtures are tokenized with `petcat`, then patched for known BASIC65
 token gaps such as `WPOKE` and `WPEEK`:
@@ -45,13 +47,16 @@ RUN
 ```
 
 The compiler raw-loads `SOURCE.PRG` into bank 4 at offset `$0000`, parses the
-tokenized BASIC from RAM, and writes `OUT.ASM,S,W` on the same D81. At startup
-it also loads the runtime emitter overlays into Attic RAM, then pages them into
-the `$A000-$BFFF` overlay window only while emitting the generated runtime.
+tokenized BASIC from RAM, and writes `OUT.ASM,S,W` on the same D81.
 Before opening the output file it sends `S0:OUT.ASM` on the command channel,
 matching the safer scratch-then-write pattern used elsewhere in the MEGA65
 projects. When the SEQ is exported back to the PC, keep it as
-`target\out.asm.seq`.
+`target\out.asm.seq`; `build.bat` links it with the runtime into
+`target\out.prg`:
+
+```bat
+64tass --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg
+```
 
 ## Token Reference
 
@@ -65,11 +70,17 @@ The generated programs are meant to stand on their own. The compiler may use
 KERNAL calls for disk and console I/O, and generated programs may use KERNAL
 where appropriate, but generated code should not call BASIC ROM routines.
 
-The resident compiler is guarded below `$A000`. Runtime text emitters live in
-8 KB overlay PRGs assembled at `$A000-$BFFF`, loaded from disk into Attic RAM,
-and DMA-copied into the overlay window when needed. Persistent compiler state,
-source buffers, variable tables, and generated-output file state remain
-resident; overlay code is treated as stateless emitter code.
+The runtime library lives in `src\runtime\runtime.asm` as real,
+standalone-assemblable source. The compiler emits only the program: a header
+vector table at `$4000` (`start`, `varheapend`, `datastart`, `dataend`,
+`strroots`), the compiled statements, the string pool, the DATA table, the
+string GC roots, and FOR/NEXT storage. The runtime occupies `$2001-$3fff`
+(BASIC stub, `rtinit` entry at `$2012`, runtime code and storage) and never
+references program symbols directly: `rtinit` copies the header vectors into
+runtime variables, initializes the variable heap, string heap, and DATA
+pointer, then jumps through the `start` vector. This keeps the runtime
+program-independent so it can later ship as a fixed binary blob under a native
+code generator.
 
 The current generated runtime is deliberately small and organized around integer
 work first:
@@ -208,8 +219,8 @@ numbers. `OUT.ASM` is only replaced after a clean compile.
   to `OUT.TMP` first and renamed to `OUT.ASM` only after a clean compile.
 - `OUT.ASM` is emitted without an in-file `.cpu` directive, because the MEGA65
   disk text path may uppercase strings and 64tass treats the `45gs02` CPU name
-  case-sensitively. Assemble it with
-  `64tass --cbm-prg --m45gs02 target\out.asm.seq -o target\out.prg`.
+  case-sensitively. Link it with the runtime:
+  `64tass --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg`.
 - Numeric arguments can be decimal or hex with a `$` prefix.
 - `SYS` currently accepts a literal 16-bit address.
 - Generated code calls the KERNAL `CHROUT` vector for compiled `PRINT` output.

@@ -10,33 +10,16 @@ del target\*.d81 2>nul
 del target\*.lst 2>nul
 del target\*.lbl 2>nul
 del target\basic65c 2>nul
-del target\ovr-rtstr1 2>nul
-del target\ovr-rtstr2 2>nul
-del target\ovr-rtcore 2>nul
-del target\ovr-rtio 2>nul
-del target\ovr-rtgc 2>nul
-del target\ovr-rtnum 2>nul
+del target\runtime.prg 2>nul
 del target\*.prg 2>nul
 
 .\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
 if errorlevel 1 exit /b 1
 
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtstr1.asm -l target\ovr-rtstr1.lbl -L target\ovr-rtstr1.lst -o target\ovr-rtstr1
-if errorlevel 1 exit /b 1
-
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtstr2.asm -l target\ovr-rtstr2.lbl -L target\ovr-rtstr2.lst -o target\ovr-rtstr2
-if errorlevel 1 exit /b 1
-
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtcore.asm -l target\ovr-rtcore.lbl -L target\ovr-rtcore.lst -o target\ovr-rtcore
-if errorlevel 1 exit /b 1
-
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtio.asm -l target\ovr-rtio.lbl -L target\ovr-rtio.lst -o target\ovr-rtio
-if errorlevel 1 exit /b 1
-
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtgc.asm -l target\ovr-rtgc.lbl -L target\ovr-rtgc.lst -o target\ovr-rtgc
-if errorlevel 1 exit /b 1
-
-.\64tass.exe --cbm-prg -a src\overlays\ovr-rtnum.asm -l target\ovr-rtnum.lbl -L target\ovr-rtnum.lst -o target\ovr-rtnum
+rem Assemble the runtime standalone as a syntax/size check and to publish its
+rem label map. The runtime is linked into generated programs below; this
+rem artifact is not shipped on the D81.
+.\64tass.exe --cbm-prg -a src\runtime\runtime.asm -l target\runtime.lbl -L target\runtime.lst -o target\runtime.prg
 if errorlevel 1 exit /b 1
 
 for %%F in (basic\*.bas) do (
@@ -55,11 +38,11 @@ if /I not "%BASIC_SOURCE%"=="basic\source.bas" (
 
 set HAVE_OUT_PRG=0
 if exist target\out.asm.seq (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$out=(Get-Item -LiteralPath 'target\out.asm.seq').LastWriteTime; $deps=@($env:BASIC_SOURCE,'src\basic65c.asm','src\overlays\ovr-rtstr1.asm','src\overlays\ovr-rtstr2.asm','src\overlays\ovr-rtcore.asm','src\overlays\ovr-rtio.asm','src\overlays\ovr-rtgc.asm','src\overlays\ovr-rtnum.asm') + (Get-ChildItem -LiteralPath 'basic' -Filter '*.bas').FullName; foreach($dep in $deps){ if($out -lt (Get-Item -LiteralPath $dep).LastWriteTime){ exit 2 } }"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$out=(Get-Item -LiteralPath 'target\out.asm.seq').LastWriteTime; $deps=@($env:BASIC_SOURCE,'src\basic65c.asm','src\runtime\runtime.asm') + (Get-ChildItem -LiteralPath 'basic' -Filter '*.bas').FullName; foreach($dep in $deps){ if($out -lt (Get-Item -LiteralPath $dep).LastWriteTime){ exit 2 } }"
     if errorlevel 2 (
         echo Warning: target\out.asm.seq is stale; continuing without OUT.PRG
     ) else (
-        .\64tass.exe --cbm-prg --m45gs02 target\out.asm.seq -o target\out.prg
+        .\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg
         if errorlevel 1 (
             echo Warning: target\out.asm.seq did not assemble; continuing without OUT.PRG
             del target\out.prg 2>nul
@@ -74,20 +57,8 @@ cd target
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write basic65c basic65c
 if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtstr1 ovr-rtstr1
-if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtstr2 ovr-rtstr2
-if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtcore ovr-rtcore
-if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtio ovr-rtio
-if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtgc ovr-rtgc
-if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write ovr-rtnum ovr-rtnum
-if errorlevel 1 exit /b 1
 for %%F in (*.prg) do (
-    if /I not "%%F"=="out.prg" (
+    if /I not "%%F"=="out.prg" if /I not "%%F"=="runtime.prg" (
         ..\c1541.exe -attach basic65c.d81 -write "%%F" "%%F"
         if errorlevel 1 exit /b 1
     )
