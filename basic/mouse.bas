@@ -1,5 +1,5 @@
 10 print chr$(147);:print "test mouse"
-20 mouse on,1,2,160,100
+20 mouse on,1,2
 30 rmouse x,y,b
 40 if x=160 and y=100 then print " rmouse pos ok"
 50 if b>=0 then print " rmouse btn ok";b
