@@ -5001,6 +5001,8 @@ _expf_ovf:
 ; 1/ln(10) and the PAL jiffy rate, packed MFLP
 c1oln10:
         .byte $7f, $5e, $5b, $d8, $a9
+c65536:
+        .byte $91, $00, $00, $00, $00
 cfifty:
         .byte $86, $48, $00, $00, $00
 
@@ -5122,7 +5124,7 @@ fref:
         lda #0
         sta exprlo
         sta exprhi
-        rts
+        jmp float16
 _fref_bank1:
         lda strheaplo
         sec
@@ -5131,6 +5133,15 @@ _fref_bank1:
         lda strheaphi
         sbc rtvheapend+1
         sta exprhi
+        pha
+        jsr float16             ; result exceeds signed 16 bits: go float
+        pla
+        bpl _fref_done
+        lda #<c65536
+        ldy #>c65536
+        jsr fldca
+        jsr fadd
+_fref_done:
         rts
 
 ; ERR$(n): our error message table covers the codes the runtime can
@@ -6231,7 +6242,13 @@ rspritef:
 +       cmp #2
         bne +
         lda $d01b
-        bra _rsprite_bit
+        and sprbit,x
+        beq _rsprite_front
+        lda #0
+        bra _rsprite_val
+_rsprite_front:
+        lda #1
+        bra _rsprite_val
 +       cmp #3
         bne +
         lda $d01d

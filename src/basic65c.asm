@@ -5014,6 +5014,8 @@ _factor_fre:
         lda #<out_jsr_fref
         ldy #>out_jsr_fref
         jsr out_zstr
+        lda #1
+        sta expr_type           ; FRE exceeds signed 16 bits: float
         clc
         rts
 
