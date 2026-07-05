@@ -126,6 +126,12 @@ rtinit:
         lda #$00
         sta varptr+3
         jsr fltinit             ; convert float literals (needs the above)
+        lda #1
+        sta snd_w               ; SOUND defaults: sawtooth, 50% pulse
+        lda #$08
+        sta snd_p+1
+        lda #$0f
+        sta snd_vol
         lda $dc04               ; seed RND from the CIA timer
         sta rndseed
         eor #$b5
@@ -145,6 +151,7 @@ rtinit:
         and #%11000111
         sta $d030
         jsr rtcallprog
+        jsr sndshutdown
         lda rtd030save
         sta $d030
         rts
@@ -154,6 +161,7 @@ rtcallprog:
 ; END/STOP from any GOSUB depth: unwind the stack to the pre-program mark,
 ; restore the ROM mapping, and return to the BASIC SYS caller
 rtexit:
+        jsr sndshutdown
         ldx rtspsave
         txs
         lda rtd030save
@@ -1589,6 +1597,167 @@ pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
+; Sound: VOL and C128-style SOUND over both SIDs (voices 1-3 at $d400,
+; 4-6 at $d420). Durations count down against RDTIM jiffy deltas in
+; sndservice, called from TI reads, GET, and SOUND itself -- the usual
+; BASIC delay idioms service it naturally. No IRQ hook: the C65 ROM's
+; interrupt chain is undocumented, and chaining through $0314 crashed.
+;=======================================================================================
+
+sndservice:
+        lda $d7fa               ; VIC-IV frame counter (8-bit, wraps)
+        tax
+        sec
+        sbc snd_last
+        sta snd_delta
+        lda #0
+        sta snd_delta+1
+        stx snd_last
+        lda snd_delta
+        beq _sndsvc_done
+        ldx #5
+_sndsvc_loop:
+        lda snd_dur_lo,x
+        ora snd_dur_hi,x
+        beq _sndsvc_next
+        lda snd_dur_lo,x        ; remaining > delta ?
+        cmp snd_delta
+        lda snd_dur_hi,x
+        sbc snd_delta+1
+        bcc _sndsvc_expire
+        lda snd_dur_lo,x        ; remaining -= delta
+        sec
+        sbc snd_delta
+        sta snd_dur_lo,x
+        lda snd_dur_hi,x
+        sbc snd_delta+1
+        sta snd_dur_hi,x
+        lda snd_dur_lo,x
+        ora snd_dur_hi,x
+        bne _sndsvc_next
+_sndsvc_expire:
+        lda #0
+        sta snd_dur_lo,x
+        sta snd_dur_hi,x
+        lda snd_ctrl,x          ; drop the gate bit
+        and #$fe
+        ldy snd_regoff,x
+        sta $d404,y
+_sndsvc_next:
+        dex
+        bpl _sndsvc_loop
+_sndsvc_done:
+        rts
+
+; called from rtexit: silence both SIDs
+sndshutdown:
+        ldx #5
+_sndshut_gates:
+        ldy snd_regoff,x
+        lda #0
+        sta $d404,y
+        sta snd_dur_lo,x
+        sta snd_dur_hi,x
+        dex
+        bpl _sndshut_gates
+        lda #0
+        sta $d418
+        sta $d438
+        rts
+
+snd_regoff:
+        .byte $00, $07, $0e, $20, $27, $2e
+
+; waveform control values, gate on: triangle, sawtooth, pulse, noise
+snd_wftab:
+        .byte $11, $21, $41, $81
+
+volsnd:
+        lda exprlo
+        and #$0f
+        sta snd_vol
+        sta $d418
+        sta $d438
+        rts
+
+sndsetv:
+        lda exprlo
+        sec
+        sbc #1                  ; voices are 1-6
+        cmp #6
+        bcc +
+        lda #0
++       sta snd_v
+        rts
+
+sndsetf:
+        lda exprlo
+        sta snd_f
+        lda exprhi
+        sta snd_f+1
+        rts
+
+sndsetd:
+        lda exprlo
+        sta snd_d
+        lda exprhi
+        sta snd_d+1
+        rts
+
+sndsetw:
+        lda exprlo
+        and #3
+        sta snd_w
+        rts
+
+sndsetp:
+        lda exprlo
+        sta snd_p
+        lda exprhi
+        sta snd_p+1
+        rts
+
+sndgo:
+        jsr sndservice
+        lda snd_vol
+        sta $d418
+        sta $d438
+        ldx snd_v
+        ldy snd_regoff,x
+        lda #0                  ; gate off, reset envelope
+        sta $d404,y
+        lda snd_f
+        sta $d400,y
+        lda snd_f+1
+        sta $d401,y
+        lda snd_p
+        sta $d402,y
+        lda snd_p+1
+        and #$0f
+        sta $d403,y
+        lda #$0a                ; default envelope: fast attack, some decay
+        sta $d405,y
+        lda #$f8                ; full sustain, medium release
+        sta $d406,y
+        ldx snd_w
+        lda snd_wftab,x
+        ldx snd_v
+        sta snd_ctrl,x
+        sta $d404,y
+        lda snd_d
+        sta snd_dur_lo,x
+        lda snd_d+1
+        sta snd_dur_hi,x
+        ; reset optional parameters for the next SOUND statement
+        lda #1
+        sta snd_w               ; sawtooth default
+        lda #0
+        sta snd_p
+        lda #$08
+        sta snd_p+1             ; 50% pulse default
+        rts
+
+;=======================================================================================
 ; File I/O layer: OPEN/CLOSE/PRINT#/INPUT#/GET#/ST. Channels are selected
 ; only around file operations; fio_out routes printch straight to CHROUT.
 ;=======================================================================================
@@ -2176,6 +2345,7 @@ floadx_fac:
 
 ; TI: the 24-bit jiffy clock as a float
 rdti:
+        jsr sndservice
         jsr kernalrdtim         ; A = low, X = mid, Y = high
         sta ti_lo
         stx exprlo
@@ -3197,6 +3367,7 @@ arraybounds:
 ;=======================================================================================
 
 getkey:
+        jsr sndservice
         jsr kernalgetin
         sta exprlo
         lda #0
@@ -4370,6 +4541,17 @@ rt_er:        .byte 0
 rt_el:        .byte 0,0
 curline:      .byte 0,0
 rtjmp:        .byte 0,0
+snd_last:     .byte 0
+snd_delta:    .byte 0,0
+snd_vol:      .byte 0
+snd_v:        .byte 0
+snd_f:        .byte 0,0
+snd_d:        .byte 0,0
+snd_w:        .byte 0
+snd_p:        .byte 0,0
+snd_ctrl:     .fill 6, 0
+snd_dur_lo:   .fill 6, 0
+snd_dur_hi:   .fill 6, 0
 
 ; integer runtime storage
 exprlo:       .byte 0

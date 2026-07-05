@@ -87,6 +87,8 @@ TOK_CLOSE               = $A0
 TOK_INPUT_HASH          = $84
 TOK_TRAP                = $D7
 TOK_RESUME              = $D6
+TOK_SOUND               = $DA
+TOK_VOL                 = $DB
 TOK_SPC                 = $A6
 TOK_LEN                 = $C3
 TOK_STR_STR             = $C4
@@ -1835,6 +1837,10 @@ _compile_line_loop:
         beq _compile_trap
         cmp #TOK_RESUME
         beq _compile_resume
+        cmp #TOK_SOUND
+        beq _compile_sound
+        cmp #TOK_VOL
+        beq _compile_vol
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -1974,6 +1980,14 @@ _compile_trap:
 
 _compile_resume:
         jsr compile_resume
+        jmp _compile_line_loop
+
+_compile_sound:
+        jsr compile_sound
+        jmp _compile_line_loop
+
+_compile_vol:
+        jsr compile_vol
         jmp _compile_line_loop
 
 _compile_if:
@@ -4990,6 +5004,63 @@ _compile_trap_arm:
         jsr out_zstr
         rts
 
+; SOUND voice, freq, dur [, waveform [, pulse]]
+compile_sound:
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetv
+        ldy #>out_jsr_sndsetv
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sound_bad
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetf
+        ldy #>out_jsr_sndsetf
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sound_bad
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetd
+        ldy #>out_jsr_sndsetd
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_sound_go
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetw
+        ldy #>out_jsr_sndsetw
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_sound_go
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_sndsetp
+        ldy #>out_jsr_sndsetp
+        jsr out_zstr
+_compile_sound_go:
+        lda #<out_jsr_sndgo
+        ldy #>out_jsr_sndgo
+        jsr out_zstr
+        clc
+        rts
+
+compile_sound_bad:
+        lda #<msg_error_bad_sound
+        ldy #>msg_error_bad_sound
+        jsr fatal_statement_error
+        rts
+
+compile_vol:
+        jsr compile_expression
+        bcs compile_sound_bad
+        lda #<out_jsr_volsnd
+        ldy #>out_jsr_volsnd
+        jsr out_zstr
+        clc
+        rts
+
 compile_trap_bad:
         lda #<msg_error_bad_trap
         ldy #>msg_error_bad_trap
@@ -5023,21 +5094,21 @@ compile_open:
         lda #<out_jsr_fiosetlf
         ldy #>out_jsr_fiosetlf
         jsr out_zstr
-        jsr _open_comma
+        jsr parse_opt_comma
         bcs _compile_open_done
         jsr compile_expression
         bcs _compile_open_bad
         lda #<out_jsr_fiosetdev
         ldy #>out_jsr_fiosetdev
         jsr out_zstr
-        jsr _open_comma
+        jsr parse_opt_comma
         bcs _compile_open_done
         jsr compile_expression
         bcs _compile_open_bad
         lda #<out_jsr_fiosetsa
         ldy #>out_jsr_fiosetsa
         jsr out_zstr
-        jsr _open_comma
+        jsr parse_opt_comma
         bcs _compile_open_done
         jsr emit_string_temp_mark
         jsr compile_string_expression
@@ -5066,16 +5137,16 @@ _compile_open_bad:
         rts
 
 ; consume a comma between OPEN arguments; carry set at statement end
-_open_comma:
+parse_opt_comma:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
-        bcs _open_comma_end
+        bcs parse_opt_comma_end
         jsr line_get
         cmp #','
-        bne _open_comma_end
+        bne parse_opt_comma_end
         clc
         rts
-_open_comma_end:
+parse_opt_comma_end:
         sec
         rts
 
@@ -10346,6 +10417,9 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_sound:
+        .text "bad sound/vol"
+        .byte 13, 0
 msg_error_bad_trap:
         .text "bad trap/resume"
         .byte 13, 0
@@ -10713,6 +10787,27 @@ out_jsr_fcmpgtb:
         .byte 13, 0
 out_jsr_fcmpgeb:
         .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_jsr_sndsetv:
+        .text "        jsr sndsetv"
+        .byte 13, 0
+out_jsr_sndsetf:
+        .text "        jsr sndsetf"
+        .byte 13, 0
+out_jsr_sndsetd:
+        .text "        jsr sndsetd"
+        .byte 13, 0
+out_jsr_sndsetw:
+        .text "        jsr sndsetw"
+        .byte 13, 0
+out_jsr_sndsetp:
+        .text "        jsr sndsetp"
+        .byte 13, 0
+out_jsr_sndgo:
+        .text "        jsr sndgo"
+        .byte 13, 0
+out_jsr_volsnd:
+        .text "        jsr volsnd"
         .byte 13, 0
 out_sta_traplo:
         .text "        sta traplo"
