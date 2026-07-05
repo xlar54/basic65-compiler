@@ -47,7 +47,12 @@ RUN
 ```
 
 The compiler raw-loads `SOURCE.PRG` into bank 4 at offset `$0000`, parses the
-tokenized BASIC from RAM, and writes `OUT.ASM,S,W` on the same D81.
+tokenized BASIC from RAM, and writes both `OUT.ASM,S,W` (64tass source) and a
+natively generated `OUT.PRG` on the same D81. The native program is produced
+without any assembler: a size pass computes every address, then an emit pass
+streams the runtime image from `RUNTIME.PRG` and the compiled machine code
+(see `docs\native-backend.md`). `OUT.PRG` is byte-identical to what 64tass
+assembles from `OUT.ASM`, and the test harness verifies that on every run.
 Before opening the output file it sends `S0:OUT.ASM` on the command channel,
 matching the safer scratch-then-write pattern used elsewhere in the MEGA65
 projects. When the SEQ is exported back to the PC, keep it as

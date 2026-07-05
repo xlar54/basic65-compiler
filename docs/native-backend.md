@@ -4,6 +4,16 @@ The end goal: `basic65c` writes `OUT.PRG` directly on the MEGA65, with no
 64tass round trip. 64tass then retires to a verification role. This document
 records the design the runtime extraction was shaped around.
 
+**Status: working.** The compiler runs pass 2 three times (size, text, emit)
+and writes a native `OUT.PRG` on the D81: runtime image streamed from
+`runtime.prg`, zero gap to `$4000`, header vectors, then the program with
+all labels resolved from the size-pass tables. Verified byte-identical to
+the 64tass-assembled text output on endsub, strings, and the full
+`source.bas` suite (44,914 bytes); `tools\emu-test.ps1` byte-diffs every
+fixture. Generated-label capacity: 1024 shared if-ids, 512 on-ids, 256
+array-ids, 64 for/do-ids -- exceeding one sets a backend error (native
+output is skipped, OUT.ASM unaffected).
+
 ## Where the current architecture already points
 
 - **The memory contract is frozen and binary-friendly.** The runtime owns

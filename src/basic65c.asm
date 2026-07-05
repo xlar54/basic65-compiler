@@ -42,6 +42,7 @@ source_ptr              = $F7
 str_ptr                 = $FB
 
 LFN_OUT                 = 2
+LFN_RT                  = 3
 LFN_CMD                 = 15
 DEVICE_DISK             = 8
 
@@ -271,6 +272,21 @@ main:
 +       lda #13
         jsr KERNAL_CHROUT
 
+        lda #<msg_writing_prg
+        ldy #>msg_writing_prg
+        jsr screen_zstr
+        jsr emit_binary_output
+        bcc _main_prg_ok
+        lda #<msg_bin_write_fail
+        ldy #>msg_bin_write_fail
+        jsr screen_zstr
+        bra _main_done_ok
+
+_main_prg_ok:
+        lda #<msg_wrote_prg
+        ldy #>msg_wrote_prg
+        jsr screen_zstr
+
 _main_done_ok:
         lda #<msg_done
         ldy #>msg_done
@@ -363,17 +379,218 @@ run_size_pass:
         bne _run_size_pass_done
         jsr emit_generated_tail
 _run_size_pass_done:
+        lda bin_pc
+        sta bin_size_end
+        lda bin_pc+1
+        sta bin_size_end+1
         lda #BK_TEXT
         sta backend_mode
         jsr reset_emit_counters
         rts
 
+;=======================================================================================
+; Native OUT.PRG writer: stream runtime.prg from disk (its load address is
+; the PRG header), pad zeros up to progbase, then run pass 2 in emit mode.
+; The result must land exactly on the size-pass prediction.
+;=======================================================================================
+
+emit_binary_output:
+        jsr open_binary_output
+        bcs _ebo_open_fail
+        jsr copy_runtime_image
+        bcs _ebo_write_fail
+        lda #BK_EMIT
+        sta backend_mode
+        jsr reset_emit_counters
+        jsr select_output
+        jsr emit_generated_header
+        jsr init_source_reader
+        jsr compile_program
+        jsr emit_generated_tail
+        lda #BK_TEXT
+        sta backend_mode
+        lda backend_error
+        bne _ebo_write_fail
+        lda bin_pc
+        cmp bin_size_end
+        bne _ebo_mismatch
+        lda bin_pc+1
+        cmp bin_size_end+1
+        bne _ebo_mismatch
+        jsr close_binary_files
+        jsr finalize_binary_output
+        bcs _ebo_open_fail
+        clc
+        rts
+
+_ebo_mismatch:
+        jsr close_binary_files
+        lda #<msg_bin_mismatch
+        ldy #>msg_bin_mismatch
+        jsr screen_zstr
+        sec
+        rts
+
+_ebo_write_fail:
+        lda #BK_TEXT
+        sta backend_mode
+        jsr close_binary_files
+_ebo_open_fail:
+        sec
+        rts
+
+close_binary_files:
+        jsr KERNAL_CLRCHN
+        lda #LFN_OUT
+        jsr KERNAL_CLOSE
+        lda #LFN_RT
+        jsr KERNAL_CLOSE
+        jsr KERNAL_CLRCHN
+        rts
+
+open_binary_output:
+        lda #<scratch_outb_name
+        ldy #>scratch_outb_name
+        ldx #scratch_outb_name_end - scratch_outb_name
+        jsr disk_command
+
+        lda #LFN_OUT
+        ldx #DEVICE_DISK
+        ldy #1
+        jsr KERNAL_SETLFS
+
+        lda #0
+        ldx #0
+        jsr KERNAL_SETBNK
+
+        lda #outb_name_end - outb_name
+        ldx #<outb_name
+        ldy #>outb_name
+        jsr KERNAL_SETNAM
+
+        jsr KERNAL_OPEN
+        bcs _open_binary_fail
+        jsr KERNAL_READST
+        bne _open_binary_fail
+        clc
+        rts
+
+_open_binary_fail:
+        jsr close_binary_files
+        sec
+        rts
+
+finalize_binary_output:
+        lda #<scratch_prg_name
+        ldy #>scratch_prg_name
+        ldx #scratch_prg_name_end - scratch_prg_name
+        jsr disk_command
+        bcs _finalize_binary_fail
+        lda #<rename_prg_name
+        ldy #>rename_prg_name
+        ldx #rename_prg_name_end - rename_prg_name
+        jsr disk_command
+        rts
+
+_finalize_binary_fail:
+        sec
+        rts
+
+; stream runtime.prg verbatim (load address first) into the output file,
+; then pad with zeros until bin_pc reaches progbase ($4000)
+copy_runtime_image:
+        lda #LFN_RT
+        ldx #DEVICE_DISK
+        ldy #4
+        jsr KERNAL_SETLFS
+
+        lda #0
+        ldx #0
+        jsr KERNAL_SETBNK
+
+        lda #rt_name_end - rt_name
+        ldx #<rt_name
+        ldy #>rt_name
+        jsr KERNAL_SETNAM
+
+        jsr KERNAL_OPEN
+        bcs _copy_runtime_fail
+        jsr KERNAL_READST
+        bne _copy_runtime_fail
+
+        ; the file's two load-address bytes become the PRG header
+        lda #<($2001 - 2)
+        sta bin_pc
+        lda #>($2001 - 2)
+        sta bin_pc+1
+
+_copy_runtime_chunk:
+        ldx #LFN_RT
+        jsr KERNAL_CHKIN
+        bcs _copy_runtime_fail
+        ldy #0
+_copy_runtime_read:
+        jsr KERNAL_CHRIN
+        sta line_buf,y
+        iny
+        jsr KERNAL_READST
+        sta rt_status
+        bne _copy_runtime_read_done
+        cpy #LINE_BUF_MAX
+        bcc _copy_runtime_read
+_copy_runtime_read_done:
+        sty rt_chunk_len
+        jsr KERNAL_CLRCHN
+        ldx #LFN_OUT
+        jsr KERNAL_CHKOUT
+        bcs _copy_runtime_fail
+        ldy #0
+_copy_runtime_write:
+        cpy rt_chunk_len
+        beq _copy_runtime_written
+        lda line_buf,y
+        jsr bin_write_byte
+        iny
+        bra _copy_runtime_write
+_copy_runtime_written:
+        lda rt_status
+        beq _copy_runtime_chunk
+        and #$40
+        beq _copy_runtime_fail   ; error bits without EOF
+
+_copy_runtime_pad:
+        lda bin_pc+1
+        cmp #>$4000
+        bcs _copy_runtime_done
+        lda #0
+        jsr bin_write_byte
+        bra _copy_runtime_pad
+
+_copy_runtime_done:
+        clc
+        rts
+
+_copy_runtime_fail:
+        sec
+        rts
+
 report_size_pass:
         lda backend_error
         beq +
+        pha
         lda #<msg_backend_error
         ldy #>msg_backend_error
         jsr screen_zstr
+        pla
+        jsr out_hex_byte
+        lda #' '
+        jsr KERNAL_CHROUT
+        lda backend_error_ptr+1
+        jsr out_hex_byte
+        lda backend_error_ptr
+        jsr out_hex_byte
+        lda #13
+        jsr KERNAL_CHROUT
         rts
 +       lda #<msg_bin_size
         ldy #>msg_bin_size
@@ -623,6 +840,8 @@ _open_output_fail:
 close_work_files:
         jsr KERNAL_CLRCHN
         lda #LFN_OUT
+        jsr KERNAL_CLOSE
+        lda #LFN_RT
         jsr KERNAL_CLOSE
         lda #LFN_CMD
         jsr KERNAL_CLOSE
@@ -5599,8 +5818,32 @@ emit_generated_header:
 _emit_generated_header_bin:
         ; program header at progbase: start, varheapend, datastart, dataend,
         ; strroots vectors (5 words); start label sits right after them
+        cpx #BK_EMIT
+        beq _emit_header_vectors
         lda #10
         jmp bin_add_pc
+
+_emit_header_vectors:
+        lda #$0a                ; start = $400a
+        jsr bin_write_byte
+        lda #$40
+        jsr bin_write_byte
+        lda var_heap_next_lo
+        jsr bin_write_byte
+        lda var_heap_next_hi
+        jsr bin_write_byte
+        lda datastart_addr
+        jsr bin_write_byte
+        lda datastart_addr+1
+        jsr bin_write_byte
+        lda dataend_addr
+        jsr bin_write_byte
+        lda dataend_addr+1
+        jsr bin_write_byte
+        lda strroots_addr
+        jsr bin_write_byte
+        lda strroots_addr+1
+        jmp bin_write_byte
 
 emit_generated_tail:
         lda #<out_tail
@@ -5635,7 +5878,14 @@ emit_for_storage:
         lda for_label_next
         bne +
         rts
-+       lda #<out_for_storage_header
++       ldx backend_mode
+        beq _emit_for_storage_text
+        lda bin_pc
+        sta for_storage_addr
+        lda bin_pc+1
+        sta for_storage_addr+1
+_emit_for_storage_text:
+        lda #<out_for_storage_header
         ldy #>out_for_storage_header
         jsr out_zstr
         lda #0
@@ -5949,12 +6199,74 @@ _emit_line_label_bin:
         rts
 
 out_label_from_number:
+        ldx backend_mode
+        beq _out_label_number_text
+        ; resolve the BASIC line number in number_lo/hi to its binary address
+        ldx #0
+_out_label_number_scan:
+        cpx line_count
+        beq _out_label_number_bad
+        lda line_table_lo,x
+        cmp number_lo
+        bne _out_label_number_next
+        lda line_table_hi,x
+        cmp number_hi
+        beq _out_label_number_found
+_out_label_number_next:
+        inx
+        bra _out_label_number_scan
+_out_label_number_found:
+        lda line_addr_lo,x
+        sta pending_value
+        lda line_addr_hi,x
+        sta pending_value+1
+        rts
+_out_label_number_bad:
+        lda #3
+        sta backend_error
+        rts
+_out_label_number_text:
         lda #'l'
         jsr out_char
         jsr out_hex_word_number
         rts
 
 out_data_line_ref:
+        ldx backend_mode
+        beq _out_data_line_text
+        ; find the data-line slot for the line number in number_lo/hi
+        ldx #0
+_out_data_line_scan:
+        cpx data_line_count
+        beq _out_data_line_bad
+        lda data_line_lo,x
+        cmp number_lo
+        bne _out_data_line_next
+        lda data_line_hi,x
+        cmp number_hi
+        beq _out_data_line_found
+_out_data_line_next:
+        inx
+        bra _out_data_line_scan
+_out_data_line_found:
+        lda pending_kind
+        beq _out_data_line_def
+        lda data_line_addr_lo,x
+        sta pending_value
+        lda data_line_addr_hi,x
+        sta pending_value+1
+        rts
+_out_data_line_def:
+        lda bin_pc
+        sta data_line_addr_lo,x
+        lda bin_pc+1
+        sta data_line_addr_hi,x
+        rts
+_out_data_line_bad:
+        lda #4
+        sta backend_error
+        rts
+_out_data_line_text:
         lda #'d'
         jsr out_char
         lda #'a'
@@ -5967,6 +6279,23 @@ out_data_line_ref:
         rts
 
 out_string_ref:
+        ldx backend_mode
+        beq _out_string_ref_text
+        ldx current_string_id
+        lda pending_kind
+        beq _out_string_ref_def
+        lda string_addr_lo,x
+        sta pending_value
+        lda string_addr_hi,x
+        sta pending_value+1
+        rts
+_out_string_ref_def:
+        lda bin_pc
+        sta string_addr_lo,x
+        lda bin_pc+1
+        sta string_addr_hi,x
+        rts
+_out_string_ref_text:
         lda #'s'
         jsr out_char
         lda #'t'
@@ -7657,7 +7986,13 @@ emit_label_suffix:
         rts
 
 out_if_true_ref:
-        lda #<out_iftrue_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx if_true_lo
+        ldy if_true_hi
+        jmp bin_label
++       lda #<out_iftrue_prefix
         ldy #>out_iftrue_prefix
         jsr out_zstr
         lda if_true_hi
@@ -7667,7 +8002,13 @@ out_if_true_ref:
         rts
 
 out_if_skip_ref:
-        lda #<out_ifskip_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx if_skip_lo
+        ldy if_skip_hi
+        jmp bin_label
++       lda #<out_ifskip_prefix
         ldy #>out_ifskip_prefix
         jsr out_zstr
         lda if_skip_hi
@@ -7677,7 +8018,13 @@ out_if_skip_ref:
         rts
 
 out_if_end_ref:
-        lda #<out_ifend_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx if_end_lo
+        ldy if_end_hi
+        jmp bin_label
++       lda #<out_ifend_prefix
         ldy #>out_ifend_prefix
         jsr out_zstr
         lda if_end_hi
@@ -7687,7 +8034,13 @@ out_if_end_ref:
         rts
 
 out_if_else_ref:
-        lda #<out_ifelse_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx if_else_lo
+        ldy if_else_hi
+        jmp bin_label
++       lda #<out_ifelse_prefix
         ldy #>out_ifelse_prefix
         jsr out_zstr
         lda if_else_hi
@@ -7697,7 +8050,13 @@ out_if_else_ref:
         rts
 
 out_if_tmp_ref:
-        lda #<out_iftmp_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx if_tmp_lo
+        ldy if_tmp_hi
+        jmp bin_label
++       lda #<out_iftmp_prefix
         ldy #>out_iftmp_prefix
         jsr out_zstr
         lda if_tmp_hi
@@ -7707,7 +8066,13 @@ out_if_tmp_ref:
         rts
 
 out_array_ok_ref:
-        lda #<out_arrayok_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_ARRAYOK
+        ldx array_ok_lo
+        ldy array_ok_hi
+        jmp bin_label
++       lda #<out_arrayok_prefix
         ldy #>out_arrayok_prefix
         jsr out_zstr
         lda array_ok_hi
@@ -7717,7 +8082,13 @@ out_array_ok_ref:
         rts
 
 out_array_nonneg_ref:
-        lda #<out_arraynonneg_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_ARRAYPOS
+        ldx array_ok_lo
+        ldy array_ok_hi
+        jmp bin_label
++       lda #<out_arraynonneg_prefix
         ldy #>out_arraynonneg_prefix
         jsr out_zstr
         lda array_ok_hi
@@ -7727,7 +8098,13 @@ out_array_nonneg_ref:
         rts
 
 out_array_hieq_ref:
-        lda #<out_arrayhieq_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_ARRAYHIEQ
+        ldx array_ok_lo
+        ldy array_ok_hi
+        jmp bin_label
++       lda #<out_arrayhieq_prefix
         ldy #>out_arrayhieq_prefix
         jsr out_zstr
         lda array_ok_hi
@@ -7737,7 +8114,13 @@ out_array_hieq_ref:
         rts
 
 out_onnext_ref:
-        lda #<out_onnext_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_ON
+        ldx on_label_lo
+        ldy on_label_hi
+        jmp bin_label
++       lda #<out_onnext_prefix
         ldy #>out_onnext_prefix
         jsr out_zstr
         lda on_label_hi
@@ -7747,7 +8130,13 @@ out_onnext_ref:
         rts
 
 out_ondone_ref:
-        lda #<out_ondone_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_ON
+        ldx on_done_lo
+        ldy on_done_hi
+        jmp bin_label
++       lda #<out_ondone_prefix
         ldy #>out_ondone_prefix
         jsr out_zstr
         lda on_done_hi
@@ -7756,44 +8145,95 @@ out_ondone_ref:
         jsr out_hex_byte
         rts
 
+; forend/forstep are FOR storage slots in the tail: address = storage base +
+; id*4 (+2 for the step word). Definitions happen implicitly when the tail
+; captures for_storage_addr, so the binary path only resolves references.
 out_forend_ref:
-        lda #<out_forend_prefix
+        ldx backend_mode
+        beq +
+        lda #0
+        jmp bin_for_storage_ref
++       lda #<out_forend_prefix
         ldy #>out_forend_prefix
         jsr out_zstr
         bra out_current_for_id
 
 out_forstep_ref:
-        lda #<out_forstep_prefix
+        ldx backend_mode
+        beq +
+        lda #2
+        jmp bin_for_storage_ref
++       lda #<out_forstep_prefix
         ldy #>out_forstep_prefix
         jsr out_zstr
         bra out_current_for_id
 
+bin_for_storage_ref:
+        ldx pending_kind
+        beq _bin_for_storage_done  ; definition context in the tail: no bytes
+        clc
+        adc for_storage_addr
+        sta pending_value
+        lda for_storage_addr+1
+        adc #0
+        sta pending_value+1
+        lda current_for_id
+        asl
+        asl                        ; id*4, ids < 64 so no carry
+        clc
+        adc pending_value
+        sta pending_value
+        bcc _bin_for_storage_done
+        inc pending_value+1
+_bin_for_storage_done:
+        rts
+
 out_fortop_ref:
-        lda #<out_fortop_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_FORTOP
+        bra bin_for_label
++       lda #<out_fortop_prefix
         ldy #>out_fortop_prefix
         jsr out_zstr
         bra out_current_for_id
 
 out_forneg_ref:
-        lda #<out_forneg_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_FORNEG
+        bra bin_for_label
++       lda #<out_forneg_prefix
         ldy #>out_forneg_prefix
         jsr out_zstr
         bra out_current_for_id
 
 out_forinitneg_ref:
-        lda #<out_forinitneg_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_FORINITNEG
+        bra bin_for_label
++       lda #<out_forinitneg_prefix
         ldy #>out_forinitneg_prefix
         jsr out_zstr
         bra out_current_for_id
 
 out_forcont_ref:
-        lda #<out_forcont_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_FORCONT
+        bra bin_for_label
++       lda #<out_forcont_prefix
         ldy #>out_forcont_prefix
         jsr out_zstr
         bra out_current_for_id
 
 out_fordone_ref:
-        lda #<out_fordone_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_FORDONE
+        bra bin_for_label
++       lda #<out_fordone_prefix
         ldy #>out_fordone_prefix
         jsr out_zstr
 
@@ -7804,14 +8244,27 @@ out_current_for_id:
         jsr out_hex_byte
         rts
 
+bin_for_label:
+        ldx current_for_id
+        ldy #0
+        jmp bin_label
+
 out_dotop_ref:
-        lda #<out_dotop_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_DOTOP
+        bra bin_do_label
++       lda #<out_dotop_prefix
         ldy #>out_dotop_prefix
         jsr out_zstr
         bra out_current_do_id
 
 out_dodone_ref:
-        lda #<out_dodone_prefix
+        ldx backend_mode
+        beq +
+        lda #LBL_DODONE
+        bra bin_do_label
++       lda #<out_dodone_prefix
         ldy #>out_dodone_prefix
         jsr out_zstr
 
@@ -7822,7 +8275,19 @@ out_current_do_id:
         jsr out_hex_byte
         rts
 
+bin_do_label:
+        ldx current_do_id
+        ldy #0
+        jmp bin_label
+
 out_plus_one_cr:
+        ldx backend_mode
+        beq _out_plus_one_text
+        inc pending_value       ; label address + 1, then finalize like out_cr
+        bne +
+        inc pending_value+1
++       jmp bin_finalize_pending
+_out_plus_one_text:
         lda #'+'
         jsr out_char
         lda #'1'
@@ -7832,16 +8297,36 @@ out_plus_one_cr:
 
 out_hex_word_number:
         ldx backend_mode
-        bne +
+        beq _out_hex_word_text
+        cpx #BK_EMIT
+        bne _out_hex_word_done
+        ldx pending_kind
+        beq _out_hex_word_done
+        lda number_lo
+        sta pending_value
+        lda number_hi
+        sta pending_value+1
+_out_hex_word_done:
+        rts
+_out_hex_word_text:
         lda number_hi
         jsr out_hex_byte
         lda number_lo
         jsr out_hex_byte
-+       rts
+        rts
 
 out_hex_byte:
         ldx backend_mode
+        beq _out_hex_byte_text
+        cpx #BK_EMIT
         bne _out_hex_byte_done
+        ldx pending_kind
+        cpx #1                  ; byte operand patch
+        bne _out_hex_byte_done
+        sta pending_value
+_out_hex_byte_done:
+        rts
+_out_hex_byte_text:
         pha
         lsr
         lsr
@@ -7851,7 +8336,6 @@ out_hex_byte:
         pla
         and #$0f
         jsr out_hex_nibble
-_out_hex_byte_done:
         rts
 
 out_hex_nibble:
@@ -7940,6 +8424,7 @@ _out_zstr_done:
 
 BK_TEXT = 0
 BK_SIZE = 1
+BK_EMIT = 2
 
 bin_ptr = $FD
 
@@ -7996,11 +8481,16 @@ _bin_map_found:
         lda (bin_ptr),y         ; record length includes the patch slot
         sec
         sbc bin_patch_size-1,x
-        jmp bin_add_pc
+        bra _bin_zstr_out
 
 _bin_zstr_code:
         ldy #1
         lda (bin_ptr),y
+
+_bin_zstr_out:
+        ldx backend_mode
+        cpx #BK_EMIT
+        beq bin_copy_record
         jmp bin_add_pc
 
 _bin_zstr_done:
@@ -8015,15 +8505,33 @@ _bin_map_missing:
         sta backend_error_ptr+1
         rts
 
+; copy A record bytes (starting at record offset 2) to the binary output
+bin_copy_record:
+        sta bin_copy_cnt
+        cmp #0
+        beq +
+        ldy #2
+_bin_copy_loop:
+        lda (bin_ptr),y
+        jsr bin_write_byte
+        iny
+        dec bin_copy_cnt
+        bne _bin_copy_loop
++       rts
+
 ; patch slot sizes indexed by kind-1: byte, word, lo, hi, rel8
 bin_patch_size:
         .byte 1, 2, 1, 1, 1
 
 bin_finalize_pending:
         ldx pending_kind
-        beq +
-        lda #0
+        bne +
+        rts
++       lda #0
         sta pending_kind
+        lda backend_mode
+        cmp #BK_EMIT
+        beq bin_fin_emit
         lda bin_patch_size-1,x
         ; FALLTHROUGH
 bin_add_pc:
@@ -8033,6 +8541,113 @@ bin_add_pc:
         bcc +
         inc bin_pc+1
 +       rts
+
+bin_fin_emit:
+        cpx #2
+        beq _bin_fin_word
+        cpx #4
+        beq _bin_fin_hi
+        cpx #5
+        beq _bin_fin_rel8
+        lda pending_value       ; byte and lo patches
+        jmp bin_write_byte
+_bin_fin_word:
+        lda pending_value
+        jsr bin_write_byte
+        lda pending_value+1
+        jmp bin_write_byte
+_bin_fin_hi:
+        lda pending_value+1
+        jmp bin_write_byte
+_bin_fin_rel8:
+        ; displacement = target - (address after the operand byte)
+        lda pending_value
+        sec
+        sbc bin_pc
+        sec
+        sbc #1
+        jmp bin_write_byte
+
+; write one byte of the native program image and advance bin_pc; the binary
+; output channel is selected while the emit pass runs
+bin_write_byte:
+        jsr KERNAL_CHROUT
+        inc bin_pc
+        bne +
+        inc bin_pc+1
++       rts
+
+; A = label table id, X/Y = label id lo/hi. With no patch pending this is a
+; definition site: record bin_pc. With a patch pending it is a reference:
+; fetch the recorded address into pending_value (the size pass never reads
+; the value, so both passes share this path).
+bin_label:
+        sta bin_tbl
+        txa
+        asl
+        sta bin_ptr
+        tya
+        rol
+        sta bin_ptr+1           ; bin_ptr = id*2
+        ldx bin_tbl
+        cpx #LBL_ON
+        bcc _bin_label_cap_if
+        beq _bin_label_cap_on
+        cpx #LBL_FORTOP
+        bcc _bin_label_cap_array
+        lda bin_ptr+1           ; for/do tables
+        bne _bin_label_ovf
+        lda bin_ptr
+        cmp #LBL_FORDO_MAX * 2
+        bcs _bin_label_ovf
+        bra _bin_label_go
+_bin_label_cap_if:
+        lda bin_ptr+1
+        cmp #>(LBL_IF_IDS * 2)
+        bcs _bin_label_ovf
+        bra _bin_label_go
+_bin_label_cap_on:
+        lda bin_ptr+1
+        cmp #>(LBL_ON_IDS * 2)
+        bcs _bin_label_ovf
+        bra _bin_label_go
+_bin_label_cap_array:
+        lda bin_ptr+1
+        cmp #>(LBL_ARRAY_IDS * 2)
+        bcs _bin_label_ovf
+_bin_label_go:
+        ldx bin_tbl
+        clc
+        lda bin_ptr
+        adc lbladdr_base_lo,x
+        sta bin_ptr
+        lda bin_ptr+1
+        adc lbladdr_base_hi,x
+        sta bin_ptr+1
+        lda pending_kind
+        beq _bin_label_def
+        ldy #0
+        lda (bin_ptr),y
+        sta pending_value
+        iny
+        lda (bin_ptr),y
+        sta pending_value+1
+        rts
+_bin_label_def:
+        ldy #0
+        lda bin_pc
+        sta (bin_ptr),y
+        iny
+        lda bin_pc+1
+        sta (bin_ptr),y
+        rts
+_bin_label_ovf:
+        lda #2
+        sta backend_error
+        lda bin_tbl
+        sta backend_error_ptr
+        stx backend_error_ptr+1
+        rts
 
 screen_zstr:
         sta str_ptr
@@ -8076,6 +8691,29 @@ rename_name:
         .byte 13
 rename_name_end:
 
+outb_name:
+        .text "0:outb.tmp,p,w"
+outb_name_end:
+
+rt_name:
+        .text "runtime.prg"
+rt_name_end:
+
+scratch_outb_name:
+        .text "s0:outb.tmp"
+        .byte 13
+scratch_outb_name_end:
+
+scratch_prg_name:
+        .text "s0:out.prg"
+        .byte 13
+scratch_prg_name_end:
+
+rename_prg_name:
+        .text "r0:out.prg=outb.tmp"
+        .byte 13
+rename_prg_name_end:
+
 msg_banner:
         .byte 13
         .text "basic65c: source.prg -> out.asm"
@@ -8108,7 +8746,19 @@ msg_bin_size:
         .text "native size: ends $"
         .byte 0
 msg_backend_error:
-        .text "basic65c: bin template map incomplete"
+        .text "basic65c: backend error "
+        .byte 0
+msg_writing_prg:
+        .text "writing out.prg"
+        .byte 13, 0
+msg_wrote_prg:
+        .text "basic65c: wrote out.prg"
+        .byte 13, 0
+msg_bin_write_fail:
+        .text "basic65c: native out.prg failed"
+        .byte 13, 0
+msg_bin_mismatch:
+        .text "basic65c: native size mismatch"
         .byte 13, 0
 msg_done:
         .text "basic65c: wrote out.asm"
@@ -9106,11 +9756,25 @@ backend_error_ptr:
         .word 0
 pending_kind:
         .byte 0
+pending_value:
+        .word 0
 bin_pc:
+        .word 0
+bin_size_end:
         .word 0
 bin_key_lo:
         .byte 0
 bin_key_hi:
+        .byte 0
+bin_tbl:
+        .byte 0
+bin_copy_cnt:
+        .byte 0
+for_storage_addr:
+        .word 0
+rt_status:
+        .byte 0
+rt_chunk_len:
         .byte 0
 line_emit_idx:
         .byte 0
@@ -9232,9 +9896,71 @@ string_pool:
         .fill STRING_POOL_MAX, 0
 
 ;=======================================================================================
+; Binary backend label address tables, filled during the size pass and read
+; during the emit pass. Generated-label ids above LBL_ID_MAX set
+; backend_error (the text backend is unaffected).
+;=======================================================================================
+
+LBL_IF_IDS      = 1024
+LBL_ON_IDS      = 512
+LBL_ARRAY_IDS   = 256
+LBL_FORDO_MAX   = 64
+
+; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
+; so a single table keyed by id covers all five kinds; same for onnext/ondone.
+; The three array labels of one bounds check share a single id, so they need
+; a table per kind.
+LBL_IF          = 0
+LBL_ON          = 1
+LBL_ARRAYOK     = 2
+LBL_ARRAYPOS    = 3
+LBL_ARRAYHIEQ   = 4
+LBL_FORTOP      = 5
+LBL_FORNEG      = 6
+LBL_FORINITNEG  = 7
+LBL_FORCONT     = 8
+LBL_FORDONE     = 9
+LBL_DOTOP       = 10
+LBL_DODONE      = 11
+
+lbladdr_if:        .fill LBL_IF_IDS * 2, 0
+lbladdr_on:        .fill LBL_ON_IDS * 2, 0
+lbladdr_arrayok:   .fill LBL_ARRAY_IDS * 2, 0
+lbladdr_arraypos:  .fill LBL_ARRAY_IDS * 2, 0
+lbladdr_arrayhieq: .fill LBL_ARRAY_IDS * 2, 0
+lbladdr_fortop:    .fill LBL_FORDO_MAX * 2, 0
+lbladdr_forneg:    .fill LBL_FORDO_MAX * 2, 0
+lbladdr_forinitneg: .fill LBL_FORDO_MAX * 2, 0
+lbladdr_forcont:   .fill LBL_FORDO_MAX * 2, 0
+lbladdr_fordone:   .fill LBL_FORDO_MAX * 2, 0
+lbladdr_dotop:     .fill LBL_FORDO_MAX * 2, 0
+lbladdr_dodone:    .fill LBL_FORDO_MAX * 2, 0
+
+lbladdr_base_lo:
+        .byte <lbladdr_if, <lbladdr_on
+        .byte <lbladdr_arrayok, <lbladdr_arraypos, <lbladdr_arrayhieq
+        .byte <lbladdr_fortop, <lbladdr_forneg, <lbladdr_forinitneg
+        .byte <lbladdr_forcont, <lbladdr_fordone
+        .byte <lbladdr_dotop, <lbladdr_dodone
+lbladdr_base_hi:
+        .byte >lbladdr_if, >lbladdr_on
+        .byte >lbladdr_arrayok, >lbladdr_arraypos, >lbladdr_arrayhieq
+        .byte >lbladdr_fortop, >lbladdr_forneg, >lbladdr_forinitneg
+        .byte >lbladdr_forcont, >lbladdr_fordone
+        .byte >lbladdr_dotop, >lbladdr_dodone
+
+string_addr_lo:  .fill STRING_MAX, 0
+string_addr_hi:  .fill STRING_MAX, 0
+data_line_addr_lo: .fill DATA_LINE_MAX, 0
+data_line_addr_hi: .fill DATA_LINE_MAX, 0
+
+;=======================================================================================
 ; Derived binary template records (regenerated by tools\gen-bin-templates.py)
 ;=======================================================================================
 
         .include "gen/bin-templates.inc"
 
-        .cerror * >= $a000, "resident compiler grew past $a000"
+; The C65 BASIC ROM shadows $8000-$bfff only for generated programs (the
+; runtime banks it out); the resident compiler itself runs fine up to the
+; editor ROM at $c000.
+        .cerror * >= $c000, "resident compiler grew past $c000"

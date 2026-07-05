@@ -74,16 +74,16 @@ cd target
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write basic65c basic65c
 if errorlevel 1 exit /b 1
+..\c1541.exe -attach basic65c.d81 -write runtime.prg runtime.prg
+if errorlevel 1 exit /b 1
 for %%F in (*.prg) do (
     if /I not "%%F"=="out.prg" if /I not "%%F"=="runtime.prg" (
         ..\c1541.exe -attach basic65c.d81 -write "%%F" "%%F"
         if errorlevel 1 exit /b 1
     )
 )
-if "%HAVE_OUT_PRG%"=="1" (
-    ..\c1541.exe -attach basic65c.d81 -write out.prg out.prg
-    if errorlevel 1 exit /b 1
-)
+rem out.prg is no longer pre-loaded onto the D81: the compiler writes its
+rem own native OUT.PRG there during compilation
 cd ..
 
 echo Built target\basic65c.d81

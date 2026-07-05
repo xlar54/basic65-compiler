@@ -82,23 +82,53 @@ function Invoke-Fixture {
             break
         }
     }
-    Stop-Xemu $p
-
-    if ($negative) {
-        if ($compiled) { return @{ Name = $name; Result = "FAIL (compiled but should not)" } }
-        return @{ Name = $name; Result = "PASS (rejected as expected)" }
+    if ($negative -or -not $compiled) {
+        Stop-Xemu $p
+        if ($negative) {
+            if ($compiled) { return @{ Name = $name; Result = "FAIL (compiled but should not)" } }
+            return @{ Name = $name; Result = "PASS (rejected as expected)" }
+        }
+        return @{ Name = $name; Result = "FAIL (no OUT.ASM in $waitFor s)" }
     }
-    if (-not $compiled) { return @{ Name = $name; Result = "FAIL (no OUT.ASM in $waitFor s)" } }
     Write-Host ("OUT.ASM extracted: {0} bytes" -f (Get-Item target\out.asm.seq).Length)
+
+    # the native OUT.PRG is written right after OUT.ASM; keep the emulator
+    # running until it lands
+    Remove-Item -Force -ErrorAction SilentlyContinue target\out-native.prg
+    $nativeDeadline = (Get-Date).AddSeconds(40)
+    while ((Get-Date) -lt $nativeDeadline) {
+        Start-Sleep -Seconds 5
+        Copy-Item -Force $d81 $probe
+        cmd /c ".\c1541.exe -attach `"$probe`" -read `"out.prg`" target\out-native.prg >nul 2>nul"
+        if ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0) { break }
+    }
+    Stop-Xemu $p
 
     Write-Host "=== link with runtime ==="
     cmd /c ".\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg 2>&1" | Out-Host
     if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "FAIL (link error)" } }
 
+    Write-Host "=== byte-diff: native OUT.PRG vs 64tass ==="
+    $nativeOk = $false
+    if ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0) {
+        cmd /c "fc /b target\out.prg target\out-native.prg >nul 2>nul"
+        if ($LASTEXITCODE -eq 0) {
+            $nativeOk = $true
+            Write-Host "native OUT.PRG is byte-identical"
+        } else {
+            Write-Host "native OUT.PRG DIFFERS from 64tass output"
+        }
+    } else {
+        Write-Host "native OUT.PRG missing"
+    }
+
     if ($SkipRun) { return @{ Name = $name; Result = "PASS (link only)" } }
 
     Write-Host "=== phase 2: run OUT.PRG ==="
-    cmd /c ".\c1541.exe -attach `"$d81`" -delete out.prg -write target\out.prg out.prg >nul 2>nul"
+    if (-not $nativeOk) {
+        # fall back to the 64tass-assembled PRG when the native one is absent
+        cmd /c ".\c1541.exe -attach `"$d81`" -delete out.prg -write target\out.prg out.prg >nul 2>nul"
+    }
     Remove-Item -Force -ErrorAction SilentlyContinue $screenDump
     $p = Start-Process -FilePath $Xemu -ArgumentList @(
         "-8", $d81, "-hdosvirt", "true",
@@ -117,7 +147,8 @@ function Invoke-Fixture {
     $suspect = ($screen -join "`n") -match "FAIL"
     if (-not $ran) { return @{ Name = $name; Result = "FAIL (no READY after run)" } }
     if ($suspect) { return @{ Name = $name; Result = "SUSPECT (output contains FAIL)" } }
-    return @{ Name = $name; Result = "PASS" }
+    if (-not $nativeOk) { return @{ Name = $name; Result = "SUSPECT (ran, but native PRG differs/missing)" } }
+    return @{ Name = $name; Result = "PASS (native byte-identical)" }
 }
 
 $results = @()
