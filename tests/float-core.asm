@@ -12,7 +12,7 @@
 ; ways, qint truncation of 3/2, floor of -3/2 (exponent decrement halves a
 ; float exactly), and a pack/unpack round trip through bank 1.
 
-        * = $4800
+        * = $5000
 
         .word start
         .word $2100             ; varheapend: tiny heap, nothing uses it

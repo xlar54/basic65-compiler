@@ -395,9 +395,9 @@ run_size_pass:
         lda #BK_SIZE
         sta backend_mode
         jsr reset_emit_counters
-        lda #<$4800
+        lda #<$5000
         sta bin_pc
-        lda #>$4800
+        lda #>$5000
         sta bin_pc+1
         jsr emit_generated_header
         jsr init_source_reader
@@ -524,7 +524,7 @@ _finalize_binary_fail:
         rts
 
 ; stream runtime.prg verbatim (load address first) into the output file,
-; then pad with zeros until bin_pc reaches progbase ($4800)
+; then pad with zeros until bin_pc reaches progbase ($5000)
 copy_runtime_image:
         lda #LFN_RT
         ldx #DEVICE_DISK
@@ -587,7 +587,7 @@ _copy_runtime_written:
 
 _copy_runtime_pad:
         lda bin_pc+1
-        cmp #>$4800
+        cmp #>$5000
         bcs _copy_runtime_done
         lda #0
         jsr bin_write_byte
@@ -7564,9 +7564,9 @@ _emit_generated_header_bin:
         jmp bin_add_pc
 
 _emit_header_vectors:
-        lda #$0c                ; start = $480c
+        lda #$0c                ; start = $500c
         jsr bin_write_byte
-        lda #$48
+        lda #$50
         jsr bin_write_byte
         lda var_heap_next_lo
         jsr bin_write_byte
@@ -10755,7 +10755,7 @@ out_header:
         .byte 13
         .text "        .enc ""none"""
         .byte 13, 13
-        .text "        * = $4800"
+        .text "        * = $5000"
         .byte 13
         .text "        .word start"
         .byte 13

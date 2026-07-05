@@ -12,7 +12,7 @@
 ;   $2001         BASIC stub (SYS 8210)
 ;   $2012         rtinit -- runtime entry, called by the stub
 ;   $2012-$47ff   runtime code and storage (guarded by .cerror below)
-;   $4800         program header vectors, then the compiled program:
+;   $5000         program header vectors, then the compiled program:
 ;                   progbase+0  .word start        (program entry)
 ;                   progbase+2  .word varheapend   (bank-1 clear limit)
 ;                   progbase+4  .word datastart    (DATA table start)
@@ -64,7 +64,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $4800
+progbase     = $5000
 varheapstart = $2000
 strheaptop   = $f800
 
