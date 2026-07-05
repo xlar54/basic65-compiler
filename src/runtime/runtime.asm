@@ -127,12 +127,6 @@ rtinit:
         lda #$00
         sta varptr+3
         jsr fltinit             ; convert float literals (needs the above)
-        lda #2
-        sta snd_w               ; SOUND defaults: square wave, 50% pulse
-        lda #$08
-        sta snd_p+1
-        lda #$0f
-        sta snd_vol
         lda $dc04               ; seed RND from the CIA timer
         sta rndseed
         eor #$b5
@@ -152,7 +146,7 @@ rtinit:
         and #%11000111
         sta $d030
         jsr rtcallprog
-        jsr sndshutdown
+        jsr rtsndshut
         lda rtd030save
         sta $d030
         rts
@@ -162,7 +156,7 @@ rtcallprog:
 ; END/STOP from any GOSUB depth: unwind the stack to the pre-program mark,
 ; restore the ROM mapping, and return to the BASIC SYS caller
 rtexit:
-        jsr sndshutdown
+        jsr rtsndshut
         ldx rtspsave
         txs
         lda rtd030save
@@ -4320,6 +4314,7 @@ rtstrroots:   .byte 0,0
 rtfltinit:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
+snd_shutptr:  .word rtshutnop
 
 ; MFLP float accumulators (unpacked)
 facexp:       .byte 0
@@ -4379,52 +4374,7 @@ rt_er:        .byte 0
 rt_el:        .byte 0,0
 curline:      .byte 0,0
 rtjmp:        .byte 0,0
-snd_hooked:   .byte 0
-snd_oldirq:   .byte 0,0
-snd_vol:      .byte 0
-snd_v:        .byte 0
-snd_f:        .byte 0,0
-snd_d:        .byte 0,0
-snd_w:        .byte 0
-snd_p:        .byte 0,0
-snd_dir:      .byte 0
-snd_m:        .byte 0,0
-snd_s:        .byte 0,0
-snd_ctrl:     .fill 6, 0
-snd_dur_lo:   .fill 6, 0
-snd_dur_hi:   .fill 6, 0
-snd_frq_lo:   .fill 6, 0
-snd_frq_hi:   .fill 6, 0
-snd_pmax_lo:  .fill 6, 0
-snd_pmax_hi:  .fill 6, 0
-snd_pmin_lo:  .fill 6, 0
-snd_pmin_hi:  .fill 6, 0
-snd_pswp_lo:  .fill 6, 0
-snd_pswp_hi:  .fill 6, 0
-playarg:     .byte 0
-play_acc:     .byte 0
-play_dot:     .byte 0
-play_octw:    .byte 0
-play_frq:     .byte 0,0
-play_ad:      .byte 0
-play_sr:      .byte 0
-play_wv:      .byte 0
-play_cplen:   .byte 0
-play_envn:    .byte 0
-play_tdiv:    .byte 0
-play_tacc:    .byte 0,0
-play_tq:      .byte 0
-play_act:     .fill 6, 0
-play_pos:     .fill 6, 0
-play_rem:     .fill 6, 0
-play_dur:     .fill 6, 0
-play_oct:     .fill 6, 0
-play_env:     .fill 6, 0
-play_loop:    .fill 6, 0
-play_ctrl:    .fill 6, 0
-play_buf:     .fill 6*PLAY_TRACK_LEN, 0
-spr_n:        .byte 0
-spr_x:        .byte 0,0
+
 snd_pdir:     .fill 6, 0
 snd_phase:    .fill 6, 0
 snd_vectab:   .fill 64, 0       ; KERNAL vector table copy (with headroom)
@@ -4494,7 +4444,18 @@ inputdigits:  .byte 0
 inputbuf:     .fill 81,0
 
 
+rtsndshut:
+        jmp (snd_shutptr)
+rtshutnop:
+        rts
+
 rtendcore:
+
+.weak
+RT_SOUND = 1                    ; OUT.ASM sets 0 when the program uses no sound
+.endweak
+
+.if RT_SOUND != 0
 
 ;=======================================================================================
 ; Optional sections below: programs that never use sound, PLAY, or
@@ -5178,6 +5139,10 @@ _bump_done:
 sndinit:
         lda snd_hooked
         bne _sndinit_done
+        lda #<sndshutdown
+        sta snd_shutptr
+        lda #>sndshutdown
+        sta snd_shutptr+1
         sei
         sec                     ; read the KERNAL RAM vector table
         ldx #<snd_vectab
@@ -5493,6 +5458,54 @@ sndgo:
         sta snd_p+1             ; 50% pulse default
         rts
 
+
+snd_hooked:   .byte 0
+snd_oldirq:   .byte 0,0
+snd_vol:      .byte $0f
+snd_v:        .byte 0
+snd_f:        .byte 0,0
+snd_d:        .byte 0,0
+snd_w:        .byte 2   ; square default
+snd_p:        .byte 0,$08 ; 50% pulse default
+snd_dir:      .byte 0
+snd_m:        .byte 0,0
+snd_s:        .byte 0,0
+snd_ctrl:     .fill 6, 0
+snd_dur_lo:   .fill 6, 0
+snd_dur_hi:   .fill 6, 0
+snd_frq_lo:   .fill 6, 0
+snd_frq_hi:   .fill 6, 0
+snd_pmax_lo:  .fill 6, 0
+snd_pmax_hi:  .fill 6, 0
+snd_pmin_lo:  .fill 6, 0
+snd_pmin_hi:  .fill 6, 0
+snd_pswp_lo:  .fill 6, 0
+snd_pswp_hi:  .fill 6, 0
+playarg:     .byte 0
+play_acc:     .byte 0
+play_dot:     .byte 0
+play_octw:    .byte 0
+play_frq:     .byte 0,0
+play_ad:      .byte 0
+play_sr:      .byte 0
+play_wv:      .byte 0
+play_cplen:   .byte 0
+play_envn:    .byte 0
+play_tdiv:    .byte 0
+play_tacc:    .byte 0,0
+play_tq:      .byte 0
+play_act:     .fill 6, 0
+play_pos:     .fill 6, 0
+play_rem:     .fill 6, 0
+play_dur:     .fill 6, 0
+play_oct:     .fill 6, 0
+play_env:     .fill 6, 0
+play_loop:    .fill 6, 0
+play_ctrl:    .fill 6, 0
+play_buf:     .fill 6*PLAY_TRACK_LEN, 0
+spr_n:        .byte 0
+spr_x:        .byte 0,0
+.fi
 
 rtendsound:
 
