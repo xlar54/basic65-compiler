@@ -402,6 +402,10 @@ bt_out_lda_lhslo:
         .byte 0, 3
         .byte $ad, $fb, $30
 
+bt_out_move_expr_to_lhs:
+        .byte 0, 12
+        .byte $ad, $f9, $30, $8d, $fb, $30, $ad, $fa, $30, $8d, $fc, $30
+
 bt_out_neg_expr:
         .byte 0, 17
         .byte $38, $a9, $00, $ed, $f9, $30, $8d, $f9, $30, $a9, $00, $ed
@@ -648,6 +652,7 @@ bt_map:
         .word out_lda_label_lo_imm, bt_out_lda_label_lo_imm
         .word out_lda_lhshi, bt_out_lda_lhshi
         .word out_lda_lhslo, bt_out_lda_lhslo
+        .word out_move_expr_to_lhs, bt_out_move_expr_to_lhs
         .word out_neg_expr, bt_out_neg_expr
         .word out_ondone_prefix, bt_out_ondone_prefix
         .word out_onnext_prefix, bt_out_onnext_prefix

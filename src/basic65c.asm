@@ -2551,9 +2551,8 @@ _compile_next_emit:
         sta current_var_data_hi
         sta assign_var_data_hi
         jsr emit_load_var
-        jsr emit_push_expr
+        jsr emit_move_expr_to_lhs
         jsr emit_load_forstep
-        jsr emit_pop_lhs
         jsr emit_add_lhs_expr
         jsr emit_store_var
 
@@ -2573,9 +2572,8 @@ _compile_next_emit:
         lda current_for_var_data_hi
         sta current_var_data_hi
         jsr emit_load_var
-        jsr emit_push_expr
+        jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        jsr emit_pop_lhs
         lda #<out_jsr_cmple
         ldy #>out_jsr_cmple
         jsr out_zstr
@@ -2592,9 +2590,8 @@ _compile_next_emit:
         lda current_for_var_data_hi
         sta current_var_data_hi
         jsr emit_load_var
-        jsr emit_push_expr
+        jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        jsr emit_pop_lhs
         lda #<out_jsr_cmpge
         ldy #>out_jsr_cmpge
         jsr out_zstr
@@ -2747,8 +2744,7 @@ compile_exit_bad:
 compile_loop_condition_lhs:
         jsr compile_condition_expression
         bcs _compile_loop_condition_fail
-        jsr emit_push_expr
-        jsr emit_pop_lhs
+        jsr emit_move_expr_to_lhs
         clc
         rts
 
@@ -3053,6 +3049,16 @@ compile_condition_compare:
         bcs _cond_compare_fail
         jsr parse_if_compare_op
         bcs _cond_compare_done
+        ldx #2
+        jsr probe_simple_rhs
+        bcs _cond_compare_general
+        jsr emit_move_expr_to_lhs
+        jsr compile_expression
+        bcs _cond_compare_fail
+        jsr emit_compare_expr_to_bool
+        bra _cond_compare_done
+
+_cond_compare_general:
         jsr emit_push_expr
         jsr compile_expression
         bcs _cond_compare_fail
@@ -3353,6 +3359,16 @@ _expr_done:
 
 _expr_add:
         jsr line_get
+        ldx #1
+        jsr probe_simple_rhs
+        bcs _expr_add_general
+        jsr emit_move_expr_to_lhs
+        jsr compile_term
+        bcs _expr_fail
+        jsr emit_add_lhs_expr
+        bra _expr_loop
+
+_expr_add_general:
         jsr emit_push_expr
         jsr compile_term
         bcs _expr_fail
@@ -3362,6 +3378,16 @@ _expr_add:
 
 _expr_sub:
         jsr line_get
+        ldx #1
+        jsr probe_simple_rhs
+        bcs _expr_sub_general
+        jsr emit_move_expr_to_lhs
+        jsr compile_term
+        bcs _expr_fail
+        jsr emit_sub_lhs_expr
+        bra _expr_loop
+
+_expr_sub_general:
         jsr emit_push_expr
         jsr compile_term
         bcs _expr_fail
@@ -3393,6 +3419,16 @@ _term_done:
 
 _term_mul:
         jsr line_get
+        ldx #0
+        jsr probe_simple_rhs
+        bcs _term_mul_general
+        jsr emit_move_expr_to_lhs
+        jsr compile_factor
+        bcs _term_fail
+        jsr emit_mul_lhs_expr
+        bra _term_loop
+
+_term_mul_general:
         jsr emit_push_expr
         jsr compile_factor
         bcs _term_fail
@@ -3402,6 +3438,16 @@ _term_mul:
 
 _term_div:
         jsr line_get
+        ldx #0
+        jsr probe_simple_rhs
+        bcs _term_div_general
+        jsr emit_move_expr_to_lhs
+        jsr compile_factor
+        bcs _term_fail
+        jsr emit_div_lhs_expr
+        bra _term_loop
+
+_term_div_general:
         jsr emit_push_expr
         jsr compile_factor
         bcs _term_fail
@@ -6797,6 +6843,86 @@ emit_push_expr:
         jsr out_zstr
         rts
 
+emit_move_expr_to_lhs:
+        lda #<out_move_expr_to_lhs
+        ldy #>out_move_expr_to_lhs
+        jsr out_zstr
+        rts
+
+; Decide whether the upcoming right-hand operand is a single numeric literal
+; or scalar numeric variable, so the caller can skip the push/pop around it
+; (loading such a factor cannot clobber lhslo/lhshi). X selects how much
+; lookahead context must stay simple:
+;   X=0  factor context (a following * or / belongs to the caller's loop)
+;   X=1  term context: reject a following * or /
+;   X=2  expression context: reject a following + - * /
+; Returns carry clear when simple; line_idx is always restored.
+probe_simple_rhs:
+        stx probe_mode
+        lda line_idx
+        sta probe_saved_idx
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _probe_fail
+        jsr line_peek
+        cmp #'$'
+        beq _probe_number
+        cmp #'0'
+        bcc _probe_not_number
+        cmp #'9' + 1
+        bcc _probe_number
+
+_probe_not_number:
+        jsr is_var_start
+        bcs _probe_fail
+        jsr line_get
+        jsr parse_variable_with_first_char
+        bcs _probe_fail
+        lda var_type
+        jsr var_type_is_numeric
+        bcs _probe_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _probe_ok
+        jsr line_peek
+        cmp #'('
+        beq _probe_fail
+        bra _probe_follower
+
+_probe_number:
+        jsr line_parse_number
+        bcs _probe_fail
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _probe_ok
+        jsr line_peek
+
+_probe_follower:
+        ldx probe_mode
+        beq _probe_ok
+        cmp #TOK_MUL
+        beq _probe_fail
+        cmp #TOK_DIV
+        beq _probe_fail
+        cpx #2
+        bne _probe_ok
+        cmp #TOK_PLUS
+        beq _probe_fail
+        cmp #TOK_MINUS
+        beq _probe_fail
+
+_probe_ok:
+        lda probe_saved_idx
+        sta line_idx
+        clc
+        rts
+
+_probe_fail:
+        lda probe_saved_idx
+        sta line_idx
+        sec
+        rts
+
 emit_pop_lhs:
         lda #<out_pop_lhs
         ldy #>out_pop_lhs
@@ -7427,9 +7553,8 @@ emit_for_initial_check:
         lda current_for_var_data_hi
         sta current_var_data_hi
         jsr emit_load_var
-        jsr emit_push_expr
+        jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        jsr emit_pop_lhs
         lda #<out_jsr_cmple
         ldy #>out_jsr_cmple
         jsr out_zstr
@@ -7446,9 +7571,8 @@ emit_for_initial_check:
         lda current_for_var_data_hi
         sta current_var_data_hi
         jsr emit_load_var
-        jsr emit_push_expr
+        jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        jsr emit_pop_lhs
         lda #<out_jsr_cmpge
         ldy #>out_jsr_cmpge
         jsr out_zstr
@@ -9206,6 +9330,15 @@ out_pop_lhs:
         .byte 13
         .text "        sta lhslo"
         .byte 13, 0
+out_move_expr_to_lhs:
+        .text "        lda exprlo"
+        .byte 13
+        .text "        sta lhslo"
+        .byte 13
+        .text "        lda exprhi"
+        .byte 13
+        .text "        sta lhshi"
+        .byte 13, 0
 out_add_lhs_expr:
         .text "        clc"
         .byte 13
@@ -9723,6 +9856,10 @@ for_storage_addr:
 rt_status:
         .byte 0
 rt_chunk_len:
+        .byte 0
+probe_mode:
+        .byte 0
+probe_saved_idx:
         .byte 0
 line_emit_idx:
         .byte 0
