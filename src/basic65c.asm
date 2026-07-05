@@ -5570,10 +5570,10 @@ _compile_ext_mouse:
 _compile_ext_rmouse:
         jmp compile_rmouse
 _compile_ext_dopen:
-        lda #$72
+        lda #$52
         jmp compile_dopen
 _compile_ext_append:
-        lda #$61
+        lda #$41
         jmp compile_dopen_append
 _compile_ext_dclose:
         jmp compile_dclose
@@ -5792,7 +5792,7 @@ compile_dopen:
         cmp #$57                ; W
         bne compiledopenbad
         pla
-        lda #$77
+        lda #$57
         pha
 compiledopenmode:
         pla

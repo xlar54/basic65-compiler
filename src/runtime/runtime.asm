@@ -1603,13 +1603,13 @@ pf_pow3:
 
 ; command prefixes, indexed: 0 s0: 1 r0: 2 c0: 3 n0: 4 cd: 5 v0 6 i0
 cmdpretab:
-        .byte $73, $30, $3a     ; s0:
-        .byte $72, $30, $3a     ; r0:
-        .byte $63, $30, $3a     ; c0:
-        .byte $6e, $30, $3a     ; n0:
-        .byte $63, $64, $3a     ; cd:
-        .byte $76, $30, $00     ; v0
-        .byte $69, $30, $00     ; i0
+        .byte $53, $30, $3a     ; S0:  (PETSCII uppercase for DOS)
+        .byte $52, $30, $3a     ; R0:
+        .byte $43, $30, $3a     ; C0:
+        .byte $4e, $30, $3a     ; N0:
+        .byte $43, $44, $3a     ; CD:
+        .byte $56, $30, $00     ; V0
+        .byte $49, $30, $00     ; I0
         .byte $00, $00, $00     ; 7: empty, plain filename
 
 ; A = prefix index: reset the buffer and append the 2-3 byte prefix
@@ -1857,9 +1857,9 @@ bsavego:
 ; (A = mode letter) then open with sa = (channel & 13) + 2
 dopmode:
         pha
-        lda #$2c                ; ,s,
+        lda #$2c                ; ,S,
         jsr cmdputc
-        lda #$73
+        lda #$53
         jsr cmdputc
         lda #$2c
         jsr cmdputc
@@ -1887,13 +1887,13 @@ dopmode:
         jmp fio_rom_off
 
 dopr:
-        lda #$72                ; r
+        lda #$52                ; R
         bra dopmode
 dopw:
-        lda #$77                ; w
+        lda #$57                ; W
         bra dopmode
 dopa:
-        lda #$61                ; a
+        lda #$41                ; A
         bra dopmode
 
 dclosech:
