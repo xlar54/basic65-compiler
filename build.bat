@@ -33,6 +33,12 @@ if %ERRORLEVEL%==0 (
     echo Warning: python not found; skipping bin-template generation
 )
 
+rem harness bootstraps must survive the target\*.prg wipe above
+.\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas
+if errorlevel 1 exit /b 1
+.\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas
+if errorlevel 1 exit /b 1
+
 for %%F in (basic\*.bas) do (
     .\petcat.exe -w65 -l 2001 -o "target\%%~nF.prg" -- "%%F"
     if errorlevel 1 exit /b 1
