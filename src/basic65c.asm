@@ -99,6 +99,7 @@ TOK_COPY                = $F4
 TOK_RENAME              = $F5
 TOK_WAIT                = $92
 TOK_FRE                 = $B8
+TOK_USR                 = $B7
 TOK_ERR_STR             = $D3
 TOK_LOG                 = $BC
 TOK_EXP_FN              = $BD
@@ -4411,6 +4412,8 @@ _factor_not_number:
         beq _factor_joy
         cmp #TOK_FRE
         beq _factor_fre
+        cmp #TOK_USR
+        beq _factor_usr
         cmp #TOK_SIN
         beq _factor_sin
         cmp #TOK_COS
@@ -5105,6 +5108,20 @@ _factor_ffn_fail:
         ply
         pla
         sec
+        rts
+
+_factor_usr:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_usrf
+        ldy #>out_jsr_usrf
+        jsr out_zstr
+        clc
         rts
 
 _factor_fre:
@@ -13306,6 +13323,13 @@ out_jsr_dopmode:
 out_jsr_dclosech:
 .if TEXT_EMITTER
         .text "        jsr dclosech"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_usrf:
+.if TEXT_EMITTER
+        .text "        jsr usrf"
         .byte 13, 0
 .else
         .byte 0

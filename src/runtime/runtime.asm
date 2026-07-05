@@ -2488,6 +2488,20 @@ floadx_fac:
         sta facext
         rts
 
+; USR(x): call the ML routine vectored at $02f8 like the ROM, but with
+; a compiled-world convention: argument as a 16-bit int in A(lo)/Y(hi)
+; (also exprlo/exprhi), result returned the same way. The ROM's
+; FAC-based convention assumes interpreter internals we do not keep.
+usrf:
+        lda exprlo
+        ldy exprhi
+        jsr _usrjmp
+        sta exprlo
+        sty exprhi
+        rts
+_usrjmp:
+        jmp ($02f8)
+
 ; TI: seconds since CLR TI as a float (BASIC65 semantics; jiffy
 ; granularity here, not the ROM timer's microseconds)
 rdti:
