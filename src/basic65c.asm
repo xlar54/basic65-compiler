@@ -5412,6 +5412,13 @@ is_special_numeric_var:
         cmp #VAR_TYPE_FLOAT
         bne _special_var_no
         lda var_name_1
+        cmp #$44                ; D
+        bne _special_var_t
+        lda var_name_2
+        cmp #$53                ; DS reads the drive status
+        beq _special_var_yes
+        bra _special_var_no
+_special_var_t:
         cmp #$54                ; T
         bne _special_var_e_s
         lda var_name_2
@@ -6857,6 +6864,20 @@ try_compile_print_string_var:
         lda var_type
         cmp #VAR_TYPE_STRING
         bne _try_print_string_var_restore_fail
+        lda var_name_1
+        cmp #$54                ; TI$ and DS$ read live state and must
+        bne _tps_not_ti         ; go through the string factor
+        lda var_name_2
+        cmp #$49
+        beq _try_print_string_var_restore_fail
+_tps_not_ti:
+        lda var_name_1
+        cmp #$44
+        bne _tps_not_ds
+        lda var_name_2
+        cmp #$53
+        beq _try_print_string_var_restore_fail
+_tps_not_ds:
         jsr line_skip_spaces
         jsr try_print_item_end
         bcc _try_print_string_var_scalar
