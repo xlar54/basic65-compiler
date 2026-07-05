@@ -6,7 +6,7 @@ format so compiled BASIC65 behaves like interpreted BASIC65. Decision made
 
 **Status: stages 1-4 complete.** The runtime (fpack/funpack, float16/qint,
 fadd/fsub/fmul/fdiv on the hardware math unit, fcmp, valflt, printflt,
-float stack) is emulator-verified standalone via testsloat-core.asm, and
+float stack) is emulator-verified standalone via tests/float-core.asm, and
 the compiler now propagates int/float types through expressions with
 promotion at operators and comparisons, emits float codegen against FAC and
 the float stack, converts float literals once at rtinit through a sixth
