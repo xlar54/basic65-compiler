@@ -72,6 +72,12 @@ TOK_PRINT               = $99
 TOK_SYS                 = $9E
 TOK_GET                 = $A1
 TOK_PEEK                = $C2
+TOK_RND                 = $BB
+TOK_SQR                 = $BA
+TOK_ASC                 = $C6
+TOK_POS                 = $B9
+TOK_TAB                 = $A3
+TOK_SPC                 = $A6
 TOK_LEN                 = $C3
 TOK_STR_STR             = $C4
 TOK_VAL                 = $C5
@@ -138,7 +144,7 @@ DATA_LINE_MAX           = LINE_MAX
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $1000
+STRING_POOL_MAX         = $0D00
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -371,9 +377,9 @@ run_size_pass:
         lda #BK_SIZE
         sta backend_mode
         jsr reset_emit_counters
-        lda #<$4000
+        lda #<$4800
         sta bin_pc
-        lda #>$4000
+        lda #>$4800
         sta bin_pc+1
         jsr emit_generated_header
         jsr init_source_reader
@@ -500,7 +506,7 @@ _finalize_binary_fail:
         rts
 
 ; stream runtime.prg verbatim (load address first) into the output file,
-; then pad with zeros until bin_pc reaches progbase ($4000)
+; then pad with zeros until bin_pc reaches progbase ($4800)
 copy_runtime_image:
         lda #LFN_RT
         ldx #DEVICE_DISK
@@ -563,7 +569,7 @@ _copy_runtime_written:
 
 _copy_runtime_pad:
         lda bin_pc+1
-        cmp #>$4000
+        cmp #>$4800
         bcs _copy_runtime_done
         lda #0
         jsr bin_write_byte
@@ -3927,6 +3933,14 @@ _factor_not_number:
         beq _factor_val
         cmp #TOK_PEEK
         beq _factor_peek
+        cmp #TOK_RND
+        beq _factor_rnd
+        cmp #TOK_SQR
+        beq _factor_sqr
+        cmp #TOK_ASC
+        beq _factor_asc
+        cmp #TOK_POS
+        beq _factor_pos
         cmp #TOK_EXT_CE
         beq _factor_ext_ce
         jsr is_var_start
@@ -4203,6 +4217,76 @@ _factor_peek:
         clc
         rts
 
+; RND(x): the argument is evaluated and ignored; every call steps the
+; generator (interpreted RND(0)/RND(-x) semantics are not modeled)
+_factor_rnd:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_rndf
+        ldy #>out_jsr_rndf
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        clc
+        rts
+
+_factor_sqr:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_num_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda expr_type
+        bne _factor_sqr_f
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_factor_sqr_f:
+        lda #<out_jsr_sqrf
+        ldy #>out_jsr_sqrf
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        clc
+        rts
+
+_factor_asc:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_ascstr
+        ldy #>out_jsr_ascstr
+        jsr out_zstr
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_factor_pos:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_posf
+        ldy #>out_jsr_posf
+        jsr out_zstr
+        clc
+        rts
+
 _factor_ext_ce:
         jsr line_get
         jsr line_at_end
@@ -4364,6 +4448,10 @@ _print_loop:
         beq _print_comma
         cmp #TOK_CHR_STR
         beq _print_chr
+        cmp #TOK_TAB
+        beq _print_tab
+        cmp #TOK_SPC
+        beq _print_spc
         bra _print_expression
 
 _print_expression:
@@ -4427,6 +4515,36 @@ _print_comma:
         lda #0
         sta print_suppress_cr
         bra _print_loop
+
+_print_tab:
+        jsr line_get                         ; TAB( token includes the paren
+        jsr compile_expression
+        bcs _print_expression_bad
+        jsr line_skip_spaces
+        jsr line_get
+        cmp #')'
+        bne _print_expression_bad
+        lda #<out_jsr_tabto
+        ldy #>out_jsr_tabto
+        jsr out_zstr
+        lda #0
+        sta print_suppress_cr
+        jmp _print_loop
+
+_print_spc:
+        jsr line_get                         ; SPC( token includes the paren
+        jsr compile_expression
+        bcs _print_expression_bad
+        jsr line_skip_spaces
+        jsr line_get
+        cmp #')'
+        bne _print_expression_bad
+        lda #<out_jsr_spcn
+        ldy #>out_jsr_spcn
+        jsr out_zstr
+        lda #0
+        sta print_suppress_cr
+        jmp _print_loop
 
 _print_chr:
         jsr line_get                         ; CHR$
@@ -6537,9 +6655,9 @@ _emit_generated_header_bin:
         jmp bin_add_pc
 
 _emit_header_vectors:
-        lda #$0c                ; start = $400c
+        lda #$0c                ; start = $480c
         jsr bin_write_byte
-        lda #$40
+        lda #$48
         jsr bin_write_byte
         lda var_heap_next_lo
         jsr bin_write_byte
@@ -9736,7 +9854,7 @@ out_header:
         .byte 13
         .text "        .enc ""none"""
         .byte 13, 13
-        .text "        * = $4000"
+        .text "        * = $4800"
         .byte 13
         .text "        .word start"
         .byte 13
@@ -9978,6 +10096,24 @@ out_jsr_fcmpgtb:
         .byte 13, 0
 out_jsr_fcmpgeb:
         .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_jsr_rndf:
+        .text "        jsr rndf"
+        .byte 13, 0
+out_jsr_sqrf:
+        .text "        jsr sqrf"
+        .byte 13, 0
+out_jsr_ascstr:
+        .text "        jsr ascstr"
+        .byte 13, 0
+out_jsr_tabto:
+        .text "        jsr tabto"
+        .byte 13, 0
+out_jsr_spcn:
+        .text "        jsr spcn"
+        .byte 13, 0
+out_jsr_posf:
+        .text "        jsr posf"
         .byte 13, 0
 out_fltinit_label:
         .text "; float literal slots"
@@ -10924,7 +11060,7 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
-LBL_IF_IDS      = 640
+LBL_IF_IDS      = 512
 LBL_ON_IDS      = 256
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 64

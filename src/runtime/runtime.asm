@@ -11,8 +11,8 @@
 ; Memory contract:
 ;   $2001         BASIC stub (SYS 8210)
 ;   $2012         rtinit -- runtime entry, called by the stub
-;   $2012-$3fff   runtime code and storage (guarded by .cerror below)
-;   $4000         program header vectors, then the compiled program:
+;   $2012-$47ff   runtime code and storage (guarded by .cerror below)
+;   $4800         program header vectors, then the compiled program:
 ;                   progbase+0  .word start        (program entry)
 ;                   progbase+2  .word varheapend   (bank-1 clear limit)
 ;                   progbase+4  .word datastart    (DATA table start)
@@ -52,7 +52,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $4000
+progbase     = $4800
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -115,6 +115,14 @@ rtinit:
         lda #$00
         sta varptr+3
         jsr fltinit             ; convert float literals (needs the above)
+        lda $dc04               ; seed RND from the CIA timer
+        sta rndseed
+        eor #$b5
+        sta rndseed+2
+        lda $dc05
+        sta rndseed+1
+        eor #$2f
+        sta rndseed+3
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff so large
         ; programs can execute there; the KERNAL stays mapped at $e000 for
         ; CHROUT and friends, and the ROM bits are restored before returning
@@ -1603,6 +1611,218 @@ pf_pow2:
         .byte $e1,$96,$42,$86,$27,$03,$00,$00,$00
 pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
+
+;=======================================================================================
+; Tier-1 function runtime: RND, SQR, ASC, TAB(, SPC(, POS
+;=======================================================================================
+
+; 32-bit LCG stepped on the hardware multiplier; result becomes a float in
+; [0, 1). Seeded from the CIA timer by rtinit.
+rndf:
+        lda rndseed
+        sta $d770
+        lda rndseed+1
+        sta $d771
+        lda rndseed+2
+        sta $d772
+        lda rndseed+3
+        sta $d773
+        lda #$0d                ; 1664525 = $0019660d
+        sta $d774
+        lda #$66
+        sta $d775
+        lda #$19
+        sta $d776
+        lda #$00
+        sta $d777
+-       bit $d70f
+        bvs -
+        clc                     ; + 1013904223 = $3c6ef35f
+        lda $d778
+        adc #$5f
+        sta rndseed
+        lda $d779
+        adc #$f3
+        sta rndseed+1
+        lda $d77a
+        adc #$6e
+        sta rndseed+2
+        lda $d77b
+        adc #$3c
+        sta rndseed+3
+        ; float in [0,1): mantissa = seed, exponent 0 -> fnorm cleans up
+        lda rndseed+3
+        sta facm0
+        lda rndseed+2
+        sta facm1
+        lda rndseed+1
+        sta facm2
+        lda rndseed
+        sta facm3
+        lda #$80
+        sta facexp
+        lda #0
+        sta facsgn
+        sta facext
+        jmp fnorm
+
+; FAC = sqrt(FAC) by Newton iteration: y' = (y + x/y) / 2, six rounds,
+; initial guess by halving the exponent. Negative input is treated as
+; positive (interpreted BASIC errors instead).
+sqrf:
+        lda facexp
+        bne +
+        rts
++       lda #0
+        sta facsgn
+        jsr fsavex
+        lda facexp              ; y0: halve the (excess-128) exponent
+        sec
+        sbc #$80
+        cmp #$80                ; arithmetic halve for negative exponents
+        ror
+        clc
+        adc #$80
+        sta facexp
+        jsr fsavey
+        lda #6
+        sta sqr_it
+_sqr_loop:
+        jsr floadx_arg          ; ARG = x
+        jsr floady_fac          ; FAC = y
+        jsr fdiv                ; FAC = x / y
+        jsr floady_arg          ; ARG = y
+        jsr fadd                ; FAC = y + x/y
+        dec facexp              ; / 2, exact
+        jsr fsavey
+        dec sqr_it
+        bne _sqr_loop
+        rts
+
+fsavex:
+        lda facexp
+        sta sqrx
+        lda facm0
+        sta sqrx+1
+        lda facm1
+        sta sqrx+2
+        lda facm2
+        sta sqrx+3
+        lda facm3
+        sta sqrx+4
+        rts
+
+fsavey:
+        lda facexp
+        sta sqry
+        lda facm0
+        sta sqry+1
+        lda facm1
+        sta sqry+2
+        lda facm2
+        sta sqry+3
+        lda facm3
+        sta sqry+4
+        rts
+
+floadx_arg:
+        lda sqrx
+        sta argexp
+        lda sqrx+1
+        sta argm0
+        lda sqrx+2
+        sta argm1
+        lda sqrx+3
+        sta argm2
+        lda sqrx+4
+        sta argm3
+        lda #0
+        sta argsgn
+        sta argext
+        rts
+
+floady_arg:
+        lda sqry
+        sta argexp
+        lda sqry+1
+        sta argm0
+        lda sqry+2
+        sta argm1
+        lda sqry+3
+        sta argm2
+        lda sqry+4
+        sta argm3
+        lda #0
+        sta argsgn
+        sta argext
+        rts
+
+floady_fac:
+        lda sqry
+        sta facexp
+        lda sqry+1
+        sta facm0
+        lda sqry+2
+        sta facm1
+        lda sqry+3
+        sta facm2
+        lda sqry+4
+        sta facm3
+        lda #0
+        sta facsgn
+        sta facext
+        rts
+
+; first character code of the string whose heap ref is in exprlo/exprhi
+ascstr:
+        lda exprlo
+        ora exprhi
+        beq _ascstr_zero
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        beq _ascstr_zero
+        ldz #1
+        lda [varptr],z
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+_ascstr_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+
+; print spaces until the real cursor column reaches exprlo (TAB target)
+tabto:
+-       sec
+        jsr kernalplot          ; returns row in X, column in Y
+        cpy exprlo
+        bcs +
+        lda #' '
+        jsr printch
+        bra -
++       rts
+
+; print exprlo spaces
+spcn:
+        lda exprlo
+        beq +
+-       lda #' '
+        jsr printch
+        dec exprlo
+        bne -
++       rts
+
+; current cursor column
+posf:
+        sec
+        jsr kernalplot
+        sty exprlo
+        lda #0
+        sta exprhi
+        rts
 
 ;=======================================================================================
 ; Integer math runtime
@@ -3642,6 +3862,10 @@ fout_buf:     .fill 9, 0
 FLT_STACK_MAX = 8
 fltsp:        .byte 0
 fltstack:     .fill FLT_STACK_MAX * 5, 0
+rndseed:      .fill 4, 0
+sqrx:         .fill 5, 0
+sqry:         .fill 5, 0
+sqr_it:       .byte 0
 
 ; integer runtime storage
 exprlo:       .byte 0

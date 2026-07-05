@@ -9,23 +9,23 @@ bt_out_adc_imm_hex:
 
 bt_out_add_lhs_expr:
         .byte 0, 19
-        .byte $18, $ad, $2c, $3c, $6d, $2a, $3c, $8d, $2a, $3c, $ad, $2d
-        .byte $3c, $6d, $2b, $3c, $8d, $2b, $3c
+        .byte $18, $ad, $15, $3e, $6d, $13, $3e, $8d, $13, $3e, $ad, $16
+        .byte $3e, $6d, $14, $3e, $8d, $14, $3e
 
 bt_out_array_check_start:
         .byte 5, 5
-        .byte $ad, $2b, $3c, $10, $00
+        .byte $ad, $14, $3e, $10, $00
 
 bt_out_array_index_shift:
         .byte 0, 10
-        .byte $0e, $2a, $3c, $2e, $2b, $3c, $18, $ad, $2a, $3c
+        .byte $0e, $13, $3e, $2e, $14, $3e, $18, $ad, $13, $3e
 
 bt_out_array_index_shift5:
         .byte 0, 47
-        .byte $ad, $2a, $3c, $8d, $2c, $3c, $ad, $2b, $3c, $8d, $2d, $3c
-        .byte $0e, $2a, $3c, $2e, $2b, $3c, $0e, $2a, $3c, $2e, $2b, $3c
-        .byte $18, $ad, $2a, $3c, $6d, $2c, $3c, $8d, $2a, $3c, $ad, $2b
-        .byte $3c, $6d, $2d, $3c, $8d, $2b, $3c, $18, $ad, $2a, $3c
+        .byte $ad, $13, $3e, $8d, $15, $3e, $ad, $14, $3e, $8d, $16, $3e
+        .byte $0e, $13, $3e, $2e, $14, $3e, $0e, $13, $3e, $2e, $14, $3e
+        .byte $18, $ad, $13, $3e, $6d, $15, $3e, $8d, $13, $3e, $ad, $14
+        .byte $3e, $6d, $16, $3e, $8d, $14, $3e, $18, $ad, $13, $3e
 
 bt_out_arrayhieq_prefix:
         .byte 6, 0
@@ -66,7 +66,7 @@ bt_out_cmp_exprhi_imm:
 
 bt_out_cmp_exprlo_imm:
         .byte 1, 5
-        .byte $ad, $2a, $3c, $c9, $00
+        .byte $ad, $13, $3e, $c9, $00
 
 bt_out_cmp_imm_hex:
         .byte 1, 2
@@ -74,11 +74,11 @@ bt_out_cmp_imm_hex:
 
 bt_out_cmp_lhshi_exprhi:
         .byte 0, 6
-        .byte $ad, $2d, $3c, $cd, $2b, $3c
+        .byte $ad, $16, $3e, $cd, $14, $3e
 
 bt_out_cmp_lhslo_exprlo:
         .byte 0, 6
-        .byte $ad, $2c, $3c, $cd, $2a, $3c
+        .byte $ad, $15, $3e, $cd, $13, $3e
 
 bt_out_data_byte_prefix:
         .byte 1, 1
@@ -112,7 +112,7 @@ bt_out_dotop_prefix:
 
 bt_out_expr_to_rtptr:
         .byte 0, 10
-        .byte $ad, $2a, $3c, $85, $fb, $ad, $2b, $3c, $85, $fc
+        .byte $ad, $13, $3e, $85, $fb, $ad, $14, $3e, $85, $fc
 
 bt_out_fltinit_label:
         .byte 0, 0
@@ -162,7 +162,7 @@ bt_out_iftrue_prefix:
 
 bt_out_jmp_arraybounds:
         .byte 0, 3
-        .byte $4c, $62, $32
+        .byte $4c, $3c, $34
 
 bt_out_jmp_label:
         .byte 2, 3
@@ -170,155 +170,159 @@ bt_out_jmp_label:
 
 bt_out_jmp_rtexit:
         .byte 0, 3
-        .byte $4c, $88, $20
+        .byte $4c, $9e, $20
 
 bt_out_jsr_abs:
         .byte 2, 3
         .byte $20, $00, $00
 
+bt_out_jsr_ascstr:
+        .byte 0, 3
+        .byte $20, $b4, $2d
+
 bt_out_jsr_chout:
         .byte 0, 3
-        .byte $20, $be, $2d
+        .byte $20, $98, $2f
 
 bt_out_jsr_cmpeq:
         .byte 0, 3
-        .byte $20, $dc, $2c
+        .byte $20, $b6, $2e
 
 bt_out_jsr_cmpge:
         .byte 0, 3
-        .byte $20, $60, $2d
+        .byte $20, $3a, $2f
 
 bt_out_jsr_cmpgt:
         .byte 0, 3
-        .byte $20, $8b, $2d
+        .byte $20, $65, $2f
 
 bt_out_jsr_cmple:
         .byte 0, 3
-        .byte $20, $33, $2d
+        .byte $20, $0d, $2f
 
 bt_out_jsr_cmplt:
         .byte 0, 3
-        .byte $20, $08, $2d
+        .byte $20, $e2, $2e
 
 bt_out_jsr_cmpne:
         .byte 0, 3
-        .byte $20, $f2, $2c
+        .byte $20, $cc, $2e
 
 bt_out_jsr_concatstr:
         .byte 0, 3
-        .byte $20, $02, $34
+        .byte $20, $dc, $35
 
 bt_out_jsr_datainit:
         .byte 0, 3
-        .byte $20, $71, $31
+        .byte $20, $4b, $33
 
 bt_out_jsr_div16:
         .byte 0, 3
-        .byte $20, $71, $2c
+        .byte $20, $4b, $2e
 
 bt_out_jsr_fabsf:
         .byte 0, 3
-        .byte $20, $5d, $27
+        .byte $20, $73, $27
 
 bt_out_jsr_fadd:
         .byte 0, 3
-        .byte $20, $0d, $24
+        .byte $20, $23, $24
 
 bt_out_jsr_fcmpeqb:
         .byte 0, 3
-        .byte $20, $95, $27
+        .byte $20, $ab, $27
 
 bt_out_jsr_fcmpgeb:
         .byte 0, 3
-        .byte $20, $c2, $27
+        .byte $20, $d8, $27
 
 bt_out_jsr_fcmpgtb:
         .byte 0, 3
-        .byte $20, $b9, $27
+        .byte $20, $cf, $27
 
 bt_out_jsr_fcmpleb:
         .byte 0, 3
-        .byte $20, $b0, $27
+        .byte $20, $c6, $27
 
 bt_out_jsr_fcmpltb:
         .byte 0, 3
-        .byte $20, $a7, $27
+        .byte $20, $bd, $27
 
 bt_out_jsr_fcmpneb:
         .byte 0, 3
-        .byte $20, $9e, $27
+        .byte $20, $b4, $27
 
 bt_out_jsr_fdiv:
         .byte 0, 3
-        .byte $20, $8c, $25
+        .byte $20, $a2, $25
 
 bt_out_jsr_fintf:
         .byte 0, 3
-        .byte $20, $7e, $27
+        .byte $20, $94, $27
 
 bt_out_jsr_floadvar:
         .byte 0, 3
-        .byte $20, $db, $26
+        .byte $20, $f1, $26
 
 bt_out_jsr_float16:
         .byte 0, 3
-        .byte $20, $47, $22
+        .byte $20, $5d, $22
 
 bt_out_jsr_fmul:
         .byte 0, 3
-        .byte $20, $03, $25
+        .byte $20, $19, $25
 
 bt_out_jsr_fneg:
         .byte 0, 3
-        .byte $20, $4f, $27
+        .byte $20, $65, $27
 
 bt_out_jsr_fpoparg:
         .byte 0, 3
-        .byte $20, $89, $26
+        .byte $20, $9f, $26
 
 bt_out_jsr_fpromotelhs:
         .byte 0, 3
-        .byte $20, $37, $27
+        .byte $20, $4d, $27
 
 bt_out_jsr_fpush:
         .byte 0, 3
-        .byte $20, $50, $26
+        .byte $20, $66, $26
 
 bt_out_jsr_fsgnf:
         .byte 0, 3
-        .byte $20, $63, $27
+        .byte $20, $79, $27
 
 bt_out_jsr_fstorevar:
         .byte 0, 3
-        .byte $20, $e0, $26
+        .byte $20, $f6, $26
 
 bt_out_jsr_fsub:
         .byte 0, 3
-        .byte $20, $00, $24
+        .byte $20, $16, $24
 
 bt_out_jsr_ftruth:
         .byte 0, 3
-        .byte $20, $84, $27
+        .byte $20, $9a, $27
 
 bt_out_jsr_getkey:
         .byte 0, 3
-        .byte $20, $a4, $32
+        .byte $20, $7e, $34
 
 bt_out_jsr_getstr:
         .byte 0, 3
-        .byte $20, $b0, $32
+        .byte $20, $8a, $34
 
 bt_out_jsr_inputint:
         .byte 0, 3
-        .byte $20, $0c, $30
+        .byte $20, $e6, $31
 
 bt_out_jsr_inputline:
         .byte 0, 3
-        .byte $20, $bc, $2f
+        .byte $20, $96, $31
 
 bt_out_jsr_inputstr:
         .byte 0, 3
-        .byte $20, $95, $30
+        .byte $20, $6f, $32
 
 bt_out_jsr_label:
         .byte 2, 3
@@ -326,139 +330,159 @@ bt_out_jsr_label:
 
 bt_out_jsr_loadintvar:
         .byte 0, 3
-        .byte $20, $c2, $20
+        .byte $20, $d8, $20
 
 bt_out_jsr_mul16:
         .byte 0, 3
-        .byte $20, $31, $2c
+        .byte $20, $0b, $2e
+
+bt_out_jsr_posf:
+        .byte 0, 3
+        .byte $20, $fe, $2d
 
 bt_out_jsr_printcomma:
         .byte 0, 3
-        .byte $20, $1d, $2e
+        .byte $20, $f7, $2f
 
 bt_out_jsr_printflt:
         .byte 0, 3
-        .byte $20, $10, $2a
+        .byte $20, $26, $2a
 
 bt_out_jsr_printheapstr:
         .byte 0, 3
-        .byte $20, $b0, $36
+        .byte $20, $8a, $38
 
 bt_out_jsr_printstr:
         .byte 0, 3
-        .byte $20, $0a, $2e
+        .byte $20, $e4, $2f
 
 bt_out_jsr_printuint:
         .byte 0, 3
-        .byte $20, $28, $2e
+        .byte $20, $02, $30
 
 bt_out_jsr_qint:
         .byte 0, 3
-        .byte $20, $92, $22
+        .byte $20, $a8, $22
 
 bt_out_jsr_readint:
         .byte 0, 3
-        .byte $20, $7e, $31
+        .byte $20, $58, $33
 
 bt_out_jsr_readstr:
         .byte 0, 3
-        .byte $20, $b2, $31
+        .byte $20, $8c, $33
+
+bt_out_jsr_rndf:
+        .byte 0, 3
+        .byte $20, $47, $2c
+
+bt_out_jsr_spcn:
+        .byte 0, 3
+        .byte $20, $ee, $2d
+
+bt_out_jsr_sqrf:
+        .byte 0, 3
+        .byte $20, $c1, $2c
 
 bt_out_jsr_storeintvar:
         .byte 0, 3
-        .byte $20, $d3, $20
+        .byte $20, $e9, $20
 
 bt_out_jsr_strcopyexpr:
         .byte 0, 3
-        .byte $20, $a1, $33
+        .byte $20, $7b, $35
 
 bt_out_jsr_streq:
         .byte 0, 3
-        .byte $20, $a2, $34
+        .byte $20, $7c, $36
 
 bt_out_jsr_strfromint:
         .byte 0, 3
-        .byte $20, $50, $38
+        .byte $20, $2a, $3a
 
 bt_out_jsr_strfromlit:
         .byte 0, 3
-        .byte $20, $66, $33
+        .byte $20, $40, $35
 
 bt_out_jsr_strge:
         .byte 0, 3
-        .byte $20, $dd, $34
+        .byte $20, $b7, $36
 
 bt_out_jsr_strgt:
         .byte 0, 3
-        .byte $20, $d0, $34
+        .byte $20, $aa, $36
 
 bt_out_jsr_strle:
         .byte 0, 3
-        .byte $20, $c3, $34
+        .byte $20, $9d, $36
 
 bt_out_jsr_strlenexpr:
         .byte 0, 3
-        .byte $20, $8e, $36
+        .byte $20, $68, $38
 
 bt_out_jsr_strlt:
         .byte 0, 3
-        .byte $20, $b8, $34
+        .byte $20, $92, $36
 
 bt_out_jsr_strmark:
         .byte 0, 3
-        .byte $20, $3f, $31
+        .byte $20, $19, $33
 
 bt_out_jsr_strne:
         .byte 0, 3
-        .byte $20, $ad, $34
+        .byte $20, $87, $36
 
 bt_out_jsr_strrefeq:
         .byte 0, 3
-        .byte $20, $f0, $34
+        .byte $20, $ca, $36
 
 bt_out_jsr_strrefge:
         .byte 0, 3
-        .byte $20, $2b, $35
+        .byte $20, $05, $37
 
 bt_out_jsr_strrefgt:
         .byte 0, 3
-        .byte $20, $1e, $35
+        .byte $20, $f8, $36
 
 bt_out_jsr_strrefle:
         .byte 0, 3
-        .byte $20, $11, $35
+        .byte $20, $eb, $36
 
 bt_out_jsr_strreflt:
         .byte 0, 3
-        .byte $20, $06, $35
+        .byte $20, $e0, $36
 
 bt_out_jsr_strrefne:
         .byte 0, 3
-        .byte $20, $fb, $34
+        .byte $20, $d5, $36
 
 bt_out_jsr_strrelease:
         .byte 0, 3
-        .byte $20, $59, $31
+        .byte $20, $33, $33
 
 bt_out_jsr_strright:
         .byte 0, 3
-        .byte $20, $14, $37
+        .byte $20, $ee, $38
 
 bt_out_jsr_strsub:
         .byte 0, 3
-        .byte $20, $80, $37
+        .byte $20, $5a, $39
+
+bt_out_jsr_tabto:
+        .byte 0, 3
+        .byte $20, $dd, $2d
 
 bt_out_jsr_valstr:
         .byte 0, 3
-        .byte $20, $2b, $39
+        .byte $20, $05, $3b
 
 bt_out_lda_exprhi:
         .byte 0, 3
-        .byte $ad, $2b, $3c
+        .byte $ad, $14, $3e
 
 bt_out_lda_exprlo:
         .byte 0, 3
-        .byte $ad, $2a, $3c
+        .byte $ad, $13, $3e
 
 bt_out_lda_imm_hex:
         .byte 1, 2
@@ -478,20 +502,20 @@ bt_out_lda_label_lo_imm:
 
 bt_out_lda_lhshi:
         .byte 0, 3
-        .byte $ad, $2d, $3c
+        .byte $ad, $16, $3e
 
 bt_out_lda_lhslo:
         .byte 0, 3
-        .byte $ad, $2c, $3c
+        .byte $ad, $15, $3e
 
 bt_out_move_expr_to_lhs:
         .byte 0, 12
-        .byte $ad, $2a, $3c, $8d, $2c, $3c, $ad, $2b, $3c, $8d, $2d, $3c
+        .byte $ad, $13, $3e, $8d, $15, $3e, $ad, $14, $3e, $8d, $16, $3e
 
 bt_out_neg_expr:
         .byte 0, 17
-        .byte $38, $a9, $00, $ed, $2a, $3c, $8d, $2a, $3c, $a9, $00, $ed
-        .byte $2b, $3c, $8d, $2b, $3c
+        .byte $38, $a9, $00, $ed, $13, $3e, $8d, $13, $3e, $a9, $00, $ed
+        .byte $14, $3e, $8d, $14, $3e
 
 bt_out_ondone_prefix:
         .byte 6, 0
@@ -501,39 +525,39 @@ bt_out_onnext_prefix:
 
 bt_out_ora_exprhi:
         .byte 0, 3
-        .byte $0d, $2b, $3c
+        .byte $0d, $14, $3e
 
 bt_out_ora_lhshi:
         .byte 0, 3
-        .byte $0d, $2d, $3c
+        .byte $0d, $16, $3e
 
 bt_out_peek_expr:
         .byte 0, 22
-        .byte $ad, $2a, $3c, $85, $fb, $ad, $2b, $3c, $85, $fc, $a0, $00
-        .byte $b1, $fb, $8d, $2a, $3c, $a9, $00, $8d, $2b, $3c
+        .byte $ad, $13, $3e, $85, $fb, $ad, $14, $3e, $85, $fc, $a0, $00
+        .byte $b1, $fb, $8d, $13, $3e, $a9, $00, $8d, $14, $3e
 
 bt_out_poke_expr_to_rtptr:
         .byte 0, 7
-        .byte $ad, $2a, $3c, $a0, $00, $91, $fb
+        .byte $ad, $13, $3e, $a0, $00, $91, $fb
 
 bt_out_pop_lhs:
         .byte 0, 8
-        .byte $68, $8d, $2d, $3c, $68, $8d, $2c, $3c
+        .byte $68, $8d, $16, $3e, $68, $8d, $15, $3e
 
 bt_out_push_expr:
         .byte 0, 8
-        .byte $ad, $2a, $3c, $48, $ad, $2b, $3c, $48
+        .byte $ad, $13, $3e, $48, $ad, $14, $3e, $48
 
 bt_out_rem:
         .byte 0, 0
 
 bt_out_restore_arrayptr:
         .byte 0, 10
-        .byte $ad, $39, $3c, $85, $f7, $ad, $3a, $3c, $85, $f8
+        .byte $ad, $22, $3e, $85, $f7, $ad, $23, $3e, $85, $f8
 
 bt_out_restore_rtptr:
         .byte 0, 10
-        .byte $ad, $39, $3c, $85, $fb, $ad, $3a, $3c, $85, $fc
+        .byte $ad, $22, $3e, $85, $fb, $ad, $23, $3e, $85, $fc
 
 bt_out_rts:
         .byte 0, 1
@@ -541,15 +565,15 @@ bt_out_rts:
 
 bt_out_save_arrayptr:
         .byte 0, 10
-        .byte $a5, $f7, $8d, $39, $3c, $a5, $f8, $8d, $3a, $3c
+        .byte $a5, $f7, $8d, $22, $3e, $a5, $f8, $8d, $23, $3e
 
 bt_out_save_rtptr:
         .byte 0, 10
-        .byte $a5, $fb, $8d, $39, $3c, $a5, $fc, $8d, $3a, $3c
+        .byte $a5, $fb, $8d, $22, $3e, $a5, $fc, $8d, $23, $3e
 
 bt_out_sign_xor_lhshi_exprhi:
         .byte 0, 6
-        .byte $ad, $2d, $3c, $4d, $2b, $3c
+        .byte $ad, $16, $3e, $4d, $14, $3e
 
 bt_out_size_guard:
         .byte 0, 0
@@ -560,19 +584,19 @@ bt_out_sta_abs:
 
 bt_out_sta_dataptrhi:
         .byte 0, 3
-        .byte $8d, $3c, $3c
+        .byte $8d, $25, $3e
 
 bt_out_sta_dataptrlo:
         .byte 0, 3
-        .byte $8d, $3b, $3c
+        .byte $8d, $24, $3e
 
 bt_out_sta_exprhi:
         .byte 0, 3
-        .byte $8d, $2b, $3c
+        .byte $8d, $14, $3e
 
 bt_out_sta_exprlo:
         .byte 0, 3
-        .byte $8d, $2a, $3c
+        .byte $8d, $13, $3e
 
 bt_out_sta_label:
         .byte 2, 3
@@ -580,11 +604,11 @@ bt_out_sta_label:
 
 bt_out_sta_lhshi:
         .byte 0, 3
-        .byte $8d, $2d, $3c
+        .byte $8d, $16, $3e
 
 bt_out_sta_lhslo:
         .byte 0, 3
-        .byte $8d, $2c, $3c
+        .byte $8d, $15, $3e
 
 bt_out_sta_rtptr:
         .byte 0, 2
@@ -596,11 +620,11 @@ bt_out_sta_rtptr_1:
 
 bt_out_sta_strarg1hi:
         .byte 0, 3
-        .byte $8d, $61, $3c
+        .byte $8d, $4a, $3e
 
 bt_out_sta_strarg1lo:
         .byte 0, 3
-        .byte $8d, $60, $3c
+        .byte $8d, $49, $3e
 
 bt_out_sta_varptr:
         .byte 0, 2
@@ -618,12 +642,12 @@ bt_out_strroots_start:
 
 bt_out_sub_lhs_expr:
         .byte 0, 19
-        .byte $38, $ad, $2c, $3c, $ed, $2a, $3c, $8d, $2a, $3c, $ad, $2d
-        .byte $3c, $ed, $2b, $3c, $8d, $2b, $3c
+        .byte $38, $ad, $15, $3e, $ed, $13, $3e, $8d, $13, $3e, $ad, $16
+        .byte $3e, $ed, $14, $3e, $8d, $14, $3e
 
 bt_out_tail:
         .byte 0, 3
-        .byte $4c, $88, $20
+        .byte $4c, $9e, $20
 
 bt_out_word_hex_prefix:
         .byte 2, 2
@@ -631,12 +655,12 @@ bt_out_word_hex_prefix:
 
 bt_out_wpeek_expr:
         .byte 0, 23
-        .byte $ad, $2a, $3c, $85, $fb, $ad, $2b, $3c, $85, $fc, $a0, $00
-        .byte $b1, $fb, $8d, $2a, $3c, $c8, $b1, $fb, $8d, $2b, $3c
+        .byte $ad, $13, $3e, $85, $fb, $ad, $14, $3e, $85, $fc, $a0, $00
+        .byte $b1, $fb, $8d, $13, $3e, $c8, $b1, $fb, $8d, $14, $3e
 
 bt_out_wpoke_expr_to_rtptr:
         .byte 0, 13
-        .byte $ad, $2a, $3c, $a0, $00, $91, $fb, $c8, $ad, $2b, $3c, $91
+        .byte $ad, $13, $3e, $a0, $00, $91, $fb, $c8, $ad, $14, $3e, $91
         .byte $fb
 
 ; text-template pointer -> binary record, 0-terminated
@@ -689,6 +713,7 @@ bt_map:
         .word out_jmp_label, bt_out_jmp_label
         .word out_jmp_rtexit, bt_out_jmp_rtexit
         .word out_jsr_abs, bt_out_jsr_abs
+        .word out_jsr_ascstr, bt_out_jsr_ascstr
         .word out_jsr_chout, bt_out_jsr_chout
         .word out_jsr_cmpeq, bt_out_jsr_cmpeq
         .word out_jsr_cmpge, bt_out_jsr_cmpge
@@ -728,6 +753,7 @@ bt_map:
         .word out_jsr_label, bt_out_jsr_label
         .word out_jsr_loadintvar, bt_out_jsr_loadintvar
         .word out_jsr_mul16, bt_out_jsr_mul16
+        .word out_jsr_posf, bt_out_jsr_posf
         .word out_jsr_printcomma, bt_out_jsr_printcomma
         .word out_jsr_printflt, bt_out_jsr_printflt
         .word out_jsr_printheapstr, bt_out_jsr_printheapstr
@@ -736,6 +762,9 @@ bt_map:
         .word out_jsr_qint, bt_out_jsr_qint
         .word out_jsr_readint, bt_out_jsr_readint
         .word out_jsr_readstr, bt_out_jsr_readstr
+        .word out_jsr_rndf, bt_out_jsr_rndf
+        .word out_jsr_spcn, bt_out_jsr_spcn
+        .word out_jsr_sqrf, bt_out_jsr_sqrf
         .word out_jsr_storeintvar, bt_out_jsr_storeintvar
         .word out_jsr_strcopyexpr, bt_out_jsr_strcopyexpr
         .word out_jsr_streq, bt_out_jsr_streq
@@ -757,6 +786,7 @@ bt_map:
         .word out_jsr_strrelease, bt_out_jsr_strrelease
         .word out_jsr_strright, bt_out_jsr_strright
         .word out_jsr_strsub, bt_out_jsr_strsub
+        .word out_jsr_tabto, bt_out_jsr_tabto
         .word out_jsr_valstr, bt_out_jsr_valstr
         .word out_lda_exprhi, bt_out_lda_exprhi
         .word out_lda_exprlo, bt_out_lda_exprlo
