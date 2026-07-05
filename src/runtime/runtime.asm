@@ -48,6 +48,7 @@ kernalscreen = $ffed
 kernalplot   = $fff0
 kernalgetin  = $ffe4
 kernalrdtim  = $ffde
+kernalvector = $ff8d
 kernalsetbnk = $ff6b
 kernalsetlfs = $ffba
 kernalsetnam = $ffbd
@@ -1599,72 +1600,80 @@ pf_pow3:
 ;=======================================================================================
 ; Sound: VOL and SOUND voice,freq,dur[,dir,min,sweep,wave,pulse] per the
 ; BASIC65 spec: voices 1-3 on SID2 ($d420), 4-6 on SID4 ($d460); default
-; waveform is square with 50% duty. Durations and sweeps advance against
-; VIC-IV FRAMECOUNT ($d7fa) deltas in sndservice, called from TI reads,
-; GET, and SOUND itself -- the usual BASIC delay idioms service it
-; naturally. No IRQ hook: the C65 ROM's interrupt chain is undocumented,
-; and chaining through $0314 crashed.
+; waveform is square with 50% duty. Durations and sweeps tick once per
+; jiffy in a routine chained into the KERNAL raster IRQ on first use and
+; unhooked at exit. The hook goes through the KERNAL VECTOR accessor
+; ($ff8d) per dansanderson.com/mega65/kernal-of-truth: read the RAM
+; vector table, patch the IRQ entry (first word), write it back --
+; never poke $0314 directly, the MEGA65 table location is internal.
+; The handler touches only snd_* state and SID registers.
 ;=======================================================================================
 
-sndservice:
-        lda $d7fa               ; VIC-IV frame counter (8-bit, wraps)
-        tax
-        sec
-        sbc snd_last
-        sta snd_delta
-        lda #0
-        sta snd_delta+1
-        stx snd_last
-        lda snd_delta
-        beq _sndsvc_done
+sndinit:
+        lda snd_hooked
+        bne _sndinit_done
+        sei
+        sec                     ; read the KERNAL RAM vector table
+        ldx #<snd_vectab
+        ldy #>snd_vectab
+        jsr kernalvector
+        lda snd_vectab          ; first entry is the IRQ vector
+        sta snd_oldirq
+        lda snd_vectab+1
+        sta snd_oldirq+1
+        lda #<rtsound_isr
+        sta snd_vectab
+        lda #>rtsound_isr
+        sta snd_vectab+1
+        clc                     ; write the patched table back
+        ldx #<snd_vectab
+        ldy #>snd_vectab
+        jsr kernalvector
+        lda #1
+        sta snd_hooked
+        cli
+_sndinit_done:
+        rts
+
+; runs in the middle of the KERNAL raster IRQ, once per jiffy
+rtsound_isr:
+        pha
+        phx
+        phy
         ldx #5
-_sndsvc_loop:
+_snd_isr_loop:
         lda snd_dur_lo,x
         ora snd_dur_hi,x
-        beq _sndsvc_next
-        lda snd_dur_lo,x        ; remaining > delta ?
-        cmp snd_delta
-        lda snd_dur_hi,x
-        sbc snd_delta+1
-        bcc _sndsvc_expire
-        lda snd_dur_lo,x        ; remaining -= delta
-        sec
-        sbc snd_delta
-        sta snd_dur_lo,x
-        lda snd_dur_hi,x
-        sbc snd_delta+1
-        sta snd_dur_hi,x
+        beq _snd_isr_next
+        lda snd_dur_lo,x
+        bne +
+        dec snd_dur_hi,x
++       dec snd_dur_lo,x
         lda snd_dur_lo,x
         ora snd_dur_hi,x
-        beq _sndsvc_expire
+        bne _snd_isr_sweep
+        lda snd_ctrl,x          ; expired: drop the gate bit
+        and #$fe
+        ldy snd_regoff,x
+        sta $d404,y
+        bra _snd_isr_next
+_snd_isr_sweep:
         lda snd_pswp_lo,x       ; sweep armed for this voice?
         ora snd_pswp_hi,x
-        beq _sndsvc_next
-        lda snd_delta           ; one sweep step per elapsed jiffy
-        sta snd_i
-_sndsvc_swploop:
+        beq _snd_isr_next
         jsr sndsweepstep
-        dec snd_i
-        bne _sndsvc_swploop
         ldy snd_regoff,x
         lda snd_frq_lo,x
         sta $d400,y
         lda snd_frq_hi,x
         sta $d401,y
-        bra _sndsvc_next
-_sndsvc_expire:
-        lda #0
-        sta snd_dur_lo,x
-        sta snd_dur_hi,x
-        lda snd_ctrl,x          ; drop the gate bit
-        and #$fe
-        ldy snd_regoff,x
-        sta $d404,y
-_sndsvc_next:
+_snd_isr_next:
         dex
-        bpl _sndsvc_loop
-_sndsvc_done:
-        rts
+        bpl _snd_isr_loop
+        ply
+        plx
+        pla
+        jmp (snd_oldirq)
 
 ; advance the sweep of voice X by one jiffy: dir 0 climbs from freq,
 ; 1 falls toward min, 2 bounces between min and the starting freq
@@ -1746,9 +1755,24 @@ _swpstep_floor:
 _swpstep_done2:
         rts
 
-; called from rtexit: gate off every SOUND voice (volume is left alone
-; so interpreter sound keeps working after the program returns)
+; called from rtexit: unhook the IRQ routine and gate off every SOUND
+; voice (volume is left alone so interpreter sound keeps working)
 sndshutdown:
+        lda snd_hooked
+        beq _sndshut_gates_only
+        sei
+        lda snd_oldirq
+        sta snd_vectab
+        lda snd_oldirq+1
+        sta snd_vectab+1
+        clc
+        ldx #<snd_vectab
+        ldy #>snd_vectab
+        jsr kernalvector
+        lda #0
+        sta snd_hooked
+        cli
+_sndshut_gates_only:
         ldx #5
 _sndshut_gates:
         ldy snd_regoff,x
@@ -1840,11 +1864,12 @@ sndsetp:
         rts
 
 sndgo:
-        jsr sndservice
+        jsr sndinit
         lda snd_vol
         jsr volsndall
         ldx snd_v
         ldy snd_regoff,x
+        sei
         lda #0                  ; gate off, reset envelope
         sta $d404,y
         lda snd_f
@@ -1885,6 +1910,7 @@ sndgo:
         sta snd_dur_lo,x
         lda snd_d+1
         sta snd_dur_hi,x
+        cli
         ; reset optional parameters for the next SOUND statement
         lda #2
         sta snd_w               ; square default
@@ -2487,7 +2513,6 @@ floadx_fac:
 
 ; TI: the 24-bit jiffy clock as a float
 rdti:
-        jsr sndservice
         jsr kernalrdtim         ; A = low, X = mid, Y = high
         sta ti_lo
         stx exprlo
@@ -3509,7 +3534,6 @@ arraybounds:
 ;=======================================================================================
 
 getkey:
-        jsr sndservice
         jsr kernalgetin
         sta exprlo
         lda #0
@@ -4683,8 +4707,8 @@ rt_er:        .byte 0
 rt_el:        .byte 0,0
 curline:      .byte 0,0
 rtjmp:        .byte 0,0
-snd_last:     .byte 0
-snd_delta:    .byte 0,0
+snd_hooked:   .byte 0
+snd_oldirq:   .byte 0,0
 snd_vol:      .byte 0
 snd_v:        .byte 0
 snd_f:        .byte 0,0
@@ -4694,7 +4718,6 @@ snd_p:        .byte 0,0
 snd_dir:      .byte 0
 snd_m:        .byte 0,0
 snd_s:        .byte 0,0
-snd_i:        .byte 0
 snd_ctrl:     .fill 6, 0
 snd_dur_lo:   .fill 6, 0
 snd_dur_hi:   .fill 6, 0
@@ -4708,6 +4731,7 @@ snd_pswp_lo:  .fill 6, 0
 snd_pswp_hi:  .fill 6, 0
 snd_pdir:     .fill 6, 0
 snd_phase:    .fill 6, 0
+snd_vectab:   .fill 64, 0       ; KERNAL vector table copy (with headroom)
 
 ; integer runtime storage
 exprlo:       .byte 0
