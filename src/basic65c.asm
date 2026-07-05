@@ -178,7 +178,11 @@ DATA_LINE_MAX           = 64
 .fi
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
+.if TEXT_EMITTER
+STRING_MAX              = 224   ; checked build: squeezed under $c000
+.else
 STRING_MAX              = 240
+.fi
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 SYM_MAX                 = 128
@@ -1257,6 +1261,10 @@ _scan_vars_extended:
         bcc _scan_ext_snd
         cmp #$0a                ; ENVELOPE
         beq _scan_ext_snd
+        cmp #$3e                ; MOUSE / RMOUSE
+        beq _scan_ext_snd
+        cmp #$3f
+        beq _scan_ext_snd
         bra _scan_ext_skip
 _scan_ext_ce:
         cmp #$02                ; POT..RSPCOLOR live in the slab
@@ -2180,8 +2188,27 @@ _compile_bend:
         jmp _compile_line_loop
 
 _compile_unsupported_statement:
+        lda token_value         ; patch the offending byte into the message
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        jsr _diag_nib
+        sta msg_unsup_hex
+        lda token_value
+        and #$0f
+        jsr _diag_nib
+        sta msg_unsup_hex+1
         lda #<msg_error_unsupported_statement
         ldy #>msg_error_unsupported_statement
+        bra _compile_unsup_go
+_diag_nib:
+        cmp #10
+        bcc +
+        adc #6
++       adc #$30
+        rts
+_compile_unsup_go:
         jsr fatal_statement_error
         bra _compile_line_loop
 
@@ -5418,6 +5445,10 @@ compile_ext_fe:
         beq _compile_ext_take
         cmp #$0b
         beq _compile_ext_take
+        cmp #$3e
+        beq _compile_ext_take
+        cmp #$3f
+        beq _compile_ext_take
         cmp #$06
         beq _compile_ext_take
         cmp #$07
@@ -5439,6 +5470,10 @@ _compile_ext_take:
         beq _compile_ext_envelope
         cmp #$0b
         beq _compile_ext_sleep
+        cmp #$3e
+        beq _compile_ext_mouse
+        cmp #$3f
+        beq _compile_ext_rmouse
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5452,6 +5487,10 @@ _compile_ext_tempo:
         jmp compile_tempo
 _compile_ext_sleep:
         jmp compile_sleep
+_compile_ext_mouse:
+        jmp compile_mouse
+_compile_ext_rmouse:
+        jmp compile_rmouse
 _compile_ext_envelope:
         jmp compile_envelope
 _compile_ext_movspr:
@@ -5543,6 +5582,126 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; MOUSE ON [, port [, sprite [, x, y]]] | MOUSE OFF
+compile_mouse:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_mouse_bad
+        jsr line_peek
+        cmp #TOK_ON
+        beq _compile_mouse_on
+        cmp #TOK_EXT_FE
+        bne _compile_mouse_bad
+        jsr line_get
+        jsr line_get            ; OFF is $fe $24
+        cmp #$24
+        bne _compile_mouse_bad
+        lda #<out_jsr_mouseoff
+        ldy #>out_jsr_mouseoff
+        jsr out_zstr
+        clc
+        rts
+_compile_mouse_on:
+        jsr line_get
+        jsr parse_opt_comma
+        bcs _compile_mouse_go
+        jsr compile_expression
+        bcs _compile_mouse_bad
+        lda #<out_jsr_mousetp
+        ldy #>out_jsr_mousetp
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_mouse_go
+        jsr compile_expression
+        bcs _compile_mouse_bad
+        lda #<out_jsr_mousets
+        ldy #>out_jsr_mousets
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_mouse_go
+        jsr compile_expression
+        bcs _compile_mouse_bad
+        lda #<out_jsr_mousetx
+        ldy #>out_jsr_mousetx
+        jsr out_zstr
+        jsr parse_comma
+        bcs _compile_mouse_bad
+        jsr compile_expression
+        bcs _compile_mouse_bad
+        lda #<out_jsr_mousety
+        ldy #>out_jsr_mousety
+        jsr out_zstr
+_compile_mouse_go:
+        lda #<out_jsr_mouseon
+        ldy #>out_jsr_mouseon
+        jsr out_zstr
+        clc
+        rts
+_compile_mouse_bad:
+        jmp compile_env_bad
+
+; RMOUSE xvar, yvar, btnvar: snapshot then store into three numerics
+compile_rmouse:
+        lda #<out_jsr_rmousef
+        ldy #>out_jsr_rmousef
+        jsr out_zstr
+        jsr compile_input_target_numeric
+        bcs _compile_rmouse_bad
+        lda #<out_ld_mourx
+        ldy #>out_ld_mourx
+        jsr out_zstr
+        jsr emit_store_var
+        jsr parse_comma
+        bcs _compile_rmouse_bad
+        jsr compile_input_target_numeric
+        bcs _compile_rmouse_bad
+        lda #<out_ld_moury
+        ldy #>out_ld_moury
+        jsr out_zstr
+        jsr emit_store_var
+        jsr parse_comma
+        bcs _compile_rmouse_bad
+        jsr compile_input_target_numeric
+        bcs _compile_rmouse_bad
+        lda #<out_ld_mourb
+        ldy #>out_ld_mourb
+        jsr out_zstr
+        jsr emit_store_var
+        clc
+        rts
+_compile_rmouse_bad:
+        jmp compile_env_bad
+
+; parse a scalar numeric variable target into assign_var_* (RMOUSE)
+compile_input_target_numeric:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _citn_bad
+        jsr line_get
+        jsr is_var_start
+        bcs _citn_bad
+        jsr parse_variable_with_first_char
+        bcs _citn_bad
+        lda var_type
+        jsr var_type_is_numeric
+        bcs _citn_bad
+        pha
+        jsr resolve_var
+        bcs _citn_badp
+        lda current_var_data_lo
+        sta assign_var_data_lo
+        lda current_var_data_hi
+        sta assign_var_data_hi
+        pla
+        sta assign_var_type
+        clc
+        rts
+_citn_badp:
+        pla
+_citn_bad:
+        sec
+        rts
 
 ; SLEEP seconds: float expression, frame-granular in the runtime
 compile_sleep:
@@ -11322,7 +11481,9 @@ msg_error_unsupported_token:
         .text "unsupported token"
         .byte 13, 0
 msg_error_unsupported_statement:
-        .text "unsupported statement"
+        .text "unsupported statement $"
+msg_unsup_hex:
+        .text "00"
         .byte 13, 0
 msg_error_unsupported_print:
         .text "unsupported print"
@@ -12568,6 +12729,94 @@ out_jsr_fpowi:
 out_jsr_rdti:
 .if TEXT_EMITTER
         .text "        jsr rdti"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mousetp:
+.if TEXT_EMITTER
+        .text "        jsr mousetp"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mousets:
+.if TEXT_EMITTER
+        .text "        jsr mousets"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mousetx:
+.if TEXT_EMITTER
+        .text "        jsr mousetx"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mousety:
+.if TEXT_EMITTER
+        .text "        jsr mousety"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mouseon:
+.if TEXT_EMITTER
+        .text "        jsr mouseon"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_mouseoff:
+.if TEXT_EMITTER
+        .text "        jsr mouseoff"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rmousef:
+.if TEXT_EMITTER
+        .text "        jsr rmousef"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_ld_mourx:
+.if TEXT_EMITTER
+        .text "        lda mourx"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda mourx+1"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_ld_moury:
+.if TEXT_EMITTER
+        .text "        lda moury"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda moury+1"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_ld_mourb:
+.if TEXT_EMITTER
+        .text "        lda mourb"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda mourb+1"
+        .byte 13
+        .text "        sta exprhi"
         .byte 13, 0
 .else
         .byte 0
@@ -14054,7 +14303,11 @@ LBL_IF_IDS      = 256           ; checked build: squeezed under $c000
 LBL_IF_IDS      = 384
 .fi
 LBL_ON_IDS      = 128
+.if TEXT_EMITTER
+LBL_ARRAY_IDS   = 128           ; checked build: squeezed under $c000
+.else
 LBL_ARRAY_IDS   = 256
+.fi
 LBL_FORDO_MAX   = 48
 
 ; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,

@@ -6080,6 +6080,7 @@ rtsound_isr:
         phx
         phy
         jsr play_tick
+        jsr mouse_tick
         ldx #5
 _snd_isr_loop:
         lda snd_dur_lo,x
@@ -6198,6 +6199,8 @@ _swpstep_done2:
 ; called from rtexit: unhook the IRQ routine and gate off every SOUND
 ; voice (volume is left alone so interpreter sound keeps working)
 sndshutdown:
+        lda #0
+        sta mou_on
         jsr playoff
         lda snd_hooked
         beq _sndshut_gates_only
@@ -6385,6 +6388,214 @@ _rspcolor_2:
         lda #0
         sta exprhi
         rts
+
+; MOUSE driver: 1351 proportional deltas decoded per frame in the IRQ
+; tick; the pointer sprite follows. Left button = fire line (bit 7 of
+; RMOUSE's status), right button = up line (bit 0), per the 1351 wiring.
+mousetp:
+        lda exprlo
+        cmp #1
+        bne _mousetp_p2
+        lda #$40
+        bra _mousetp_sel
+_mousetp_p2:
+        lda #$80                ; port 2 default; port 3 reads port 2 too
+_mousetp_sel:
+        sta mou_psel
+        lda exprlo
+        sta mou_port
+        rts
+
+mousets:
+        lda exprlo
+        and #7
+        sta mou_spr
+        rts
+
+mousetx:
+        lda exprlo
+        sta mou_x
+        lda exprhi
+        sta mou_x+1
+        rts
+
+mousety:
+        lda exprlo
+        sta mou_y
+        rts
+
+mouseon:
+        jsr sndinit             ; shares the IRQ hook
+        ldx mou_spr
+        lda sprbit,x
+        ora $d015               ; the pointer sprite turns on
+        sta $d015
+        lda $d419               ; prime the delta history
+        sta mou_old
+        lda $d41a
+        sta mou_old+1
+        lda #1
+        sta mou_on
+        rts
+
+mouseoff:
+        lda #0
+        sta mou_on
+        ldx mou_spr
+        lda sprbit,x
+        eor #$ff
+        and $d015
+        sta $d015
+        rts
+
+; per-frame tick, called from the sound ISR (registers already saved)
+mouse_tick:
+        lda mou_on
+        bne +
+        rts
++       lda mou_psel
+        sta $dc00
+        ldy #16
+_mou_settle:
+        dey
+        bne _mou_settle
+        lda $d419               ; X axis
+        tay
+        sec
+        sbc mou_old
+        sty mou_old
+        jsr _mou_sign
+        clc
+        adc mou_x
+        sta mou_x
+        lda mou_d
+        bpl _mou_xpos
+        lda mou_x+1
+        adc #$ff
+        bra _mou_xstore
+_mou_xpos:
+        lda mou_x+1
+        adc #0
+_mou_xstore:
+        sta mou_x+1
+        bpl _mou_xclamphi       ; negative: clamp to 0
+        lda #0
+        sta mou_x
+        sta mou_x+1
+_mou_xclamphi:
+        lda mou_x+1
+        beq _mou_ydelta
+        lda mou_x
+        cmp #<319
+        lda mou_x+1
+        sbc #>319
+        bcc _mou_ydelta
+        lda #<319
+        sta mou_x
+        lda #>319
+        sta mou_x+1
+_mou_ydelta:
+        lda $d41a               ; Y axis: pot up = mouse up = smaller y
+        tay
+        sec
+        sbc mou_old+1
+        sty mou_old+1
+        jsr _mou_sign
+        sta mou_d
+        lda mou_y
+        sec
+        sbc mou_d
+        bcs +
+        lda #0
++       cmp #200
+        bcc +
+        lda #199
++       sta mou_y
+        lda #$ff
+        sta $dc00               ; restore keyboard scanning
+        ; move the pointer sprite: visible origin offsets 24,50
+        ldx mou_spr
+        txa
+        asl a
+        tay
+        lda mou_x
+        clc
+        adc #24
+        sta $d000,y
+        lda mou_x+1
+        adc #0
+        beq _mou_msboff
+        lda sprbit,x
+        ora $d010
+        sta $d010
+        bra _mou_sy
+_mou_msboff:
+        lda sprbit,x
+        eor #$ff
+        and $d010
+        sta $d010
+_mou_sy:
+        lda mou_y
+        clc
+        adc #50
+        sta $d001,y
+        rts
+
+; 1351 delta decode: A = raw difference -> signed delta, also in mou_d
+_mou_sign:
+        clc
+        adc #64
+        and #127
+        sec
+        sbc #64
+        sta mou_d
+        rts
+
+; RMOUSE snapshot: -1 everywhere when the driver is off
+rmousef:
+        lda mou_on
+        bne _rmousef_live
+        lda #$ff
+        sta mourx
+        sta mourx+1
+        sta moury
+        sta moury+1
+        sta mourb
+        sta mourb+1
+        rts
+_rmousef_live:
+        sei
+        lda mou_x
+        sta mourx
+        lda mou_x+1
+        sta mourx+1
+        lda mou_y
+        sta moury
+        cli
+        lda #0
+        sta moury+1
+        sta mourb+1
+        sta mourb
+        lda mou_port
+        cmp #1
+        beq _rmousef_b1
+        lda $dc00
+        bra _rmousef_btn
+_rmousef_b1:
+        lda $dc01
+_rmousef_btn:
+        tay
+        and #$10                ; fire line = left button
+        bne +
+        lda #128
+        sta mourb
++       tya
+        and #$01                ; up line = right button
+        bne +
+        lda mourb
+        ora #1
+        sta mourb
++       rts
 
 ; voice register offsets from $d400: SID2 voices 1-3, SID4 voices 4-6
 snd_regoff:
@@ -6648,6 +6859,17 @@ flt_tmp2:     .byte 0
 flt_mode:     .byte 0,0
 flt_res:      .byte 0,0
 flt_rout:     .byte 0,0
+mou_on:       .byte 0
+mou_port:     .byte 2
+mou_psel:     .byte $80
+mou_spr:      .byte 0
+mou_x:        .byte 160,0
+mou_y:        .byte 100
+mou_old:      .byte 0,0
+mou_d:        .byte 0
+mourx:       .byte 0,0
+moury:       .byte 0,0
+mourb:       .byte 0,0
 play_xt1:     .byte 0
 play_xt2:     .byte 0
 play_envn:    .byte 0
