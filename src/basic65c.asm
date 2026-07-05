@@ -159,7 +159,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $0700
+STRING_POOL_MAX         = $0600
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -4668,7 +4668,11 @@ _factor_ext_ce:
         cmp #TOK_CE_WPEEK
         beq _factor_wpeek
         cmp #$03                ; BUMP
-        bne _factor_fail
+        beq +
+        cmp #$0f                ; RPLAY
+        beq _factor_rplay
+        bra _factor_fail
++
         jsr parse_open_paren
         bcs _factor_fail
         jsr compile_expression
@@ -4689,6 +4693,19 @@ _factor_wpeek:
         jsr parse_close_paren
         bcs _factor_fail
         jsr emit_wpeek_expr
+        clc
+        rts
+
+_factor_rplay:
+        jsr parse_open_paren
+        bcs _factor_fail
+        jsr compile_expression
+        bcs _factor_fail
+        jsr parse_close_paren
+        bcs _factor_fail
+        lda #<out_jsr_rplayf
+        ldy #>out_jsr_rplayf
+        jsr out_zstr
         clc
         rts
 
@@ -5049,6 +5066,10 @@ compile_ext_fe:
         jsr line_get
         cmp #$04
         beq _compile_ext_play
+        cmp #$05
+        beq _compile_ext_tempo
+        cmp #$0a
+        beq _compile_ext_envelope
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5061,6 +5082,10 @@ compile_ext_fe:
         rts
 _compile_ext_play:
         jmp compile_play
+_compile_ext_tempo:
+        jmp compile_tempo
+_compile_ext_envelope:
+        jmp compile_envelope
 _compile_ext_movspr:
         jmp compile_movspr
 _compile_ext_sprite:
@@ -5112,6 +5137,60 @@ _compile_play_bad:
 _compile_play_done:
         clc
         rts
+
+compile_tempo:
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_tempof
+        ldy #>out_jsr_tempof
+        jsr out_zstr
+        clc
+        rts
+
+; ENVELOPE n [, attack, decay, sustain, release, waveform, pw] --
+; each optional argument patches the slot immediately
+compile_envelope:
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_envsetn
+        ldy #>out_jsr_envsetn
+        jsr out_zstr
+        ldx #0
+_compile_env_loop:
+        phx
+        jsr parse_opt_comma
+        bcs _compile_env_done
+        jsr compile_expression
+        bcs _compile_env_badx
+        plx
+        phx
+        lda envsetterlo,x
+        ldy envsetterhi,x
+        jsr out_zstr
+        plx
+        inx
+        cpx #6
+        bcc _compile_env_loop
+        clc
+        rts
+_compile_env_done:
+        plx
+        clc
+        rts
+_compile_env_badx:
+        plx
+compile_env_bad:
+        lda #<msg_error_bad_play
+        ldy #>msg_error_bad_play
+        jsr fatal_statement_error
+        rts
+
+envsetterlo:
+        .byte <out_jsr_envseta, <out_jsr_envsetd, <out_jsr_envsetss
+        .byte <out_jsr_envsetr, <out_jsr_envsetw, <out_jsr_envsetpw
+envsetterhi:
+        .byte >out_jsr_envseta, >out_jsr_envsetd, >out_jsr_envsetss
+        .byte >out_jsr_envsetr, >out_jsr_envsetw, >out_jsr_envsetpw
 
 ; MOVSPR num, x, y -- absolute pixel position form only
 compile_movspr:
@@ -11061,6 +11140,33 @@ out_jsr_sndsetf:
 out_jsr_sndsetd:
         .text "        jsr sndsetd"
         .byte 13, 0
+out_jsr_tempof:
+        .text "        jsr tempof"
+        .byte 13, 0
+out_jsr_envsetn:
+        .text "        jsr envsetn"
+        .byte 13, 0
+out_jsr_envseta:
+        .text "        jsr envseta"
+        .byte 13, 0
+out_jsr_envsetd:
+        .text "        jsr envsetd"
+        .byte 13, 0
+out_jsr_envsetss:
+        .text "        jsr envsetss"
+        .byte 13, 0
+out_jsr_envsetr:
+        .text "        jsr envsetr"
+        .byte 13, 0
+out_jsr_envsetw:
+        .text "        jsr envsetw"
+        .byte 13, 0
+out_jsr_envsetpw:
+        .text "        jsr envsetpw"
+        .byte 13, 0
+out_jsr_rplayf:
+        .text "        jsr rplayf"
+        .byte 13, 0
 out_sta_playarg:
         .text "        sta playarg"
         .byte 13, 0
@@ -12227,7 +12333,7 @@ string_pool:
 LBL_IF_IDS      = 384
 LBL_ON_IDS      = 128
 LBL_ARRAY_IDS   = 256
-LBL_FORDO_MAX   = 64
+LBL_FORDO_MAX   = 48
 
 ; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
 ; so a single table keyed by id covers all five kinds; same for onnext/ondone.

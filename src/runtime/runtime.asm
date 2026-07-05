@@ -1618,20 +1618,157 @@ play_notetab:
 play_semitab:
         .byte 9, 11, 0, 2, 4, 5, 7
 
-; W H Q I S in jiffies at the default tempo
+; W H Q I S in jiffies; recomputed by TEMPO, reset by bare PLAY
 play_durtab:
-        .byte 72, 36, 18, 9, 5
+        .byte 75, 37, 18, 9, 4
+play_durdef:
+        .byte 75, 37, 18, 9, 4
+
+; ENVELOPE waveform code -> gate-on control (tri saw pulse noise ring)
+play_wfmap:
+        .byte $11, $21, $41, $81, $15
+
+; TEMPO speed: whole note = 24/speed seconds = 1200/speed PAL jiffies,
+; clamped to 255 since track countdowns are 8-bit
+tempof:
+        lda exprlo
+        bne +
+        rts
++       sta play_tdiv
+        lda #<1200
+        sta play_tacc
+        lda #>1200
+        sta play_tacc+1
+        lda #0
+        sta play_tq
+_tempo_div:
+        lda play_tacc
+        sec
+        sbc play_tdiv
+        sta play_tacc
+        lda play_tacc+1
+        sbc #0
+        sta play_tacc+1
+        bcc _tempo_done
+        inc play_tq
+        bne _tempo_div
+        lda #255                ; quotient saturated
+        sta play_tq
+_tempo_done:
+        lda play_tq
+        ldx #0
+_tempo_store:
+        sta play_durtab,x
+        lsr a
+        bne +
+        lda #1                  ; every duration is at least one jiffy
++       inx
+        cpx #5
+        bne _tempo_store
+        rts
+
+; ENVELOPE n, attack, decay, sustain, release, waveform, pw --
+; setters patch the slot tables in place so omitted args stay put
+envsetn:
+        lda exprlo
+        cmp #10
+        bcc +
+        lda #0
++       sta play_envn
+        rts
+
+envseta:
+        ldx play_envn
+        lda exprlo
+        asl a
+        asl a
+        asl a
+        asl a
+        sta play_tq
+        lda play_envad,x
+        and #$0f
+        ora play_tq
+        sta play_envad,x
+        rts
+
+envsetd:
+        ldx play_envn
+        lda exprlo
+        and #$0f
+        sta play_tq
+        lda play_envad,x
+        and #$f0
+        ora play_tq
+        sta play_envad,x
+        rts
+
+envsetss:
+        ldx play_envn
+        lda exprlo
+        asl a
+        asl a
+        asl a
+        asl a
+        sta play_tq
+        lda play_envsr,x
+        and #$0f
+        ora play_tq
+        sta play_envsr,x
+        rts
+
+envsetr:
+        ldx play_envn
+        lda exprlo
+        and #$0f
+        sta play_tq
+        lda play_envsr,x
+        and #$f0
+        ora play_tq
+        sta play_envsr,x
+        rts
+
+envsetw:
+        ldx play_envn
+        lda exprlo
+        cmp #5
+        bcs +
+        tay
+        lda play_wfmap,y
+        sta play_envwave,x
++       rts
+
+envsetpw:
+        ldx play_envn
+        lda exprhi
+        and #$0f
+        sta play_envpw,x
+        rts
+
+; RPLAY(voice): nonzero while that voice's track is still playing
+rplayf:
+        ldx exprlo
+        dex
+        cpx #6
+        bcc +
+        ldx #0
++       lda play_act,x
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+
 
 ; instrument envelopes 0-9 (C128 set): attack/decay, sustain/release,
 ; gate-on control value, pulse width high byte
 play_envad:
-        .byte $09, $c0, $00, $05, $94, $03, $09, $09, $89, $09
+        .byte $09, $c0, $00, $05, $94, $09, $09, $09, $89, $09
 play_envsr:
-        .byte $00, $c0, $f0, $50, $40, $00, $00, $90, $41, $00
+        .byte $00, $c0, $f0, $50, $40, $21, $00, $90, $41, $00
 play_envwave:
-        .byte $41, $21, $11, $81, $11, $21, $41, $41, $21, $11
+        .byte $41, $21, $11, $81, $11, $21, $41, $41, $41, $11
 play_envpw:
-        .byte $06, $00, $00, $00, $00, $00, $02, $08, $00, $00
+        .byte $06, $00, $00, $00, $00, $00, $02, $08, $02, $00
 
 play_voltab:
         .byte 0, 2, 3, 5, 7, 8, 10, 12, 13, 15
@@ -1691,7 +1828,7 @@ _playtrk_copied:
         sta play_loop,x
         lda #4
         sta play_oct,x
-        lda #18                 ; quarter notes until changed
+        lda play_durtab+2       ; quarter notes until changed
         sta play_dur,x
         lda snd_vol
         sta $d418
@@ -1703,6 +1840,12 @@ _playtrk_done:
 
 ; bare PLAY and rtexit: stop and silence every track
 playoff:
+        ldx #4
+_playoff_tempo:
+        lda play_durdef,x
+        sta play_durtab,x
+        dex
+        bpl _playoff_tempo
         ldx #5
 _playoff_loop:
         lda #0
@@ -5259,6 +5402,10 @@ play_ad:      .byte 0
 play_sr:      .byte 0
 play_wv:      .byte 0
 play_cplen:   .byte 0
+play_envn:    .byte 0
+play_tdiv:    .byte 0
+play_tacc:    .byte 0,0
+play_tq:      .byte 0
 play_act:     .fill 6, 0
 play_pos:     .fill 6, 0
 play_rem:     .fill 6, 0
