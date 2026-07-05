@@ -4,17 +4,19 @@ Real floating point for compiled programs, using the interpreter's own
 format so compiled BASIC65 behaves like interpreted BASIC65. Decision made
 2026-07-04: 5-byte CBM MFLP, no fixed-point variant for now.
 
-**Status:** the float RUNTIME is complete (stages 1-3), emulator-verified
-via tests\float-core.asm (standalone, no compiler involvement):
-fpack/funpack, register moves, float16/qint (floor semantics),
-fnorm/fround, fadd/fsub, fcmp, fmul/fdiv on the MEGA65 hardware math
-unit, fmul10/fdiv10, valflt (sign/point/E-notation, ASCII+PETSCII), and
-printflt (nine digits, CBM-style point placement, E notation,
-ninth-digit rounding), plus the packed float stack fpush/fpoparg (every
-op may clobber ARG, so compiled left operands must park on the stack).
-Remaining: stage 4, the compiler -- type propagation, float codegen,
-literal-pool conversion at rtinit, retiring the tag-1 literal-text
-scheme -- then float arrays and READ/INPUT.
+**Status: stages 1-4 complete.** The runtime (fpack/funpack, float16/qint,
+fadd/fsub/fmul/fdiv on the hardware math unit, fcmp, valflt, printflt,
+float stack) is emulator-verified standalone via testsloat-core.asm, and
+the compiler now propagates int/float types through expressions with
+promotion at operators and comparisons, emits float codegen against FAC and
+the float stack, converts float literals once at rtinit through a sixth
+header vector (start is $400c; program-side table label fltlits), and
+auto-coerces at every integer context via the split
+compile_expression/compile_num_expression boundary. Full fixture sweep
+green, all native PRGs byte-identical. Remaining (stage 5): float arrays
+(plain arrays are still 16-bit with boundary conversions), float
+READ/INPUT fields, and the deliberate int/int division question
+(interpreter always floats; we keep integer division for now).
 
 ## Format
 
