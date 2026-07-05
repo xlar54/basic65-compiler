@@ -11,7 +11,7 @@
 ; Memory contract:
 ;   $2001         BASIC stub (SYS 8210)
 ;   $2012         rtinit -- runtime entry, called by the stub
-;   $2012-$47ff   runtime code and storage (guarded by .cerror below)
+;   $2012-$4fff   runtime code and storage (guarded by .cerror below)
 ;   $5000         program header vectors, then the compiled program:
 ;                   progbase+0  .word start        (program entry)
 ;                   progbase+2  .word varheapend   (bank-1 clear limit)
