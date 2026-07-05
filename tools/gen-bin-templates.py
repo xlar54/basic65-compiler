@@ -115,6 +115,8 @@ def parse_blobs(path):
             continue
         if label is None:
             continue
+        if re.match(r"^[.](if|else|fi|endif)", line):
+            continue  # TEXT_EMITTER guards around blob bodies
         tm = re.match(r'^\.text\s+"(.*)"\s*$', line)
         if tm:
             parts.append(tm.group(1).replace('""', '"'))
