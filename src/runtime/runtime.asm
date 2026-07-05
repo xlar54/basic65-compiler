@@ -2208,6 +2208,71 @@ rdti:
         jsr fpoparg
         jmp fdiv                ; seconds = jiffies / rate
 
+; TI$: read the RTC at $ffd7110 (BCD ss,mm,hh) into "hh:mm:ss" on the
+; string heap; varptr's bank-1 invariant is saved around the far read
+tistr:
+        lda varptr+2
+        pha
+        lda #$10
+        sta varptr
+        lda #$71
+        sta varptr+1
+        lda #$fd
+        sta varptr+2
+        lda #$0f
+        sta varptr+3
+        ldz #0
+        lda [varptr],z
+        sta ti_ss
+        inz
+        lda [varptr],z
+        sta ti_mm
+        inz
+        lda [varptr],z
+        and #$7f                ; strip the 24h mode flag
+        sta ti_hh
+        pla
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        lda #8
+        sta strlen
+        jsr stralloc
+        bcs _tistr_done
+        ldz #0
+        lda #8
+        sta [varptr],z
+        lda ti_hh
+        jsr _tistr_bcd
+        lda #$3a                ; colon
+        inz
+        sta [varptr],z
+        lda ti_mm
+        jsr _tistr_bcd
+        lda #$3a
+        inz
+        sta [varptr],z
+        lda ti_ss
+        jsr _tistr_bcd
+_tistr_done:
+        rts
+
+_tistr_bcd:
+        pha
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        ora #$30
+        inz
+        sta [varptr],z
+        pla
+        and #$0f
+        ora #$30
+        inz
+        sta [varptr],z
+        rts
+
 clrti:
         jsr kernalrdtim
         sta ti_base
@@ -4352,6 +4417,9 @@ rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
 ti_base:      .byte 0,0,0
+ti_ss:        .byte 0
+ti_mm:        .byte 0
+ti_hh:        .byte 0
 ti_j:         .byte 0,0
 rtpbhi:       .byte >rtpb       ; native writer patches this during copy
 mthbuf:       .fill 21, 0

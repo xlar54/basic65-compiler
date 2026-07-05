@@ -2383,6 +2383,18 @@ _string_factor_var:
         beq _string_factor_array_var
 
 _string_factor_scalar_var:
+        lda var_name_1
+        cmp #$54                ; TI$ reads the RTC as "hh:mm:ss"
+        bne _string_factor_resolve
+        lda var_name_2
+        cmp #$49
+        bne _string_factor_resolve
+        lda #<out_jsr_tistr
+        ldy #>out_jsr_tistr
+        jsr out_zstr
+        clc
+        rts
+_string_factor_resolve:
         jsr resolve_existing_var
         bcs _string_factor_fail
         jsr emit_load_var
@@ -12556,6 +12568,13 @@ out_jsr_fpowi:
 out_jsr_rdti:
 .if TEXT_EMITTER
         .text "        jsr rdti"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_tistr:
+.if TEXT_EMITTER
+        .text "        jsr tistr"
         .byte 13, 0
 .else
         .byte 0

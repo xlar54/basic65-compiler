@@ -16,4 +16,8 @@
 160 if rspcolor(1)=9 and rspcolor(2)=11 then print " rspcolor ok"
 170 print " pot:";pot(1);" lpen:";lpen(0)
 180 sprite 2,0
+172 t$=ti$:print " ti$:";t$
+174 if len(t$)=8 and mid$(t$,3,1)=":" and mid$(t$,6,1)=":" then print " ti$ ok"
+176 clr ti:sleep 0.2
+178 if ti>0.1 and ti<2 then print " ti ok";ti
 190 print "cheap done"
