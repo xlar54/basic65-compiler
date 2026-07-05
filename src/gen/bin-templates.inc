@@ -12,6 +12,11 @@ bt_out_add_lhs_expr:
         .byte $18, $ad, $15, $3e, $6d, $13, $3e, $8d, $13, $3e, $ad, $16
         .byte $3e, $6d, $14, $3e, $8d, $14, $3e
 
+bt_out_and_lhs_expr:
+        .byte 0, 18
+        .byte $ad, $15, $3e, $2d, $13, $3e, $8d, $13, $3e, $ad, $16, $3e
+        .byte $2d, $14, $3e, $8d, $14, $3e
+
 bt_out_array_check_start:
         .byte 5, 5
         .byte $ad, $14, $3e, $10, $00
@@ -523,6 +528,11 @@ bt_out_ondone_prefix:
 bt_out_onnext_prefix:
         .byte 6, 0
 
+bt_out_or_lhs_expr:
+        .byte 0, 18
+        .byte $ad, $15, $3e, $0d, $13, $3e, $8d, $13, $3e, $ad, $16, $3e
+        .byte $0d, $14, $3e, $8d, $14, $3e
+
 bt_out_ora_exprhi:
         .byte 0, 3
         .byte $0d, $14, $3e
@@ -667,6 +677,7 @@ bt_out_wpoke_expr_to_rtptr:
 bt_map:
         .word out_adc_imm_hex, bt_out_adc_imm_hex
         .word out_add_lhs_expr, bt_out_add_lhs_expr
+        .word out_and_lhs_expr, bt_out_and_lhs_expr
         .word out_array_check_start, bt_out_array_check_start
         .word out_array_index_shift, bt_out_array_index_shift
         .word out_array_index_shift5, bt_out_array_index_shift5
@@ -800,6 +811,7 @@ bt_map:
         .word out_neg_expr, bt_out_neg_expr
         .word out_ondone_prefix, bt_out_ondone_prefix
         .word out_onnext_prefix, bt_out_onnext_prefix
+        .word out_or_lhs_expr, bt_out_or_lhs_expr
         .word out_ora_exprhi, bt_out_ora_exprhi
         .word out_ora_lhshi, bt_out_ora_lhshi
         .word out_peek_expr, bt_out_peek_expr

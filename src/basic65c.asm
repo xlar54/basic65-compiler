@@ -2023,7 +2023,7 @@ compile_assignment_with_first_char:
         bne compile_assignment_bad
 
 _compile_assignment_expr:
-        jsr compile_num_expression
+        jsr compile_condition_expression
         bcs compile_assignment_bad
         lda assign_var_type
         cmp #VAR_TYPE_FLOAT
@@ -2438,7 +2438,7 @@ compile_array_assignment:
         bne compile_assignment_bad
 
 _compile_array_assignment_expr:
-        jsr compile_num_expression
+        jsr compile_condition_expression
         bcs compile_assignment_bad
         lda assign_var_type
         cmp #VAR_TYPE_FLOAT
@@ -2776,7 +2776,7 @@ compile_exit_bad:
         rts
 
 compile_loop_condition_lhs:
-        jsr compile_condition_expression
+        jsr compile_condition_boolean
         bcs _compile_loop_condition_fail
         jsr emit_move_expr_to_lhs
         clc
@@ -2788,7 +2788,7 @@ _compile_loop_condition_fail:
 
 compile_if:
         jsr alloc_if_labels
-        jsr compile_condition_expression
+        jsr compile_condition_boolean
         bcs compile_if_bad
         jsr emit_push_expr
         lda #COND_TRUTH
@@ -2970,6 +2970,20 @@ _parse_if_compare_done:
         clc
         rts
 
+; boolean context: a float condition value becomes 1/0
+compile_condition_boolean:
+        jsr compile_condition_or
+        bcs +
+        lda expr_type
+        beq +
+        lda #<out_jsr_ftruth
+        ldy #>out_jsr_ftruth
+        jsr out_zstr
+        lda #0
+        sta expr_type
+        clc
++       rts
+
 compile_condition_expression:
         jsr compile_condition_or
         rts
@@ -2993,9 +3007,11 @@ _cond_or_done:
 
 _cond_or_take:
         jsr line_get
+        jsr emit_qint_if_float
         jsr emit_push_expr
         jsr compile_condition_and
         bcs _cond_or_fail
+        jsr emit_qint_if_float
         jsr emit_pop_lhs
         jsr emit_bool_or_lhs_expr
         bra _cond_or_loop
@@ -3023,9 +3039,11 @@ _cond_and_done:
 
 _cond_and_take:
         jsr line_get
+        jsr emit_qint_if_float
         jsr emit_push_expr
         jsr compile_condition_not
         bcs _cond_and_fail
+        jsr emit_qint_if_float
         jsr emit_pop_lhs
         jsr emit_bool_and_lhs_expr
         bra _cond_and_loop
@@ -3054,6 +3072,7 @@ _cond_not_take:
         beq _cond_not_paren
         jsr compile_condition_not
         bcs _cond_not_fail
+        jsr emit_qint_if_float
         jsr emit_not_expr
         clc
         rts
@@ -3122,14 +3141,6 @@ _cond_compare_ff:
         bra _cond_compare_done
 
 _cond_compare_truthy:
-        lda expr_type
-        beq _cond_compare_done
-        lda #<out_jsr_ftruth
-        ldy #>out_jsr_ftruth
-        jsr out_zstr
-        lda #0
-        sta expr_type
-
 _cond_compare_done:
         clc
         rts
@@ -3421,6 +3432,12 @@ emit_qint_expr:
         lda #<out_jsr_qint
         ldy #>out_jsr_qint
         jmp out_zstr
+
+emit_qint_if_float:
+        lda expr_type
+        beq +
+        jsr emit_qint_expr
++       rts
 
 compile_num_expression:
         jsr compile_expression_inner
@@ -4469,7 +4486,7 @@ _print_expression:
         bra _print_string_var_done
 
 _print_numeric_expression:
-        jsr compile_num_expression
+        jsr compile_condition_expression
         bcs _print_expression_bad
         lda expr_type
         bne _print_numeric_float
@@ -8246,89 +8263,15 @@ emit_store_a_to_expr_bool:
         rts
 
 emit_bool_and_lhs_expr:
-        jsr alloc_on_label
-        lda on_label_lo
-        sta on_done_lo
-        lda on_label_hi
-        sta on_done_hi
-        jsr alloc_on_label
-        lda #<out_lda_lhslo
-        ldy #>out_lda_lhslo
+        lda #<out_and_lhs_expr
+        ldy #>out_and_lhs_expr
         jsr out_zstr
-        lda #<out_ora_lhshi
-        ldy #>out_ora_lhshi
-        jsr out_zstr
-        lda #<out_beq_label
-        ldy #>out_beq_label
-        jsr out_zstr
-        jsr out_onnext_ref
-        jsr out_cr
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_ora_exprhi
-        ldy #>out_ora_exprhi
-        jsr out_zstr
-        lda #<out_beq_label
-        ldy #>out_beq_label
-        jsr out_zstr
-        jsr out_onnext_ref
-        jsr out_cr
-        lda #1
-        sta number_lo
-        lda #0
-        sta number_hi
-        jsr emit_load_number
-        jsr emit_jmp_ondone
-        jsr emit_onnext_label_def
-        lda #0
-        sta number_lo
-        sta number_hi
-        jsr emit_load_number
-        jsr emit_ondone_label_def
         rts
 
 emit_bool_or_lhs_expr:
-        jsr alloc_on_label
-        lda on_label_lo
-        sta on_done_lo
-        lda on_label_hi
-        sta on_done_hi
-        jsr alloc_on_label
-        lda #<out_lda_lhslo
-        ldy #>out_lda_lhslo
+        lda #<out_or_lhs_expr
+        ldy #>out_or_lhs_expr
         jsr out_zstr
-        lda #<out_ora_lhshi
-        ldy #>out_ora_lhshi
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
-        jsr out_onnext_ref
-        jsr out_cr
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_ora_exprhi
-        ldy #>out_ora_exprhi
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
-        jsr out_onnext_ref
-        jsr out_cr
-        lda #0
-        sta number_lo
-        sta number_hi
-        jsr emit_load_number
-        jsr emit_jmp_ondone
-        jsr emit_onnext_label_def
-        lda #1
-        sta number_lo
-        lda #0
-        sta number_hi
-        jsr emit_load_number
-        jsr emit_ondone_label_def
         rts
 
 emit_expr_to_rtptr:
@@ -10360,6 +10303,32 @@ out_pop_lhs:
         .text "        pla"
         .byte 13
         .text "        sta lhslo"
+        .byte 13, 0
+out_and_lhs_expr:
+        .text "        lda lhslo"
+        .byte 13
+        .text "        and exprlo"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda lhshi"
+        .byte 13
+        .text "        and exprhi"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13, 0
+out_or_lhs_expr:
+        .text "        lda lhslo"
+        .byte 13
+        .text "        ora exprlo"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda lhshi"
+        .byte 13
+        .text "        ora exprhi"
+        .byte 13
+        .text "        sta exprhi"
         .byte 13, 0
 out_move_expr_to_lhs:
         .text "        lda exprlo"
