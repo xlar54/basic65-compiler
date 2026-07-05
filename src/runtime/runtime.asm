@@ -1598,6 +1598,353 @@ pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
 ;=======================================================================================
+; PLAY: up to six note strings, one per voice -- 1-3 on SID1 ($d400),
+; 4-6 on SID3 ($d440), distinct from SOUND's SID2/SID4. Each string is
+; copied to a bank-0 track buffer at statement time; the IRQ tick parses
+; notes incrementally. Notes A-G with # (sharp), $ (flat), . (dotted);
+; durations W H Q I S persist until changed; R rests. Directives:
+; On octave, Tn instrument (C128 envelope set), Un volume, L loop;
+; Xn/Mn/Pn are parsed and ignored for now.
+;=======================================================================================
+
+PLAY_TRACK_LEN = 128
+
+; per-semitone SID frequency, octave 7 (C..B); lower octaves shift right
+play_notetab:
+        .word 34334, 36376, 38539, 40830, 43258, 45830
+        .word 48556, 51443, 54502, 57743, 61176, 64814
+
+; note letter A-G -> semitone (C=0 D=2 E=4 F=5 G=7 A=9 B=11)
+play_semitab:
+        .byte 9, 11, 0, 2, 4, 5, 7
+
+; W H Q I S in jiffies at the default tempo
+play_durtab:
+        .byte 72, 36, 18, 9, 5
+
+; instrument envelopes 0-9 (C128 set): attack/decay, sustain/release,
+; gate-on control value, pulse width high byte
+play_envad:
+        .byte $09, $c0, $00, $05, $94, $03, $09, $09, $89, $09
+play_envsr:
+        .byte $00, $c0, $f0, $50, $40, $00, $00, $90, $41, $00
+play_envwave:
+        .byte $41, $21, $11, $81, $11, $21, $41, $41, $21, $11
+play_envpw:
+        .byte $06, $00, $00, $00, $00, $00, $02, $08, $00, $00
+
+play_voltab:
+        .byte 0, 2, 3, 5, 7, 8, 10, 12, 13, 15
+
+; voice register offsets from $d400: SID1 voices 1-3, SID3 voices 4-6
+play_regoff:
+        .byte $00, $07, $0e, $40, $47, $4e
+
+play_buflo:
+        .byte <(play_buf+0*PLAY_TRACK_LEN), <(play_buf+1*PLAY_TRACK_LEN)
+        .byte <(play_buf+2*PLAY_TRACK_LEN), <(play_buf+3*PLAY_TRACK_LEN)
+        .byte <(play_buf+4*PLAY_TRACK_LEN), <(play_buf+5*PLAY_TRACK_LEN)
+play_bufhi:
+        .byte >(play_buf+0*PLAY_TRACK_LEN), >(play_buf+1*PLAY_TRACK_LEN)
+        .byte >(play_buf+2*PLAY_TRACK_LEN), >(play_buf+3*PLAY_TRACK_LEN)
+        .byte >(play_buf+4*PLAY_TRACK_LEN), >(play_buf+5*PLAY_TRACK_LEN)
+
+; load track playarg from the heap string in exprlo/exprhi (length-
+; prefixed, bank 1), copied into a bank-0 track buffer for the ISR
+playtrk:
+        jsr sndinit             ; PLAY shares the sound IRQ hook
+        ldx playarg
+        lda #0
+        sta play_act,x
+        lda play_buflo,x
+        sta rtfltptr
+        lda play_bufhi,x
+        sta rtfltptr+1
+        lda exprlo
+        ora exprhi
+        beq _playtrk_done       ; empty string: track stays off
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta play_cplen
+        ldy #0
+_playtrk_copy:
+        cpy play_cplen
+        beq _playtrk_copied
+        cpy #PLAY_TRACK_LEN-1
+        beq _playtrk_copied
+        iny
+        tya
+        taz
+        lda [varptr],z
+        dey
+        sta (rtfltptr),y
+        iny
+        bra _playtrk_copy
+_playtrk_copied:
+        lda #0
+        sta (rtfltptr),y
+        lda #0
+        sta play_pos,x
+        sta play_env,x
+        sta play_rem,x
+        sta play_loop,x
+        lda #4
+        sta play_oct,x
+        lda #18                 ; quarter notes until changed
+        sta play_dur,x
+        lda snd_vol
+        sta $d418
+        sta $d458
+        lda #1
+        sta play_act,x
+_playtrk_done:
+        rts
+
+; bare PLAY and rtexit: stop and silence every track
+playoff:
+        ldx #5
+_playoff_loop:
+        lda #0
+        sta play_act,x
+        ldy play_regoff,x
+        sta $d404,y
+        dex
+        bpl _playoff_loop
+        rts
+
+; one jiffy for all tracks; called from the sound ISR (A/X/Y saved there)
+play_tick:
+        lda rtfltptr            ; the ISR may interrupt mainline float code
+        pha
+        lda rtfltptr+1
+        pha
+        ldx #5
+_ptick_loop:
+        lda play_act,x
+        beq _ptick_next
+        lda play_rem,x
+        beq _ptick_parse
+        dec play_rem,x
+        lda play_rem,x
+        cmp #2                  ; release window before the next note
+        bne _ptick_next
+        lda play_ctrl,x
+        and #$fe
+        ldy play_regoff,x
+        sta $d404,y
+_ptick_next:
+        dex
+        bpl _ptick_loop
+        pla
+        sta rtfltptr+1
+        pla
+        sta rtfltptr
+        rts
+
+_ptick_parse:
+        lda play_buflo,x
+        sta rtfltptr
+        lda play_bufhi,x
+        sta rtfltptr+1
+        lda #0
+        sta play_acc            ; pending sharp/flat as signed semitones
+        sta play_dot
+_ptick_scan:
+        ldy play_pos,x
+        lda (rtfltptr),y
+        bne _ptick_char
+        lda play_loop,x         ; end of string: restart or stop
+        beq _ptick_stop
+        lda #0
+        sta play_pos,x
+        bra _ptick_scan
+_ptick_stop:
+        lda #0
+        sta play_act,x
+        ldy play_regoff,x
+        sta $d404,y
+        bra _ptick_next
+_ptick_char:
+        inc play_pos,x
+        cmp #'#'
+        bne +
+        inc play_acc
+        bra _ptick_scan
++       cmp #'$'
+        bne +
+        dec play_acc
+        bra _ptick_scan
++       cmp #'.'
+        bne +
+        lda #1
+        sta play_dot
+        bra _ptick_scan
++       cmp #$52                ; R: rest
+        beq _ptick_rest
+        cmp #$57                ; W
+        bne +
+        ldy #0
+        bra _ptick_setdur
++       cmp #$48                ; H
+        bne +
+        ldy #1
+        bra _ptick_setdur
++       cmp #$51                ; Q
+        bne +
+        ldy #2
+        bra _ptick_setdur
++       cmp #$49                ; I
+        bne +
+        ldy #3
+        bra _ptick_setdur
++       cmp #$53                ; S
+        bne +
+        ldy #4
+        bra _ptick_setdur
++       cmp #$4c                ; L: loop the whole string
+        bne +
+        lda #1
+        sta play_loop,x
+        bra _ptick_scan
++       cmp #$4f                ; O octave
+        bne +
+        jsr _ptick_digit
+        cmp #7
+        bcs _ptick_scan
+        sta play_oct,x
+        bra _ptick_scan
++       cmp #$54                ; T instrument
+        bne +
+        jsr _ptick_digit
+        cmp #10
+        bcs _ptick_scan
+        sta play_env,x
+        bra _ptick_scan
++       cmp #$55                ; U volume
+        bne +
+        jsr _ptick_digit
+        cmp #10
+        bcs _ptick_scan
+        tay
+        lda play_voltab,y
+        sta $d418
+        sta $d458
+        bra _ptick_scan
++       cmp #$58                ; X, M, P: consume the digit, ignore
+        beq _ptick_skiparg
+        cmp #$4d
+        beq _ptick_skiparg
+        cmp #$50
+        bne +
+_ptick_skiparg:
+        jsr _ptick_digit
+        bra _ptick_scan
++       cmp #$41                ; A-G: a note
+        bcc _ptick_scan
+        cmp #$47+1
+        bcs _ptick_scan
+        sec
+        sbc #$41
+        tay
+        lda play_semitab,y
+        clc
+        adc play_acc            ; sharps/flats, may cross the octave
+        sta play_acc
+        lda play_oct,x
+        sta play_octw
+        lda play_acc
+        bpl +
+        clc
+        adc #12
+        sta play_acc
+        dec play_octw
++       cmp #12
+        bcc +
+        sbc #12
+        sta play_acc
+        inc play_octw
++       lda play_acc
+        asl a
+        tay
+        lda play_notetab,y
+        sta play_frq
+        lda play_notetab+1,y
+        sta play_frq+1
+        lda #7
+        sec
+        sbc play_octw           ; octave 0-6 -> shift 7..1
+        tay
+_ptick_shift:
+        lsr play_frq+1
+        ror play_frq
+        dey
+        bne _ptick_shift
+        ldy play_regoff,x
+        lda #0                  ; gate off, reset envelope
+        sta $d404,y
+        lda play_frq
+        sta $d400,y
+        lda play_frq+1
+        sta $d401,y
+        lda play_env,x
+        phx
+        tax
+        lda play_envad,x
+        sta play_ad
+        lda play_envsr,x
+        sta play_sr
+        lda play_envwave,x
+        sta play_wv
+        lda play_envpw,x
+        plx
+        sta $d403,y
+        lda #0
+        sta $d402,y
+        lda play_ad
+        sta $d405,y
+        lda play_sr
+        sta $d406,y
+        lda play_wv
+        sta play_ctrl,x
+        sta $d404,y
+_ptick_arm:
+        lda play_dur,x
+        ldy play_dot
+        beq +
+        lsr a
+        clc
+        adc play_dur,x          ; dotted: half again as long
++       sta play_rem,x
+        jmp _ptick_next
+
+_ptick_rest:
+        lda play_ctrl,x
+        and #$fe
+        ldy play_regoff,x
+        sta $d404,y
+        bra _ptick_arm
+
+_ptick_setdur:
+        lda play_durtab,y
+        sta play_dur,x
+        bra _ptick_scan
+
+; read the digit after a directive letter; returns 0-9 in A
+_ptick_digit:
+        ldy play_pos,x
+        lda (rtfltptr),y
+        sec
+        sbc #$30
+        cmp #10
+        bcs _ptick_digit_bad
+        inc play_pos,x
+        rts
+_ptick_digit_bad:
+        lda #0
+        rts
+
+;=======================================================================================
 ; Sprites and joystick: SPRITE attribute form, MOVSPR absolute position,
 ; SPRCOLOR, JOY(), BUMP(). Attribute setters write the VIC-II registers
 ; directly so omitted SPRITE arguments leave state untouched, like the
@@ -1812,6 +2159,7 @@ rtsound_isr:
         pha
         phx
         phy
+        jsr play_tick
         ldx #5
 _snd_isr_loop:
         lda snd_dur_lo,x
@@ -1930,6 +2278,7 @@ _swpstep_done2:
 ; called from rtexit: unhook the IRQ routine and gate off every SOUND
 ; voice (volume is left alone so interpreter sound keeps working)
 sndshutdown:
+        jsr playoff
         lda snd_hooked
         beq _sndshut_gates_only
         sei
@@ -4901,6 +5250,24 @@ snd_pmin_lo:  .fill 6, 0
 snd_pmin_hi:  .fill 6, 0
 snd_pswp_lo:  .fill 6, 0
 snd_pswp_hi:  .fill 6, 0
+playarg:     .byte 0
+play_acc:     .byte 0
+play_dot:     .byte 0
+play_octw:    .byte 0
+play_frq:     .byte 0,0
+play_ad:      .byte 0
+play_sr:      .byte 0
+play_wv:      .byte 0
+play_cplen:   .byte 0
+play_act:     .fill 6, 0
+play_pos:     .fill 6, 0
+play_rem:     .fill 6, 0
+play_dur:     .fill 6, 0
+play_oct:     .fill 6, 0
+play_env:     .fill 6, 0
+play_loop:    .fill 6, 0
+play_ctrl:    .fill 6, 0
+play_buf:     .fill 6*PLAY_TRACK_LEN, 0
 spr_n:        .byte 0
 spr_x:        .byte 0,0
 snd_pdir:     .fill 6, 0

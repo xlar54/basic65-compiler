@@ -159,7 +159,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $0780
+STRING_POOL_MAX         = $0700
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -5047,6 +5047,8 @@ _compile_trap_arm:
 ; dispatch $FE-prefixed statements by their second token byte
 compile_ext_fe:
         jsr line_get
+        cmp #$04
+        beq _compile_ext_play
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5057,12 +5059,59 @@ compile_ext_fe:
         ldy #>msg_error_bad_sprite
         jsr fatal_statement_error
         rts
+_compile_ext_play:
+        jmp compile_play
 _compile_ext_movspr:
         jmp compile_movspr
 _compile_ext_sprite:
         jmp compile_sprite
 _compile_ext_sprcolor:
         jmp compile_sprcolor
+
+; PLAY [string1 ... string6]: argument position selects the voice;
+; bare PLAY silences everything
+compile_play:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcc _compile_playargs
+        lda #<out_jsr_playoff
+        ldy #>out_jsr_playoff
+        jsr out_zstr
+        clc
+        rts
+_compile_playargs:
+        lda #0
+        sta play_track_no
+_compile_play_loop:
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _compile_play_bad
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda play_track_no
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_playarg
+        ldy #>out_sta_playarg
+        jsr out_zstr
+        lda #<out_jsr_playtrk
+        ldy #>out_jsr_playtrk
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_play_done
+        inc play_track_no
+        lda play_track_no
+        cmp #6
+        bcc _compile_play_loop
+_compile_play_bad:
+        lda #<msg_error_bad_play
+        ldy #>msg_error_bad_play
+        jsr fatal_statement_error
+        rts
+_compile_play_done:
+        clc
+        rts
 
 ; MOVSPR num, x, y -- absolute pixel position form only
 compile_movspr:
@@ -10626,6 +10675,9 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_play:
+        .text "bad play"
+        .byte 13, 0
 msg_error_bad_sprite:
         .text "bad sprite/movspr"
         .byte 13, 0
@@ -11008,6 +11060,15 @@ out_jsr_sndsetf:
         .byte 13, 0
 out_jsr_sndsetd:
         .text "        jsr sndsetd"
+        .byte 13, 0
+out_sta_playarg:
+        .text "        sta playarg"
+        .byte 13, 0
+out_jsr_playtrk:
+        .text "        jsr playtrk"
+        .byte 13, 0
+out_jsr_playoff:
+        .text "        jsr playoff"
         .byte 13, 0
 out_jsr_sprsetn:
         .text "        jsr sprsetn"
@@ -11984,6 +12045,8 @@ begin_sp:
 io_from_file:
         .byte 0
 trap_used:
+        .byte 0
+play_track_no:
         .byte 0
 if_begin_taken:
         .byte 0
