@@ -6424,8 +6424,29 @@ mousety:
         sta mou_y
         rts
 
+; built-in arrow, installed into the C65 sprite area so MOUSE ON
+; shows a pointer with no setup, like the ROM's default
+mouarrow:
+        .byte $80, $00, $00, $c0, $00, $00, $e0, $00, $00
+        .byte $f0, $00, $00, $f8, $00, $00, $fc, $00, $00
+        .byte $fe, $00, $00, $f8, $00, $00, $d8, $00, $00
+        .byte $8c, $00, $00, $0c, $00, $00, $06, $00, $00
+        .byte $06, $00, $00, $00, $00, $00, $00, $00, $00
+        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00
+        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00
+
 mouseon:
         jsr sndinit             ; shares the IRQ hook
+        ldy #62
+_mou_shape:
+        lda mouarrow,y
+        sta $0600,y             ; sprite slot 24
+        dey
+        bpl _mou_shape
+        ldx mou_spr
+        lda #24
+        sta $07f8,x             ; both candidate pointer homes
+        sta $0ff8,x
         ldx mou_spr
         lda sprbit,x
         ora $d015               ; the pointer sprite turns on
