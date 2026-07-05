@@ -85,6 +85,8 @@ TOK_INSTR               = $D4
 TOK_OPEN                = $9F
 TOK_CLOSE               = $A0
 TOK_INPUT_HASH          = $84
+TOK_TRAP                = $D7
+TOK_RESUME              = $D6
 TOK_SPC                 = $A6
 TOK_LEN                 = $C3
 TOK_STR_STR             = $C4
@@ -150,7 +152,7 @@ FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 DATA_MAX                = 128
-DATA_LINE_MAX           = LINE_MAX
+DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
@@ -214,6 +216,7 @@ main:
         sta backend_mode
         sta backend_error
         sta flt_lit_count
+        sta trap_used
         jsr reset_emit_counters
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
@@ -1029,6 +1032,7 @@ _compile_program_next:
         jsr read_line_body
         jsr show_compile_line
         jsr emit_line_label
+        jsr emit_line_track
         jsr compile_line
         lda compile_error
         bne _compile_program_done
@@ -1122,6 +1126,11 @@ _scan_vars_not_decimal:
         beq _scan_vars_extended
         cmp #TOK_EXT_FE
         beq _scan_vars_extended
+        cmp #TOK_TRAP
+        bne _scan_vars_no_trap
+        ldx #1
+        stx trap_used
+_scan_vars_no_trap:
 
         sta token_value
         lda token_value
@@ -1822,6 +1831,10 @@ _compile_line_loop:
         beq _compile_close
         cmp #TOK_INPUT_HASH
         beq _compile_input_hash
+        cmp #TOK_TRAP
+        beq _compile_trap
+        cmp #TOK_RESUME
+        beq _compile_resume
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -1953,6 +1966,14 @@ _compile_close:
 
 _compile_input_hash:
         jsr compile_input_hash
+        jmp _compile_line_loop
+
+_compile_trap:
+        jsr compile_trap
+        jmp _compile_line_loop
+
+_compile_resume:
+        jsr compile_resume
         jmp _compile_line_loop
 
 _compile_if:
@@ -4259,9 +4280,35 @@ _factor_scalar_plain:
         clc
         rts
 _factor_scalar_var2:
+        lda var_name_1
+        cmp #$45                ; letter E
+        bne _factor_scalar_var3
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _factor_scalar_var3
+        lda var_name_2
+        cmp #$52                ; letter R -> ER
+        beq _factor_er
+        cmp #$4c                ; letter L -> EL
+        beq _factor_el
+_factor_scalar_var3:
         jsr resolve_var
         bcs _factor_fail
         jsr emit_load_var_typed
+        clc
+        rts
+
+_factor_er:
+        lda #<out_jsr_rder
+        ldy #>out_jsr_rder
+        jsr out_zstr
+        clc
+        rts
+
+_factor_el:
+        lda #<out_jsr_rdel
+        ldy #>out_jsr_rdel
+        jsr out_zstr
         clc
         rts
 
@@ -4872,6 +4919,101 @@ _print_finish:
 _print_done:
         rts
 
+; TI, ST, ER, EL read live machine state; carry clear when the parsed
+; plain variable is one of them (they must go through the factor
+; intercepts, not variable fast paths)
+is_special_numeric_var:
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _special_var_no
+        lda var_name_1
+        cmp #$54                ; T
+        bne _special_var_e_s
+        lda var_name_2
+        cmp #$49                ; TI
+        beq _special_var_yes
+        bra _special_var_no
+_special_var_e_s:
+        cmp #$53                ; S
+        bne _special_var_e
+        lda var_name_2
+        cmp #$54                ; ST
+        beq _special_var_yes
+        bra _special_var_no
+_special_var_e:
+        cmp #$45                ; E
+        bne _special_var_no
+        lda var_name_2
+        cmp #$52                ; ER
+        beq _special_var_yes
+        cmp #$4c                ; EL
+        beq _special_var_yes
+_special_var_no:
+        sec
+        rts
+_special_var_yes:
+        clc
+        rts
+
+; TRAP line arms the handler (address resolved at compile time);
+; bare TRAP disarms. RESUME line clears ER and jumps; bare RESUME and
+; RESUME NEXT would need per-statement addresses and stay unsupported.
+compile_trap:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcc _compile_trap_arm
+        lda #<out_jsr_trapoff
+        ldy #>out_jsr_trapoff
+        jsr out_zstr
+        rts
+
+_compile_trap_arm:
+        jsr line_parse_number
+        bcs compile_trap_bad
+        jsr line_number_exists
+        bcs compile_trap_bad
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_label_from_number
+        jsr out_cr
+        lda #<out_sta_traplo
+        ldy #>out_sta_traplo
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_label_from_number
+        jsr out_cr
+        lda #<out_sta_traphi
+        ldy #>out_sta_traphi
+        jsr out_zstr
+        rts
+
+compile_trap_bad:
+        lda #<msg_error_bad_trap
+        ldy #>msg_error_bad_trap
+        jsr fatal_statement_error
+        rts
+
+compile_resume:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compile_trap_bad
+        jsr line_parse_number
+        bcs compile_trap_bad
+        jsr line_number_exists
+        bcs compile_trap_bad
+        lda #<out_jsr_trapresume
+        ldy #>out_jsr_trapresume
+        jsr out_zstr
+        lda #<out_jmp_label
+        ldy #>out_jmp_label
+        jsr out_zstr
+        jsr out_label_from_number
+        jsr out_cr
+        rts
+
 compile_open:
         lda #<out_jsr_fiodefaults
         ldy #>out_jsr_fiodefaults
@@ -5392,6 +5534,8 @@ try_compile_print_numeric_var:
         jsr line_get
         jsr parse_variable_with_first_char
         bcs _try_print_num_var_restore_fail
+        jsr is_special_numeric_var
+        bcc _try_print_num_var_restore_fail
         lda var_type
         cmp #VAR_TYPE_STRING
         beq _try_print_num_var_restore_fail
@@ -7572,6 +7716,31 @@ _emit_line_label_bin:
         lda bin_pc+1
         sta line_addr_hi,x
         inc line_emit_idx
+        rts
+
+; keep curline current for EL when any TRAP exists in the program
+emit_line_track:
+        lda trap_used
+        bne +
+        rts
++       lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda line_no_lo
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_curline
+        ldy #>out_sta_curline
+        jsr out_zstr
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda line_no_hi
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_curline_1
+        ldy #>out_sta_curline_1
+        jsr out_zstr
         rts
 
 out_label_from_number:
@@ -10177,6 +10346,9 @@ msg_open_out_fail:
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
         .byte 13, 0
+msg_error_bad_trap:
+        .text "bad trap/resume"
+        .byte 13, 0
 msg_error_bad_open:
         .text "bad open/close"
         .byte 13, 0
@@ -10541,6 +10713,30 @@ out_jsr_fcmpgtb:
         .byte 13, 0
 out_jsr_fcmpgeb:
         .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_sta_traplo:
+        .text "        sta traplo"
+        .byte 13, 0
+out_sta_traphi:
+        .text "        sta traphi"
+        .byte 13, 0
+out_sta_curline:
+        .text "        sta curline"
+        .byte 13, 0
+out_sta_curline_1:
+        .text "        sta curline+1"
+        .byte 13, 0
+out_jsr_trapoff:
+        .text "        jsr trapoff"
+        .byte 13, 0
+out_jsr_trapresume:
+        .text "        jsr trapresume"
+        .byte 13, 0
+out_jsr_rder:
+        .text "        jsr rder"
+        .byte 13, 0
+out_jsr_rdel:
+        .text "        jsr rdel"
         .byte 13, 0
 out_jsr_fiodefaults:
         .text "        jsr fiodefaults"
@@ -11432,6 +11628,8 @@ begin_sp:
         .byte 0
 io_from_file:
         .byte 0
+trap_used:
+        .byte 0
 if_begin_taken:
         .byte 0
 if_block_open:
@@ -11608,7 +11806,7 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
-LBL_IF_IDS      = 512
+LBL_IF_IDS      = 384
 LBL_ON_IDS      = 128
 LBL_ARRAY_IDS   = 256
 LBL_FORDO_MAX   = 64

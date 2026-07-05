@@ -12,13 +12,14 @@
 ; ways, qint truncation of 3/2, floor of -3/2 (exponent decrement halves a
 ; float exactly), and a pack/unpack round trip through bank 1.
 
-        * = $4000
+        * = $4800
 
         .word start
         .word $2100             ; varheapend: tiny heap, nothing uses it
         .word dataend           ; datastart (empty)
         .word dataend
         .word strroots
+        .word strroots          ; fltlits: the zero record terminates it too
 
 start:
 ; 2 + 3 = 5
@@ -318,24 +319,6 @@ start:
         lda #$0d
         jsr printch
 
-; 1 / 0 -> DIVISION BY ZERO message, result 0
-        lda #1
-        sta exprlo
-        lda #0
-        sta exprhi
-        jsr float16
-        jsr fmovaf
-        lda #0
-        sta exprlo
-        sta exprhi
-        jsr float16
-        jsr fdiv
-        jsr qint
-        jsr printuint
-
-        lda #$0d
-        jsr printch
-
 ; printflt of an integer-valued float: 42 -> " 42 "
         lda #42
         sta exprlo
@@ -451,6 +434,22 @@ start:
         jsr printflt
 
         lda #$0d
+        jsr printch
+
+; last: 1 / 0 raises DIVISION BY ZERO, which now halts the program
+; (untrapped runtime errors behave like interpreted BASIC)
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fmovaf
+        lda #0
+        sta exprlo
+        sta exprhi
+        jsr float16
+        jsr fdiv
+        lda #$46                ; would print "F" if execution continued
         jsr printch
         jmp rtexit
 

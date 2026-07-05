@@ -577,32 +577,8 @@ _fround_clear:
         rts
 
 fltoverflow:
-        lda #$4f                ; "OVERFLOW"
-        jsr printch
-        lda #$56
-        jsr printch
-        lda #$45
-        jsr printch
-        lda #$52
-        jsr printch
-        lda #$46
-        jsr printch
-        lda #$4c
-        jsr printch
-        lda #$4f
-        jsr printch
-        lda #$57
-        jsr printch
-        lda #$0d
-        jsr printch
-        lda #0
-        sta facexp
-        sta facm0
-        sta facm1
-        sta facm2
-        sta facm3
-        sta facext
-        rts
+        lda #15
+        jmp rterror
 
 ; FAC = ARG - FAC
 fsub:
@@ -788,8 +764,8 @@ _fmul_overflow:
 fdiv:
         lda facexp
         bne +
-        jsr fdivzero_msg
-        jmp fzero
+        lda #20
+        jmp rterror
 +       lda argexp
         bne +
         jmp fzero               ; 0 / x = 0
@@ -1087,17 +1063,6 @@ fzero:
         sta facext
         rts
 
-fdivzero_msg:
-        ldx #0
--       lda _fdivzero_text,x
-        beq +
-        jsr printch
-        inx
-        bra -
-+       lda #$0d
-        jmp printch
-_fdivzero_text:
-        .byte $44,$49,$56,$49,$53,$49,$4f,$4e,$20,$42,$59,$20,$5a,$45,$52,$4f,$00
 
 ; compare FAC with ARG: A = 0 equal, 1 FAC > ARG, $ff FAC < ARG
 fcmp:
@@ -1642,6 +1607,106 @@ fio_rom_off:
         and #%11000111
         sta $d030
         pla
+        rts
+
+;=======================================================================================
+; Runtime error dispatch: A = CBM error code. With a TRAP armed, the stack
+; unwinds to the program mark and control transfers to the handler line
+; (the trap disarms; the handler re-arms with TRAP if desired). Untrapped
+; errors print their message and halt like interpreted BASIC.
+;=======================================================================================
+
+rterror:
+        sta rt_er
+        lda curline             ; latch the erroring line for EL
+        sta rt_el
+        lda curline+1
+        sta rt_el+1
+        lda traplo
+        ora traphi
+        beq _rterror_halt
+        lda traplo
+        sta rtjmp
+        lda traphi
+        sta rtjmp+1
+        lda #0                  ; disarm while the handler runs
+        sta traplo
+        sta traphi
+        ldx rtspsave
+        txs
+        jmp (rtjmp)
+
+_rterror_halt:
+        ldx #0
+_rterror_scan:
+        lda rterrtab,x
+        beq _rterror_msgdone
+        cmp rt_er
+        beq _rterror_found
+        inx
+        inx
+        inx
+        bra _rterror_scan
+_rterror_found:
+        lda rterrtab+1,x
+        sta rtptr
+        lda rterrtab+2,x
+        sta rtptr+1
+        jsr printstr
+        lda #$0d
+        jsr printch
+_rterror_msgdone:
+        jmp rtexit
+
+; code, message pointer pairs (0 ends)
+rterrtab:
+        .byte 13
+        .word odm
+        .byte 15
+        .word ovm
+        .byte 16
+        .word osm
+        .byte 18
+        .word abm
+        .byte 20
+        .word dzm
+        .byte 22
+        .word tmm
+        .byte 0
+
+ovm:
+        .byte $4f,$56,$45,$52,$46,$4c,$4f,$57,$00
+osm:
+        .byte $4f,$55,$54,$20,$4f,$46,$20,$53,$54,$52,$49,$4e,$47,$00
+abm:
+        .byte $41,$52,$52,$41,$59,$20,$42,$4f,$55,$4e,$44,$53,$00
+dzm:
+        .byte $44,$49,$56,$49,$53,$49,$4f,$4e,$20,$42,$59,$20,$5a,$45,$52,$4f,$00
+
+trapoff:
+        lda #0
+        sta traplo
+        sta traphi
+        rts
+
+trapresume:
+        lda #0
+        sta rt_er
+        rts
+
+; ER and EL
+rder:
+        lda rt_er
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+rdel:
+        lda rt_el
+        sta exprlo
+        lda rt_el+1
+        sta exprhi
         rts
 
 fiodefaults:
@@ -3107,24 +3172,12 @@ dadv:
         rts
 
 ood:
-        lda #<odm
-        sta rtptr
-        lda #>odm
-        sta rtptr+1
-        jsr printstr
-        lda #$0d
-        jsr printch
-        rts
+        lda #13
+        jmp rterror
 
 tm:
-        lda #<tmm
-        sta rtptr
-        lda #>tmm
-        sta rtptr+1
-        jsr printstr
-        lda #$0d
-        jsr printch
-        rts
+        lda #22
+        jmp rterror
 
 odm:
         .byte $4f,$55,$54,$20,$4f,$46,$20,$44,$41,$54,$41,$00
@@ -3136,33 +3189,8 @@ tmm:
 ;=======================================================================================
 
 arraybounds:
-        lda #$41
-        jsr printch
-        lda #$52
-        jsr printch
-        lda #$52
-        jsr printch
-        lda #$41
-        jsr printch
-        lda #$59
-        jsr printch
-        lda #$20
-        jsr printch
-        lda #$42
-        jsr printch
-        lda #$4f
-        jsr printch
-        lda #$55
-        jsr printch
-        lda #$4e
-        jsr printch
-        lda #$44
-        jsr printch
-        lda #$53
-        jsr printch
-        lda #$0d
-        jsr printch
-        rts
+        lda #18
+        jmp rterror
 
 ;=======================================================================================
 ; GET runtime
@@ -4102,39 +4130,8 @@ setstrptrbank:
         rts
 
 outofstring:
-        lda #0
-        sta exprlo
-        sta exprhi
-        lda #$4f
-        jsr printch
-        lda #$55
-        jsr printch
-        lda #$54
-        jsr printch
-        lda #$20
-        jsr printch
-        lda #$4f
-        jsr printch
-        lda #$46
-        jsr printch
-        lda #$20
-        jsr printch
-        lda #$53
-        jsr printch
-        lda #$54
-        jsr printch
-        lda #$52
-        jsr printch
-        lda #$49
-        jsr printch
-        lda #$4e
-        jsr printch
-        lda #$47
-        jsr printch
-        lda #$0d
-        jsr printch
-        sec
-        rts
+        lda #16
+        jmp rterror
 
 ;=======================================================================================
 ; String garbage collector
@@ -4367,6 +4364,12 @@ fio_sa:       .byte 0
 fio_name_lo:  .byte 0
 fio_name_hi:  .byte 0
 fio_out:      .byte 0
+traplo:       .byte 0
+traphi:       .byte 0
+rt_er:        .byte 0
+rt_el:        .byte 0,0
+curline:      .byte 0,0
+rtjmp:        .byte 0,0
 
 ; integer runtime storage
 exprlo:       .byte 0
