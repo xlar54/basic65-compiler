@@ -10409,7 +10409,7 @@ msg_opening_out:
         .text "opening out.asm"
         .byte 13, 0
 msg_open_in_fail:
-        .text "basic65c: cannot load source.prg"
+        .text "basic65c: cannot load source file"
         .byte 13, 0
 msg_open_out_fail:
         .text "basic65c: cannot open out.asm"
