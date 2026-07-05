@@ -194,17 +194,9 @@ main:
         sta string_count
         sta string_pool_next_lo
         sta string_pool_next_hi
-        sta if_label_next_lo
-        sta if_label_next_hi
-        sta array_label_next_lo
-        sta array_label_next_hi
-        sta on_label_next_lo
-        sta on_label_next_hi
-        sta for_label_next
-        sta do_label_next
-        sta for_sp
-        sta do_sp
-        sta if_sp
+        sta backend_mode
+        sta backend_error
+        jsr reset_emit_counters
         lda #<VAR_HEAP_START
         sta var_heap_next_lo
         lda #>VAR_HEAP_START
@@ -237,6 +229,10 @@ main:
         jsr validate_branch_targets
         lda compile_error
         bne _main_compile_failed
+        jsr run_size_pass
+        lda compile_error
+        bne _main_compile_failed
+        jsr report_size_pass
 
         lda #<msg_opening_out
         ldy #>msg_opening_out
@@ -301,7 +297,10 @@ _main_output_failed:
         rts
 
 show_compile_line:
-        jsr KERNAL_CLRCHN
+        ldx backend_mode
+        beq +
+        rts
++       jsr KERNAL_CLRCHN
         lda line_no_lo
         sta screen_num_lo
         lda line_no_hi
@@ -316,12 +315,75 @@ show_compile_line:
         rts
 
 show_compile_start:
-        jsr KERNAL_CLRCHN
+        ldx backend_mode
+        beq +
+        rts
++       jsr KERNAL_CLRCHN
         lda #<msg_compiling_start
         ldy #>msg_compiling_start
         jsr screen_zstr
         ldx #LFN_OUT
         jsr KERNAL_CHKOUT
+        rts
+
+; per-emission-pass label allocation state; the size pass and the text pass
+; must allocate identical label ids, so both start from a clean slate
+reset_emit_counters:
+        lda #0
+        sta if_label_next_lo
+        sta if_label_next_hi
+        sta array_label_next_lo
+        sta array_label_next_hi
+        sta on_label_next_lo
+        sta on_label_next_hi
+        sta for_label_next
+        sta do_label_next
+        sta for_sp
+        sta do_sp
+        sta if_sp
+        sta line_emit_idx
+        sta pending_kind
+        rts
+
+; walk pass 2 in size mode: no output, but every template record and patch
+; slot advances bin_pc, line addresses are recorded, and the tail table
+; addresses are captured for the future emit pass
+run_size_pass:
+        lda #BK_SIZE
+        sta backend_mode
+        jsr reset_emit_counters
+        lda #<$4000
+        sta bin_pc
+        lda #>$4000
+        sta bin_pc+1
+        jsr emit_generated_header
+        jsr init_source_reader
+        jsr compile_program
+        lda compile_error
+        bne _run_size_pass_done
+        jsr emit_generated_tail
+_run_size_pass_done:
+        lda #BK_TEXT
+        sta backend_mode
+        jsr reset_emit_counters
+        rts
+
+report_size_pass:
+        lda backend_error
+        beq +
+        lda #<msg_backend_error
+        ldy #>msg_backend_error
+        jsr screen_zstr
+        rts
++       lda #<msg_bin_size
+        ldy #>msg_bin_size
+        jsr screen_zstr
+        lda bin_pc+1
+        jsr out_hex_byte
+        lda bin_pc
+        jsr out_hex_byte
+        lda #13
+        jsr KERNAL_CHROUT
         rts
 
 fatal_error_zstr:
@@ -693,7 +755,10 @@ read_prg_header:
         rts
 
 emit_prg_header_comment:
-        lda #<out_comment_load_addr
+        ldx backend_mode
+        beq +
+        rts
++       lda #<out_comment_load_addr
         ldy #>out_comment_load_addr
         jsr out_zstr
         lda prg_load_hi
@@ -5524,10 +5589,18 @@ _pop_if_fail:
         rts
 
 emit_generated_header:
+        ldx backend_mode
+        bne _emit_generated_header_bin
         lda #<out_header
         ldy #>out_header
         jsr out_zstr
         rts
+
+_emit_generated_header_bin:
+        ; program header at progbase: start, varheapend, datastart, dataend,
+        ; strroots vectors (5 words); start label sits right after them
+        lda #10
+        jmp bin_add_pc
 
 emit_generated_tail:
         lda #<out_tail
@@ -5544,7 +5617,10 @@ emit_generated_tail:
         rts
 
 emit_varheapend:
-        lda #<out_varheapend_def
+        ldx backend_mode
+        beq +
+        rts                     ; binary: value goes into the header vector
++       lda #<out_varheapend_def
         ldy #>out_varheapend_def
         jsr out_zstr
         lda var_heap_next_hi
@@ -5586,7 +5662,13 @@ _emit_for_storage_done:
         rts
 
 emit_data_table:
-        lda #<out_data_table_start
+        ldx backend_mode
+        beq +
+        lda bin_pc
+        sta datastart_addr
+        lda bin_pc+1
+        sta datastart_addr+1
++       lda #<out_data_table_start
         ldy #>out_data_table_start
         jsr out_zstr
         lda #0
@@ -5638,13 +5720,25 @@ _emit_data_string_record:
         bra _emit_data_table_loop
 
 _emit_data_table_done:
-        lda #<out_data_table_end
+        ldx backend_mode
+        beq +
+        lda bin_pc
+        sta dataend_addr
+        lda bin_pc+1
+        sta dataend_addr+1
++       lda #<out_data_table_end
         ldy #>out_data_table_end
         jsr out_zstr
         rts
 
 emit_string_roots:
-        lda #<out_strroots_start
+        ldx backend_mode
+        beq +
+        lda bin_pc
+        sta strroots_addr
+        lda bin_pc+1
+        sta strroots_addr+1
++       lda #<out_strroots_start
         ldy #>out_strroots_start
         jsr out_zstr
         lda #0
@@ -5832,6 +5926,8 @@ _emit_data_label_done:
         rts
 
 emit_line_label:
+        ldx backend_mode
+        bne _emit_line_label_bin
         lda #'l'
         jsr KERNAL_CHROUT
         lda line_no_hi
@@ -5843,31 +5939,40 @@ emit_line_label:
         jsr out_cr
         rts
 
+_emit_line_label_bin:
+        ldx line_emit_idx
+        lda bin_pc
+        sta line_addr_lo,x
+        lda bin_pc+1
+        sta line_addr_hi,x
+        inc line_emit_idx
+        rts
+
 out_label_from_number:
         lda #'l'
-        jsr KERNAL_CHROUT
+        jsr out_char
         jsr out_hex_word_number
         rts
 
 out_data_line_ref:
         lda #'d'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'a'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'t'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'a'
-        jsr KERNAL_CHROUT
+        jsr out_char
         jsr out_hex_word_number
         rts
 
 out_string_ref:
         lda #'s'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'t'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'r'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #0
         jsr out_hex_byte
         lda current_string_id
@@ -7547,7 +7652,7 @@ emit_if_tmp_label_def:
 
 emit_label_suffix:
         lda #':'
-        jsr KERNAL_CHROUT
+        jsr out_char
         jsr out_cr
         rts
 
@@ -7719,28 +7824,24 @@ out_current_do_id:
 
 out_plus_one_cr:
         lda #'+'
-        jsr KERNAL_CHROUT
+        jsr out_char
         lda #'1'
-        jsr KERNAL_CHROUT
+        jsr out_char
         jsr out_cr
         rts
 
-out_var_label:
-        lda #<out_var_prefix
-        ldy #>out_var_prefix
-        jsr out_zstr
-        lda var_name_1
-        jsr KERNAL_CHROUT
-        rts
-
 out_hex_word_number:
+        ldx backend_mode
+        bne +
         lda number_hi
         jsr out_hex_byte
         lda number_lo
         jsr out_hex_byte
-        rts
++       rts
 
 out_hex_byte:
+        ldx backend_mode
+        bne _out_hex_byte_done
         pha
         lsr
         lsr
@@ -7750,6 +7851,7 @@ out_hex_byte:
         pla
         and #$0f
         jsr out_hex_nibble
+_out_hex_byte_done:
         rts
 
 out_hex_nibble:
@@ -7765,6 +7867,8 @@ _out_hex_nibble_emit:
         rts
 
 out_comment_char:
+        ldx backend_mode
+        bne _comment_done
         cmp #13
         beq _comment_space
         cmp #'"'
@@ -7783,6 +7887,7 @@ _comment_hex:
         jsr out_hex_byte
         lda #'>'
         jsr KERNAL_CHROUT
+_comment_done:
         rts
 _comment_space:
         lda #' '
@@ -7790,13 +7895,26 @@ _comment_printable:
         jsr KERNAL_CHROUT
         rts
 
+; emit a single character of program text; silent outside text mode
+out_char:
+        ldx backend_mode
+        bne +
+        jsr KERNAL_CHROUT
++       rts
+
 out_cr:
-        lda #13
+        ldx backend_mode
+        beq +
+        jmp bin_finalize_pending
++       lda #13
         jsr KERNAL_CHROUT
         rts
 
 out_zstr:
-        sta str_ptr
+        ldx backend_mode
+        beq +
+        jmp bin_zstr
++       sta str_ptr
         sty str_ptr+1
         ldy #0
 _out_zstr_loop:
@@ -7809,6 +7927,112 @@ _out_zstr_loop:
         bra _out_zstr_loop
 _out_zstr_done:
         rts
+
+;=======================================================================================
+; Binary backend engine (size pass today; emit pass will extend it)
+;
+; Emission is a stream of template records plus operand/label fills. A record
+; with a patch kind arms pending_kind; the operand or label reference that
+; follows supplies the value (ignored while sizing), and out_cr finalizes the
+; patch bytes into bin_pc. See docs\native-backend.md and
+; src\gen\bin-templates.inc.
+;=======================================================================================
+
+BK_TEXT = 0
+BK_SIZE = 1
+
+bin_ptr = $FD
+
+; A/Y = text template pointer; look up the derived binary record
+bin_zstr:
+        sta bin_key_lo
+        sty bin_key_hi
+        lda #<bt_map
+        sta bin_ptr
+        lda #>bt_map
+        sta bin_ptr+1
+_bin_map_loop:
+        ldy #0
+        lda (bin_ptr),y
+        ldy #1
+        ora (bin_ptr),y
+        beq _bin_map_missing
+        lda (bin_ptr),y
+        cmp bin_key_hi
+        bne _bin_map_next
+        ldy #0
+        lda (bin_ptr),y
+        cmp bin_key_lo
+        beq _bin_map_found
+_bin_map_next:
+        clc
+        lda bin_ptr
+        adc #4
+        sta bin_ptr
+        bcc _bin_map_loop
+        inc bin_ptr+1
+        bra _bin_map_loop
+
+_bin_map_found:
+        ldy #2
+        lda (bin_ptr),y
+        tax
+        iny
+        lda (bin_ptr),y
+        sta bin_ptr+1
+        stx bin_ptr
+        ldy #0
+        lda (bin_ptr),y         ; record kind
+        cmp #6                  ; name fragment: no bytes, keep pending armed
+        beq _bin_zstr_done
+        cmp #0
+        beq _bin_zstr_code
+        pha                     ; patch record: close any armed patch first
+        jsr bin_finalize_pending
+        pla
+        sta pending_kind
+        tax
+        ldy #1
+        lda (bin_ptr),y         ; record length includes the patch slot
+        sec
+        sbc bin_patch_size-1,x
+        jmp bin_add_pc
+
+_bin_zstr_code:
+        ldy #1
+        lda (bin_ptr),y
+        jmp bin_add_pc
+
+_bin_zstr_done:
+        rts
+
+_bin_map_missing:
+        lda #1
+        sta backend_error
+        lda bin_key_lo
+        sta backend_error_ptr
+        lda bin_key_hi
+        sta backend_error_ptr+1
+        rts
+
+; patch slot sizes indexed by kind-1: byte, word, lo, hi, rel8
+bin_patch_size:
+        .byte 1, 2, 1, 1, 1
+
+bin_finalize_pending:
+        ldx pending_kind
+        beq +
+        lda #0
+        sta pending_kind
+        lda bin_patch_size-1,x
+        ; FALLTHROUGH
+bin_add_pc:
+        clc
+        adc bin_pc
+        sta bin_pc
+        bcc +
+        inc bin_pc+1
++       rts
 
 screen_zstr:
         sta str_ptr
@@ -7879,6 +8103,12 @@ msg_open_out_fail:
         .byte 13, 0
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
+        .byte 13, 0
+msg_bin_size:
+        .text "native size: ends $"
+        .byte 0
+msg_backend_error:
+        .text "basic65c: bin template map incomplete"
         .byte 13, 0
 msg_done:
         .text "basic65c: wrote out.asm"
@@ -8302,9 +8532,6 @@ out_lda_label:
         .byte 0
 out_sta_label:
         .text "        sta "
-        .byte 0
-out_var_prefix:
-        .text "var"
         .byte 0
 out_forend_prefix:
         .text "forend"
@@ -8871,6 +9098,32 @@ diag_msg_lo:
         .byte 0
 diag_msg_hi:
         .byte 0
+backend_mode:
+        .byte 0
+backend_error:
+        .byte 0
+backend_error_ptr:
+        .word 0
+pending_kind:
+        .byte 0
+bin_pc:
+        .word 0
+bin_key_lo:
+        .byte 0
+bin_key_hi:
+        .byte 0
+line_emit_idx:
+        .byte 0
+datastart_addr:
+        .word 0
+dataend_addr:
+        .word 0
+strroots_addr:
+        .word 0
+line_addr_lo:
+        .fill LINE_MAX, 0
+line_addr_hi:
+        .fill LINE_MAX, 0
 line_buf:
         .fill LINE_BUF_MAX, 0
 source_filename_len:
@@ -8977,5 +9230,11 @@ string_temp:
         .fill LINE_BUF_MAX + 1, 0
 string_pool:
         .fill STRING_POOL_MAX, 0
+
+;=======================================================================================
+; Derived binary template records (regenerated by tools\gen-bin-templates.py)
+;=======================================================================================
+
+        .include "gen/bin-templates.inc"
 
         .cerror * >= $a000, "resident compiler grew past $a000"
