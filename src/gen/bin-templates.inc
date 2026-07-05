@@ -496,6 +496,14 @@ bt_out_sta_label:
         .byte 2, 3
         .byte $8d, $00, $00
 
+bt_out_sta_lhshi:
+        .byte 0, 3
+        .byte $8d, $fc, $30
+
+bt_out_sta_lhslo:
+        .byte 0, 3
+        .byte $8d, $fb, $30
+
 bt_out_sta_rtptr:
         .byte 0, 2
         .byte $85, $fb
@@ -676,6 +684,8 @@ bt_map:
         .word out_sta_exprhi, bt_out_sta_exprhi
         .word out_sta_exprlo, bt_out_sta_exprlo
         .word out_sta_label, bt_out_sta_label
+        .word out_sta_lhshi, bt_out_sta_lhshi
+        .word out_sta_lhslo, bt_out_sta_lhslo
         .word out_sta_rtptr, bt_out_sta_rtptr
         .word out_sta_rtptr_1, bt_out_sta_rtptr_1
         .word out_sta_strarg1hi, bt_out_sta_strarg1hi

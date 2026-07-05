@@ -359,6 +359,7 @@ reset_emit_counters:
         sta if_sp
         sta line_emit_idx
         sta pending_kind
+        sta const_state
         rts
 
 ; walk pass 2 in size mode: no output, but every template record and patch
@@ -3339,7 +3340,28 @@ simple_strref_tail_fail:
         sec
         rts
 
+; public entry: constants surviving to this boundary are emitted here, so
+; every consumer still finds the value in exprlo/exprhi
 compile_expression:
+        jsr compile_expression_inner
+        bcs +
+        jsr materialize_const
+        clc
++       rts
+
+materialize_const:
+        lda const_state
+        beq +
+        lda #0
+        sta const_state
+        lda const_lo
+        sta number_lo
+        lda const_hi
+        sta number_hi
+        jmp emit_load_number
++       rts
+
+compile_expression_inner:
         jsr compile_term
         bcc _expr_loop
         rts
@@ -3359,12 +3381,15 @@ _expr_done:
 
 _expr_add:
         jsr line_get
+        lda const_state
+        bne _expr_add_constlhs
         ldx #1
         jsr probe_simple_rhs
         bcs _expr_add_general
         jsr emit_move_expr_to_lhs
         jsr compile_term
         bcs _expr_fail
+        jsr materialize_const
         jsr emit_add_lhs_expr
         bra _expr_loop
 
@@ -3372,18 +3397,43 @@ _expr_add_general:
         jsr emit_push_expr
         jsr compile_term
         bcs _expr_fail
+        jsr materialize_const
         jsr emit_pop_lhs
+        jsr emit_add_lhs_expr
+        bra _expr_loop
+
+_expr_add_constlhs:
+        jsr fold_save_lhs
+        jsr compile_term
+        bcs _expr_constlhs_fail
+        jsr fold_restore_lhs
+        lda const_state
+        beq _expr_add_mixed
+        clc                     ; fold: left + right with 16-bit wrap
+        lda fold_lhs_lo
+        adc const_lo
+        sta const_lo
+        lda fold_lhs_hi
+        adc const_hi
+        sta const_hi
+        bra _expr_loop
+
+_expr_add_mixed:
+        jsr emit_load_lhs_const
         jsr emit_add_lhs_expr
         bra _expr_loop
 
 _expr_sub:
         jsr line_get
+        lda const_state
+        bne _expr_sub_constlhs
         ldx #1
         jsr probe_simple_rhs
         bcs _expr_sub_general
         jsr emit_move_expr_to_lhs
         jsr compile_term
         bcs _expr_fail
+        jsr materialize_const
         jsr emit_sub_lhs_expr
         bra _expr_loop
 
@@ -3391,12 +3441,71 @@ _expr_sub_general:
         jsr emit_push_expr
         jsr compile_term
         bcs _expr_fail
+        jsr materialize_const
         jsr emit_pop_lhs
         jsr emit_sub_lhs_expr
         bra _expr_loop
 
+_expr_sub_constlhs:
+        jsr fold_save_lhs
+        jsr compile_term
+        bcs _expr_constlhs_fail
+        jsr fold_restore_lhs
+        lda const_state
+        beq _expr_sub_mixed
+        sec                     ; fold: left - right with 16-bit wrap
+        lda fold_lhs_lo
+        sbc const_lo
+        sta const_lo
+        lda fold_lhs_hi
+        sbc const_hi
+        sta const_hi
+        bra _expr_loop
+
+_expr_sub_mixed:
+        jsr emit_load_lhs_const
+        jsr emit_sub_lhs_expr
+        bra _expr_loop
+
+_expr_constlhs_fail:
+        pla                     ; discard the saved left constant
+        pla
 _expr_fail:
         sec
+        rts
+
+; stash the constant left operand on the CPU stack around the right-hand
+; compile (expressions nest, so plain variables would be clobbered)
+fold_save_lhs:
+        pla                     ; return address
+        sta fold_ret_lo
+        pla
+        sta fold_ret_hi
+        lda const_lo
+        pha
+        lda const_hi
+        pha
+        lda #0
+        sta const_state
+        lda fold_ret_hi
+        pha
+        lda fold_ret_lo
+        pha
+        rts
+
+fold_restore_lhs:
+        pla
+        sta fold_ret_lo
+        pla
+        sta fold_ret_hi
+        pla
+        sta fold_lhs_hi
+        pla
+        sta fold_lhs_lo
+        lda fold_ret_hi
+        pha
+        lda fold_ret_lo
+        pha
         rts
 
 compile_term:
@@ -3419,12 +3528,15 @@ _term_done:
 
 _term_mul:
         jsr line_get
+        lda const_state
+        bne _term_mul_constlhs
         ldx #0
         jsr probe_simple_rhs
         bcs _term_mul_general
         jsr emit_move_expr_to_lhs
         jsr compile_factor
         bcs _term_fail
+        jsr materialize_const
         jsr emit_mul_lhs_expr
         bra _term_loop
 
@@ -3432,18 +3544,37 @@ _term_mul_general:
         jsr emit_push_expr
         jsr compile_factor
         bcs _term_fail
+        jsr materialize_const
         jsr emit_pop_lhs
+        jsr emit_mul_lhs_expr
+        bra _term_loop
+
+_term_mul_constlhs:
+        jsr fold_save_lhs
+        jsr compile_factor
+        bcs _term_constlhs_fail
+        jsr fold_restore_lhs
+        lda const_state
+        beq _term_mul_mixed
+        jsr fold_mul16          ; const = fold_lhs * const (low 16, like mul16)
+        bra _term_loop
+
+_term_mul_mixed:
+        jsr emit_load_lhs_const
         jsr emit_mul_lhs_expr
         bra _term_loop
 
 _term_div:
         jsr line_get
+        lda const_state
+        bne _term_div_constlhs
         ldx #0
         jsr probe_simple_rhs
         bcs _term_div_general
         jsr emit_move_expr_to_lhs
         jsr compile_factor
         bcs _term_fail
+        jsr materialize_const
         jsr emit_div_lhs_expr
         bra _term_loop
 
@@ -3451,15 +3582,135 @@ _term_div_general:
         jsr emit_push_expr
         jsr compile_factor
         bcs _term_fail
+        jsr materialize_const
         jsr emit_pop_lhs
         jsr emit_div_lhs_expr
         bra _term_loop
 
+_term_div_constlhs:
+        jsr fold_save_lhs
+        jsr compile_factor
+        bcs _term_constlhs_fail
+        jsr fold_restore_lhs
+        lda const_state
+        beq _term_div_mixed
+        jsr fold_udiv16         ; const = fold_lhs / const (unsigned, /0 = 0)
+        bra _term_loop
+
+_term_div_mixed:
+        jsr emit_load_lhs_const
+        jsr emit_div_lhs_expr
+        bra _term_loop
+
+_term_constlhs_fail:
+        pla                     ; discard the saved left constant
+        pla
 _term_fail:
         sec
         rts
 
+; compile-time replicas of the runtime's mul16/div16 so folded results are
+; bit-exact with emitted code: low 16 bits of the product, and unsigned
+; restoring division where divide-by-zero yields 0
+
+fold_mul16:
+        lda #0
+        sta fold_res_lo
+        sta fold_res_hi
+        ldx #16
+_fold_mul_loop:
+        lda const_lo
+        and #1
+        beq _fold_mul_skip
+        clc
+        lda fold_res_lo
+        adc fold_lhs_lo
+        sta fold_res_lo
+        lda fold_res_hi
+        adc fold_lhs_hi
+        sta fold_res_hi
+_fold_mul_skip:
+        asl fold_lhs_lo
+        rol fold_lhs_hi
+        lsr const_hi
+        ror const_lo
+        dex
+        bne _fold_mul_loop
+        lda fold_res_lo
+        sta const_lo
+        lda fold_res_hi
+        sta const_hi
+        rts
+
+fold_udiv16:
+        lda #0
+        sta fold_res_lo         ; quotient
+        sta fold_res_hi
+        lda const_lo
+        ora const_hi
+        beq _fold_div_zero
+        lda #0
+        sta fold_rem_lo
+        sta fold_rem_hi
+        ldx #16
+_fold_div_loop:
+        asl fold_lhs_lo
+        rol fold_lhs_hi
+        rol fold_rem_lo
+        rol fold_rem_hi
+        asl fold_res_lo
+        rol fold_res_hi
+        lda fold_rem_hi
+        cmp const_hi
+        bcc _fold_div_next
+        bne _fold_div_sub
+        lda fold_rem_lo
+        cmp const_lo
+        bcc _fold_div_next
+_fold_div_sub:
+        sec
+        lda fold_rem_lo
+        sbc const_lo
+        sta fold_rem_lo
+        lda fold_rem_hi
+        sbc const_hi
+        sta fold_rem_hi
+        inc fold_res_lo
+_fold_div_next:
+        dex
+        bne _fold_div_loop
+_fold_div_zero:
+        lda fold_res_lo
+        sta const_lo
+        lda fold_res_hi
+        sta const_hi
+        rts
+
+; load the folded left operand straight into lhslo/lhshi (no stack traffic)
+emit_load_lhs_const:
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda fold_lhs_lo
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_lhslo
+        ldy #>out_sta_lhslo
+        jsr out_zstr
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        lda fold_lhs_hi
+        jsr out_hex_byte
+        jsr out_cr
+        lda #<out_sta_lhshi
+        ldy #>out_sta_lhshi
+        jsr out_zstr
+        rts
+
 compile_factor:
+        lda #0
+        sta const_state         ; every factor kind except literals emits
         jsr line_skip_spaces
         jsr line_at_end
         bcs _factor_fail
@@ -3501,7 +3752,12 @@ _factor_fail:
 _factor_number:
         jsr line_parse_number
         bcs _factor_fail
-        jsr emit_load_number
+        lda number_lo
+        sta const_lo
+        lda number_hi
+        sta const_hi
+        lda #1
+        sta const_state
         clc
         rts
 
@@ -3548,7 +3804,7 @@ _factor_array_variable:
 
 _factor_paren:
         jsr line_get
-        jsr compile_expression
+        jsr compile_expression_inner   ; keep constants foldable across parens
         bcs _factor_fail
         jsr line_skip_spaces
         jsr line_at_end
@@ -3563,6 +3819,18 @@ _factor_unary_minus:
         jsr line_get
         jsr compile_factor
         bcs _factor_fail
+        lda const_state
+        beq _factor_minus_emit
+        sec                            ; fold: 0 - value, same wrap as runtime
+        lda #0
+        sbc const_lo
+        sta const_lo
+        lda #0
+        sbc const_hi
+        sta const_hi
+        clc
+        rts
+_factor_minus_emit:
         jsr emit_neg_expr
         clc
         rts
@@ -3571,6 +3839,22 @@ _factor_unary_not:
         jsr line_get
         jsr compile_factor
         bcs _factor_fail
+        lda const_state
+        beq _factor_not_emit
+        lda const_lo                   ; fold: 1 if zero, 0 if nonzero
+        ora const_hi
+        beq _factor_not_one
+        lda #0
+        bra _factor_not_store
+_factor_not_one:
+        lda #1
+_factor_not_store:
+        sta const_lo
+        lda #0
+        sta const_hi
+        clc
+        rts
+_factor_not_emit:
         jsr emit_not_expr
         clc
         rts
@@ -9339,6 +9623,12 @@ out_move_expr_to_lhs:
         .byte 13
         .text "        sta lhshi"
         .byte 13, 0
+out_sta_lhslo:
+        .text "        sta lhslo"
+        .byte 13, 0
+out_sta_lhshi:
+        .text "        sta lhshi"
+        .byte 13, 0
 out_add_lhs_expr:
         .text "        clc"
         .byte 13
@@ -9860,6 +10150,28 @@ rt_chunk_len:
 probe_mode:
         .byte 0
 probe_saved_idx:
+        .byte 0
+const_state:
+        .byte 0
+const_lo:
+        .byte 0
+const_hi:
+        .byte 0
+fold_lhs_lo:
+        .byte 0
+fold_lhs_hi:
+        .byte 0
+fold_res_lo:
+        .byte 0
+fold_res_hi:
+        .byte 0
+fold_rem_lo:
+        .byte 0
+fold_rem_hi:
+        .byte 0
+fold_ret_lo:
+        .byte 0
+fold_ret_hi:
         .byte 0
 line_emit_idx:
         .byte 0
