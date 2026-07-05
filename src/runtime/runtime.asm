@@ -94,6 +94,19 @@ rtinit:
         jsr varinit
         jsr strinit
         jsr datainit
+        ; bank the C65 BASIC and editor ROMs out of $8000-$cfff so large
+        ; programs can execute there; the KERNAL stays mapped at $e000 for
+        ; CHROUT and friends, and the ROM bits are restored before returning
+        ; to the BASIC SYS caller
+        lda $d030
+        sta rtd030save
+        and #%11000111
+        sta $d030
+        jsr rtcallprog
+        lda rtd030save
+        sta $d030
+        rts
+rtcallprog:
         jmp (progbase)
 
 ;=======================================================================================
@@ -2222,6 +2235,7 @@ rtvheapend:   .byte 0,0
 rtdatastart:  .byte 0,0
 rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
+rtd030save:   .byte 0
 
 ; integer runtime storage
 exprlo:       .byte 0

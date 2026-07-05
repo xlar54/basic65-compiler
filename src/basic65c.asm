@@ -5538,6 +5538,9 @@ emit_generated_tail:
         jsr emit_data_table
         jsr emit_string_roots
         jsr emit_for_storage
+        lda #<out_size_guard
+        ldy #>out_size_guard
+        jsr out_zstr
         rts
 
 emit_varheapend:
@@ -8000,6 +8003,11 @@ out_tail:
 
 out_varheapend_def:
         .text "varheapend = $"
+        .byte 0
+
+out_size_guard:
+        .text "        .cerror * > $d000, ""program too large: runs into i/o space"""
+        .byte 13
         .byte 0
 
 out_data_table_start:
