@@ -4374,7 +4374,9 @@ _factor_array_float:
 
 _factor_paren:
         jsr line_get
-        jsr compile_expression_inner   ; keep constants foldable across parens
+        jsr compile_condition_expression ; full value grammar inside parens,
+                                         ; so (X AND 2)=2 and (A=B)+1 work;
+                                         ; plain arith still folds constants
         bcs _factor_fail
         jsr line_skip_spaces
         jsr line_at_end
