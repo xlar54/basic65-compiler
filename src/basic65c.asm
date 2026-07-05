@@ -5627,6 +5627,7 @@ _compile_play_loop:
         lda #<out_jsr_playtrk
         ldy #>out_jsr_playtrk
         jsr out_zstr
+        jsr emit_string_temp_release
         jsr parse_opt_comma
         bcs _compile_play_done
         inc play_track_no
@@ -5734,6 +5735,8 @@ compile_cmd2:
         lda #<out_jsr_cmdstashout
         ldy #>out_jsr_cmdstashout
         jsr out_zstr
+        jsr emit_string_temp_release
+        jsr emit_string_temp_release
         bra compile_cmd_go
 compilecmd2bad:
         pla
@@ -5753,6 +5756,7 @@ compile_cmdname:
         lda #<out_jsr_cmdstr
         ldy #>out_jsr_cmdstr
         jsr out_zstr
+        jsr emit_string_temp_release
         bra compile_cmd_go
 
 ; prefix only (COLLECT, DCLEAR)
@@ -5838,6 +5842,7 @@ compile_dopen_head:
         lda #<out_jsr_cmdstr
         ldy #>out_jsr_cmdstr
         jsr out_zstr
+        jsr emit_string_temp_release
         clc
         rts
 _cdh_bad:
@@ -5920,6 +5925,7 @@ compile_bname:
         lda #<out_jsr_cmdstr
         ldy #>out_jsr_cmdstr
         jsr out_zstr
+        jsr emit_string_temp_release
         clc
         rts
 _cbn_bad:
