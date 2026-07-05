@@ -47,6 +47,7 @@ kernalchrin  = $ffcf
 kernalscreen = $ffed
 kernalplot   = $fff0
 kernalgetin  = $ffe4
+kernalrdtim  = $ffde
 
 varptr = $f7
 rtptr  = $fb
@@ -1820,6 +1821,284 @@ posf:
         sec
         jsr kernalplot
         sty exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; FAC = ARG ^ int(FAC): binary exponentiation with fmul; negative
+; exponents via a final reciprocal. 0^0 = 1 like the interpreter.
+fpowi:
+        jsr qint                ; exponent
+        lda exprhi
+        sta pow_neg
+        bpl +
+        sec                     ; |e|
+        lda #0
+        sbc exprlo
+        sta exprlo
+        lda #0
+        sbc exprhi
+        sta exprhi
++       lda exprlo
+        sta pow_e
+        lda exprhi
+        sta pow_e+1
+        jsr fmovfa              ; FAC = base
+        jsr fsavex              ; x-buffer = running square
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fsavey              ; y-buffer = result, starts at 1
+_fpow_loop:
+        lda pow_e
+        ora pow_e+1
+        beq _fpow_done
+        lda pow_e
+        and #1
+        beq _fpow_square
+        jsr floady_fac          ; result = result * square
+        jsr floadx_arg
+        jsr fmul
+        jsr fsavey
+_fpow_square:
+        lsr pow_e+1
+        ror pow_e
+        beq _fpow_check_done
+_fpow_squared:
+        jsr floadx_fac          ; square = square * square
+        jsr floadx_arg
+        jsr fmul
+        jsr fsavex
+        bra _fpow_loop
+_fpow_check_done:
+        lda pow_e+1
+        bne _fpow_squared
+        bra _fpow_loop
+_fpow_done:
+        jsr floady_fac
+        lda pow_neg
+        bpl +
+        jsr fmovaf              ; 1 / result
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fswapfa
+        jsr fdiv
++       rts
+
+floadx_fac:
+        lda sqrx
+        sta facexp
+        lda sqrx+1
+        sta facm0
+        lda sqrx+2
+        sta facm1
+        lda sqrx+3
+        sta facm2
+        lda sqrx+4
+        sta facm3
+        lda #0
+        sta facsgn
+        sta facext
+        rts
+
+; TI: the 24-bit jiffy clock as a float
+rdti:
+        jsr kernalrdtim         ; A = low, X = mid, Y = high
+        sta ti_lo
+        stx exprlo
+        sty exprhi
+        jsr float16             ; high 16 bits (always < $8000)
+        lda facexp
+        beq +
+        clc
+        adc #8                  ; * 256
+        sta facexp
++       jsr fmovaf
+        lda ti_lo
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jmp fadd
+
+; CLR: clear variables, string heap, DATA pointer; reconvert float
+; literals (their slots live in the variable heap)
+rtclr:
+        jsr varinit
+        jsr strinit
+        jsr datainit
+        jmp fltinit
+
+; HEX$(n): four uppercase hex digits as a fresh heap string
+hexstr:
+        lda exprlo              ; stralloc returns through exprlo/exprhi
+        sta hex_val
+        lda exprhi
+        sta hex_val+1
+        lda #4
+        sta strlen
+        jsr stralloc
+        bcs _hexstr_done
+        ldz #0
+        lda #4
+        sta [varptr],z
+        lda hex_val+1
+        lsr
+        lsr
+        lsr
+        lsr
+        ldz #1
+        jsr _hexstr_digit
+        lda hex_val+1
+        and #$0f
+        ldz #2
+        jsr _hexstr_digit
+        lda hex_val
+        lsr
+        lsr
+        lsr
+        lsr
+        ldz #3
+        jsr _hexstr_digit
+        lda hex_val
+        and #$0f
+        ldz #4
+        jsr _hexstr_digit
+        lda strdstlo
+        sta exprlo
+        lda strdsthi
+        sta exprhi
+_hexstr_done:
+        rts
+_hexstr_digit:
+        cmp #10
+        bcc +
+        clc
+        adc #$41 - 10 - '0'     ; A-F
++       clc
+        adc #'0'
+        sta [varptr],z
+        rts
+
+; DEC(h$): hex string to integer (stops at the first non-hex character)
+decstr:
+        lda exprlo
+        ora exprhi
+        beq _decstr_zero
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta strlen
+        lda #0
+        sta exprlo
+        sta exprhi
+        sta stridx
+_decstr_loop:
+        lda stridx
+        cmp strlen
+        bcs _decstr_done
+        inc stridx
+        ldz stridx
+        lda [varptr],z
+        cmp #'0'
+        bcc _decstr_done
+        cmp #'9' + 1
+        bcc _decstr_dig
+        cmp #$41                ; A-F
+        bcc _decstr_done
+        cmp #$47
+        bcs _decstr_done
+        sbc #6                  ; carry clear: A ($41) -> $3a
+_decstr_dig:
+        sec
+        sbc #'0'
+        asl exprlo              ; value = value*16 + digit
+        rol exprhi
+        asl exprlo
+        rol exprhi
+        asl exprlo
+        rol exprhi
+        asl exprlo
+        rol exprhi
+        ora exprlo
+        sta exprlo
+        bra _decstr_loop
+_decstr_done:
+        rts
+_decstr_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+
+; INSTR(hay$, needle$): 1-based position of needle in hay, 0 if absent;
+; hay ref in lhslo/lhshi, needle ref in exprlo/exprhi (both heap strings)
+instrf:
+        lda lhslo
+        sta strsrc1lo
+        lda lhshi
+        sta strsrc1hi
+        lda exprlo
+        sta strsrc2lo
+        lda exprhi
+        sta strsrc2hi
+        jsr strlen1load         ; hay length
+        jsr strlen2load         ; needle length
+        lda strlen2
+        beq _instr_zero         ; empty needle: 0 (interpreter gives 1)
+        lda #0
+        sta instr_pos
+_instr_outer:
+        ; positions run 0 .. len1 - len2
+        lda instr_pos
+        clc
+        adc strlen2
+        bcs _instr_zero
+        cmp strlen1
+        beq _instr_try
+        bcs _instr_zero
+_instr_try:
+        lda #0
+        sta stridx
+_instr_inner:
+        lda stridx
+        cmp strlen2
+        beq _instr_found
+        lda instr_pos
+        sec
+        adc stridx              ; +1 for the length byte (carry set)
+        taz
+        jsr setstrptrsrc1
+        lda [varptr],z
+        sta strcmpchar
+        lda stridx
+        clc
+        adc #1
+        taz
+        jsr setstrptrsrc2
+        lda [varptr],z
+        cmp strcmpchar
+        bne _instr_next
+        inc stridx
+        bra _instr_inner
+_instr_next:
+        inc instr_pos
+        bne _instr_outer
+_instr_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+_instr_found:
+        lda instr_pos
+        clc
+        adc #1                  ; 1-based
+        sta exprlo
         lda #0
         sta exprhi
         rts
@@ -3866,6 +4145,11 @@ rndseed:      .fill 4, 0
 sqrx:         .fill 5, 0
 sqry:         .fill 5, 0
 sqr_it:       .byte 0
+pow_e:        .byte 0,0
+pow_neg:      .byte 0
+ti_lo:        .byte 0
+instr_pos:    .byte 0
+hex_val:      .byte 0,0
 
 ; integer runtime storage
 exprlo:       .byte 0

@@ -77,6 +77,11 @@ TOK_SQR                 = $BA
 TOK_ASC                 = $C6
 TOK_POS                 = $B9
 TOK_TAB                 = $A3
+TOK_POW                 = $AE
+TOK_CLR                 = $9C
+TOK_HEX_STR             = $D2
+TOK_DEC                 = $D1
+TOK_INSTR               = $D4
 TOK_SPC                 = $A6
 TOK_LEN                 = $C3
 TOK_STR_STR             = $C4
@@ -1796,6 +1801,8 @@ _compile_line_loop:
         beq _compile_restore
         cmp #TOK_LET
         beq _compile_let
+        cmp #TOK_CLR
+        beq _compile_clr
         cmp #TOK_IF
         beq _compile_if
         cmp #TOK_ELSE
@@ -1912,6 +1919,12 @@ _compile_restore:
 _compile_let:
         jsr compile_let
         bra _compile_line_loop
+
+_compile_clr:
+        lda #<out_jsr_rtclr
+        ldy #>out_jsr_rtclr
+        jsr out_zstr
+        jmp _compile_line_loop
 
 _compile_if:
         jsr compile_if
@@ -2155,6 +2168,8 @@ compile_string_factor:
 _string_factor_var:
         cmp #TOK_STR_STR
         beq _string_factor_str
+        cmp #TOK_HEX_STR
+        beq _string_factor_hex
         cmp #TOK_LEFT_STR
         beq _string_factor_left
         cmp #TOK_RIGHT_STR
@@ -2216,6 +2231,19 @@ _string_factor_str:
         jsr compile_str_string_function
         rts
 
+_string_factor_hex:
+        jsr parse_open_paren
+        bcs _string_factor_fail
+        jsr compile_expression
+        bcs _string_factor_fail
+        jsr parse_close_paren
+        bcs _string_factor_fail
+        lda #<out_jsr_hexstr
+        ldy #>out_jsr_hexstr
+        jsr out_zstr
+        clc
+        rts
+
 _string_factor_left:
         jsr compile_left_string_function
         rts
@@ -2238,6 +2266,8 @@ string_expression_starts:
         cmp #'"'
         beq _string_expr_starts_yes
         cmp #TOK_STR_STR
+        beq _string_expr_starts_yes
+        cmp #TOK_HEX_STR
         beq _string_expr_starts_yes
         cmp #TOK_LEFT_STR
         beq _string_expr_starts_yes
@@ -3720,7 +3750,7 @@ emit_fdiv_op:
         jmp out_zstr
 
 compile_term:
-        jsr compile_factor
+        jsr compile_pfactor
         bcc _term_loop
         rts
 
@@ -3747,7 +3777,7 @@ _term_mul:
         jsr probe_simple_rhs
         bcs _term_mul_general
         jsr emit_move_expr_to_lhs
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_fail
         jsr materialize_const
         jsr emit_mul_lhs_expr
@@ -3755,7 +3785,7 @@ _term_mul:
 
 _term_mul_general:
         jsr emit_push_expr
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_fail
         jsr materialize_const
         lda expr_type
@@ -3784,7 +3814,7 @@ _term_mul_ff:
 
 _term_mul_constlhs:
         jsr fold_save_lhs
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_constlhs_fail
         jsr fold_restore_lhs
         lda expr_type
@@ -3813,7 +3843,7 @@ _term_div:
         lda expr_type
         bne _term_div_flhs
         jsr emit_push_expr
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_fail
         jsr materialize_const
         lda expr_type
@@ -3826,7 +3856,7 @@ _term_div_rhs_f:
 
 _term_div_flhs:
         jsr emit_fpush_expr
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_fail
         jsr materialize_const
         lda expr_type
@@ -3839,7 +3869,7 @@ _term_div_ff:
 
 _term_div_constlhs:
         jsr fold_save_lhs
-        jsr compile_factor
+        jsr compile_pfactor
         bcs _term_constlhs_fail
         jsr fold_restore_lhs
         jsr materialize_const   ; a constant right side must land in expr
@@ -3914,6 +3944,59 @@ emit_load_lhs_const:
         jsr out_zstr
         rts
 
+; exponentiation binds tighter than * and / and is left-associative;
+; both operands promote to float, the exponent is truncated by fpowi
+compile_pfactor:
+        jsr compile_factor
+        bcc _pfactor_loop
+        rts
+
+_pfactor_loop:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _pfactor_done
+        jsr line_peek
+        cmp #TOK_POW
+        beq _pfactor_pow
+_pfactor_done:
+        clc
+        rts
+
+_pfactor_pow:
+        jsr line_get
+        jsr materialize_const
+        lda expr_type
+        bne _pfactor_base_f
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_pfactor_base_f:
+        lda #<out_jsr_fpush
+        ldy #>out_jsr_fpush
+        jsr out_zstr
+        jsr compile_factor
+        bcs _pfactor_fail
+        jsr materialize_const
+        lda expr_type
+        bne _pfactor_exp_f
+        lda #<out_jsr_float16
+        ldy #>out_jsr_float16
+        jsr out_zstr
+_pfactor_exp_f:
+        lda #<out_jsr_fpoparg
+        ldy #>out_jsr_fpoparg
+        jsr out_zstr
+        lda #<out_jsr_fpowi
+        ldy #>out_jsr_fpowi
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        bra _pfactor_loop
+
+_pfactor_fail:
+        sec
+        rts
+
 compile_factor:
         lda #0
         sta const_state         ; every factor kind except literals emits
@@ -3958,6 +4041,10 @@ _factor_not_number:
         beq _factor_asc
         cmp #TOK_POS
         beq _factor_pos
+        cmp #TOK_DEC
+        beq _factor_dec
+        cmp #TOK_INSTR
+        beq _factor_instr
         cmp #TOK_EXT_CE
         beq _factor_ext_ce
         jsr is_var_start
@@ -4017,6 +4104,23 @@ _factor_variable:
         beq _factor_array_variable
 
 _factor_scalar_variable:
+        lda var_name_1
+        cmp #$54                ; letter T in tokenized source
+        bne _factor_scalar_plain
+        lda var_name_2
+        cmp #$49                ; letter I
+        bne _factor_scalar_plain
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _factor_scalar_plain
+        lda #<out_jsr_rdti      ; TI reads the jiffy clock
+        ldy #>out_jsr_rdti
+        jsr out_zstr
+        lda #1
+        sta expr_type
+        clc
+        rts
+_factor_scalar_plain:
         jsr resolve_var
         bcs _factor_fail
         jsr emit_load_var_typed
@@ -4301,6 +4405,48 @@ _factor_pos:
         lda #<out_jsr_posf
         ldy #>out_jsr_posf
         jsr out_zstr
+        clc
+        rts
+
+_factor_dec:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_dec_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_dec_fail
+        jsr parse_close_paren
+        bcs _factor_dec_fail
+        lda #<out_jsr_decstr
+        ldy #>out_jsr_decstr
+        jsr out_zstr
+        jsr emit_string_temp_release
+        clc
+        rts
+
+_factor_dec_fail:
+        sec
+        rts
+
+_factor_instr:
+        jsr line_get
+        jsr parse_open_paren
+        bcs _factor_dec_fail
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _factor_dec_fail
+        jsr emit_push_expr
+        jsr parse_comma
+        bcs _factor_dec_fail
+        jsr compile_string_expression
+        bcs _factor_dec_fail
+        jsr parse_close_paren
+        bcs _factor_dec_fail
+        jsr emit_pop_lhs
+        lda #<out_jsr_instrf
+        ldy #>out_jsr_instrf
+        jsr out_zstr
+        jsr emit_string_temp_release
         clc
         rts
 
@@ -7792,6 +7938,8 @@ _probe_number:
         jsr line_peek
 
 _probe_follower:
+        cmp #TOK_POW
+        beq _probe_fail
         ldx probe_mode
         beq _probe_ok
         cmp #TOK_MUL
@@ -10039,6 +10187,24 @@ out_jsr_fcmpgtb:
         .byte 13, 0
 out_jsr_fcmpgeb:
         .text "        jsr fcmpgeb"
+        .byte 13, 0
+out_jsr_fpowi:
+        .text "        jsr fpowi"
+        .byte 13, 0
+out_jsr_rdti:
+        .text "        jsr rdti"
+        .byte 13, 0
+out_jsr_rtclr:
+        .text "        jsr rtclr"
+        .byte 13, 0
+out_jsr_hexstr:
+        .text "        jsr hexstr"
+        .byte 13, 0
+out_jsr_decstr:
+        .text "        jsr decstr"
+        .byte 13, 0
+out_jsr_instrf:
+        .text "        jsr instrf"
         .byte 13, 0
 out_jsr_rndf:
         .text "        jsr rndf"
