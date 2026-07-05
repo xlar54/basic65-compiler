@@ -92,6 +92,11 @@ TOK_RESUME              = $D6
 TOK_SOUND               = $DA
 TOK_JOY                 = $CF
 TOK_XOR                 = $E9
+TOK_HEADER              = $F1
+TOK_SCRATCH             = $F2
+TOK_COLLECT             = $F3
+TOK_COPY                = $F4
+TOK_RENAME              = $F5
 TOK_WAIT                = $92
 TOK_FRE                 = $B8
 TOK_ERR_STR             = $D3
@@ -1939,6 +1944,16 @@ _compile_line_loop:
         beq _compile_vol
         cmp #TOK_WAIT
         beq _compile_wait
+        cmp #TOK_SCRATCH
+        beq _compile_dcmd
+        cmp #TOK_HEADER
+        beq _compile_dcmd
+        cmp #TOK_COLLECT
+        beq _compile_dcmd
+        cmp #TOK_COPY
+        beq _compile_dcmd
+        cmp #TOK_RENAME
+        beq _compile_dcmd
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -2105,6 +2120,10 @@ _compile_vol:
 
 _compile_wait:
         jsr compile_wait
+        jmp _compile_line_loop
+
+_compile_dcmd:
+        jsr compile_diskcmd
         jmp _compile_line_loop
 
 _compile_if:
@@ -2410,6 +2429,18 @@ _string_factor_var:
         beq _string_factor_array_var
 
 _string_factor_scalar_var:
+        lda var_name_1
+        cmp #$44                ; DS$ is the drive status text
+        bne _string_factor_nods
+        lda var_name_2
+        cmp #$53
+        bne _string_factor_nods
+        lda #<out_jsr_dsstrf
+        ldy #>out_jsr_dsstrf
+        jsr out_zstr
+        clc
+        rts
+_string_factor_nods:
         lda var_name_1
         cmp #$54                ; TI$ reads the RTC as "hh:mm:ss"
         bne _string_factor_resolve
@@ -4482,6 +4513,21 @@ _factor_scalar_plain:
         rts
 _factor_scalar_var2:
         lda var_name_1
+        cmp #$44                ; letter D
+        bne _factor_scalar_var2e
+        lda var_name_2
+        cmp #$53                ; letter S -> DS drive status
+        bne _factor_scalar_var2e
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _factor_scalar_var2e
+        lda #<out_jsr_rdds
+        ldy #>out_jsr_rdds
+        jsr out_zstr
+        clc
+        rts
+_factor_scalar_var2e:
+        lda var_name_1
         cmp #$45                ; letter E
         bne _factor_scalar_var3
         lda var_type
@@ -5449,6 +5495,22 @@ compile_ext_fe:
         beq _compile_ext_take
         cmp #$3f
         beq _compile_ext_take
+        cmp #$0d
+        beq _compile_ext_take
+        cmp #$0e
+        beq _compile_ext_take
+        cmp #$0f
+        beq _compile_ext_take
+        cmp #$10
+        beq _compile_ext_take
+        cmp #$11
+        beq _compile_ext_take
+        cmp #$15
+        beq _compile_ext_take
+        cmp #$2a
+        beq _compile_ext_take
+        cmp #$4b
+        beq _compile_ext_take
         cmp #$06
         beq _compile_ext_take
         cmp #$07
@@ -5474,6 +5536,22 @@ _compile_ext_take:
         beq _compile_ext_mouse
         cmp #$3f
         beq _compile_ext_rmouse
+        cmp #$0d
+        beq _compile_ext_dopen
+        cmp #$0e
+        beq _compile_ext_append
+        cmp #$0f
+        beq _compile_ext_dclose
+        cmp #$10
+        beq _compile_ext_bsave
+        cmp #$11
+        beq _compile_ext_bload
+        cmp #$15
+        beq _compile_ext_dclear
+        cmp #$2a
+        beq _compile_ext_erase
+        cmp #$4b
+        beq _compile_ext_chdir
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5491,6 +5569,27 @@ _compile_ext_mouse:
         jmp compile_mouse
 _compile_ext_rmouse:
         jmp compile_rmouse
+_compile_ext_dopen:
+        lda #$72
+        jmp compile_dopen
+_compile_ext_append:
+        lda #$61
+        jmp compile_dopen_append
+_compile_ext_dclose:
+        jmp compile_dclose
+_compile_ext_bsave:
+        jmp compile_bsave
+_compile_ext_bload:
+        jmp compile_bload
+_compile_ext_dclear:
+        lda #6
+        jmp compile_cmdbare
+_compile_ext_erase:
+        lda #0
+        jmp compile_cmdname
+_compile_ext_chdir:
+        lda #4
+        jmp compile_cmdname
 _compile_ext_envelope:
         jmp compile_envelope
 _compile_ext_movspr:
@@ -5582,6 +5681,266 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; single-byte disk verbs share shapes: A = command prefix index
+compile_diskcmd:
+        cmp #TOK_SCRATCH
+        bne +
+        lda #0
+        bra compile_cmdname
++       cmp #TOK_HEADER
+        bne +
+        lda #3
+        bra compile_cmdname
++       cmp #TOK_COLLECT
+        bne +
+        lda #5
+        bra compile_cmdbare
++       cmp #TOK_COPY
+        bne +
+        lda #2
+        bra compile_cmd2
++       lda #1                  ; RENAME
+
+; two-name commands: first TO second -> prefix + second + '=' + first
+compile_cmd2:
+        pha
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs compilecmd2bad
+        lda #<out_jsr_cmdstash
+        ldy #>out_jsr_cmdstash
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compilecmd2bad
+        jsr line_get
+        cmp #TOK_TO
+        bne compilecmd2bad
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs compilecmd2bad
+        pla
+        jsr emit_lda_imm
+        lda #<out_jsr_cmdpre
+        ldy #>out_jsr_cmdpre
+        jsr out_zstr
+        lda #<out_jsr_cmdstr
+        ldy #>out_jsr_cmdstr
+        jsr out_zstr
+        lda #<out_jsr_cmdeq
+        ldy #>out_jsr_cmdeq
+        jsr out_zstr
+        lda #<out_jsr_cmdstashout
+        ldy #>out_jsr_cmdstashout
+        jsr out_zstr
+        bra compile_cmd_go
+compilecmd2bad:
+        pla
+        jmp compile_env_bad
+
+; prefix + one name + go
+compile_cmdname:
+        pha
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs compilecmd2bad
+        pla
+        jsr emit_lda_imm
+        lda #<out_jsr_cmdpre
+        ldy #>out_jsr_cmdpre
+        jsr out_zstr
+        lda #<out_jsr_cmdstr
+        ldy #>out_jsr_cmdstr
+        jsr out_zstr
+        bra compile_cmd_go
+
+; prefix only (COLLECT, DCLEAR)
+compile_cmdbare:
+        jsr emit_lda_imm
+        lda #<out_jsr_cmdpre
+        ldy #>out_jsr_cmdpre
+        jsr out_zstr
+compile_cmd_go:
+        lda #<out_jsr_cmdgo
+        ldy #>out_jsr_cmdgo
+        jsr out_zstr
+        clc
+        rts
+
+; emit "lda #$XX" from A
+emit_lda_imm:
+        pha
+        lda #<out_lda_imm_hex
+        ldy #>out_lda_imm_hex
+        jsr out_zstr
+        pla
+        jsr out_hex_byte
+        jmp out_cr
+
+; DOPEN# ch, name [,W] / APPEND# ch, name; A = default mode letter
+compile_dopen:
+        pha
+        jsr compile_dopen_head
+        bcs compiledopenbad
+        jsr parse_opt_comma
+        bcs compiledopenmode
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compiledopenmode
+        jsr line_get
+        cmp #$57                ; W
+        bne compiledopenbad
+        pla
+        lda #$77
+        pha
+compiledopenmode:
+        pla
+        jsr emit_lda_imm
+        lda #<out_jsr_dopmode
+        ldy #>out_jsr_dopmode
+        jsr out_zstr
+        clc
+        rts
+compiledopenbad:
+        pla
+        jmp compile_env_bad
+
+compile_dopen_append:
+        pha
+        jsr compile_dopen_head
+        bcs compiledopenbad
+        bra compiledopenmode
+
+; shared: # channel , name -> fiosetlf + cmdpre 7 + cmdstr
+compile_dopen_head:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cdh_bad
+        jsr line_get
+        cmp #'#'
+        bne _cdh_bad
+        jsr compile_expression
+        bcs _cdh_bad
+        lda #<out_jsr_fiosetlf
+        ldy #>out_jsr_fiosetlf
+        jsr out_zstr
+        jsr parse_comma
+        bcs _cdh_bad
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _cdh_bad
+        lda #7
+        jsr emit_lda_imm
+        lda #<out_jsr_cmdpre
+        ldy #>out_jsr_cmdpre
+        jsr out_zstr
+        lda #<out_jsr_cmdstr
+        ldy #>out_jsr_cmdstr
+        jsr out_zstr
+        clc
+        rts
+_cdh_bad:
+        sec
+        rts
+
+compile_dclose:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _compile_dclose_bad
+        jsr line_get
+        cmp #'#'
+        bne _compile_dclose_bad
+        jsr compile_expression
+        bcs _compile_dclose_bad
+        lda #<out_jsr_fiosetlf
+        ldy #>out_jsr_fiosetlf
+        jsr out_zstr
+        lda #<out_jsr_dclosech
+        ldy #>out_jsr_dclosech
+        jsr out_zstr
+        clc
+        rts
+_compile_dclose_bad:
+        jmp compile_env_bad
+
+; BLOAD name, P address
+compile_bload:
+        jsr compile_bname
+        bcs compilebloadbad
+        jsr compile_pexpr
+        bcs compilebloadbad
+        lda #<out_jsr_bladdr
+        ldy #>out_jsr_bladdr
+        jsr out_zstr
+        lda #<out_jsr_bloadgo
+        ldy #>out_jsr_bloadgo
+        jsr out_zstr
+        clc
+        rts
+compilebloadbad:
+        jmp compile_env_bad
+
+; BSAVE name, P start TO P end
+compile_bsave:
+        jsr compile_bname
+        bcs compilebloadbad
+        jsr compile_pexpr
+        bcs compilebloadbad
+        lda #<out_jsr_bladdr
+        ldy #>out_jsr_bladdr
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compilebloadbad
+        jsr line_get
+        cmp #TOK_TO
+        bne compilebloadbad
+        jsr compile_pexpr_nocomma
+        bcs compilebloadbad
+        lda #<out_jsr_blend
+        ldy #>out_jsr_blend
+        jsr out_zstr
+        lda #<out_jsr_bsavego
+        ldy #>out_jsr_bsavego
+        jsr out_zstr
+        clc
+        rts
+
+; name into cmdbuf with the empty prefix
+compile_bname:
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _cbn_bad
+        lda #7
+        jsr emit_lda_imm
+        lda #<out_jsr_cmdpre
+        ldy #>out_jsr_cmdpre
+        jsr out_zstr
+        lda #<out_jsr_cmdstr
+        ldy #>out_jsr_cmdstr
+        jsr out_zstr
+        clc
+        rts
+_cbn_bad:
+        sec
+        rts
+
+; ", P expr" (the letter prefix the disk syntax uses)
+compile_pexpr:
+        jsr parse_comma
+        bcs cpxbad
+compile_pexpr_nocomma:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs cpxbad
+        jsr line_get
+        cmp #$50                ; P
+        bne cpxbad
+        jmp compile_expression
+cpxbad:
+        sec
+        rts
 
 ; MOUSE ON [, port [, sprite [, x, y]]] | MOUSE OFF
 compile_mouse:
@@ -11296,23 +11655,28 @@ _bin_label_go:
         lda bin_ptr+1
         adc lbladdr_base_hi,x
         sta bin_ptr+1
+        jsr pool_ptr_save       ; tables are in bank 4, like the pool
+        lda bin_ptr
+        sta source_ptr
+        lda bin_ptr+1
+        sta source_ptr+1
         lda pending_kind
         beq _bin_label_def
-        ldy #0
-        lda (bin_ptr),y
+        ldz #0
+        lda [source_ptr],z
         sta pending_value
-        iny
-        lda (bin_ptr),y
+        inz
+        lda [source_ptr],z
         sta pending_value+1
-        rts
+        jmp pool_ptr_restore
 _bin_label_def:
-        ldy #0
+        ldz #0
         lda bin_pc
-        sta (bin_ptr),y
-        iny
+        sta [source_ptr],z
+        inz
         lda bin_pc+1
-        sta (bin_ptr),y
-        rts
+        sta [source_ptr],z
+        jmp pool_ptr_restore
 _bin_label_ovf:
         lda #2
         sta backend_error
@@ -12821,6 +13185,104 @@ out_ld_mourb:
 .else
         .byte 0
 .fi
+out_jsr_cmdpre:
+.if TEXT_EMITTER
+        .text "        jsr cmdpre"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cmdstr:
+.if TEXT_EMITTER
+        .text "        jsr cmdstr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cmdeq:
+.if TEXT_EMITTER
+        .text "        jsr cmdeq"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cmdstash:
+.if TEXT_EMITTER
+        .text "        jsr cmdstash"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cmdstashout:
+.if TEXT_EMITTER
+        .text "        jsr cmdstashout"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cmdgo:
+.if TEXT_EMITTER
+        .text "        jsr cmdgo"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rdds:
+.if TEXT_EMITTER
+        .text "        jsr rdds"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dsstrf:
+.if TEXT_EMITTER
+        .text "        jsr dsstrf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bladdr:
+.if TEXT_EMITTER
+        .text "        jsr bladdr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_blend:
+.if TEXT_EMITTER
+        .text "        jsr blend"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bloadgo:
+.if TEXT_EMITTER
+        .text "        jsr bloadgo"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bsavego:
+.if TEXT_EMITTER
+        .text "        jsr bsavego"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dopmode:
+.if TEXT_EMITTER
+        .text "        jsr dopmode"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dclosech:
+.if TEXT_EMITTER
+        .text "        jsr dclosech"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_tistr:
 .if TEXT_EMITTER
         .text "        jsr tistr"
@@ -14297,17 +14759,9 @@ string_pool:
 ; backend_error (the text backend is unaffected).
 ;=======================================================================================
 
-.if TEXT_EMITTER
-LBL_IF_IDS      = 256           ; checked build: squeezed under $c000
-.else
 LBL_IF_IDS      = 384
-.fi
 LBL_ON_IDS      = 128
-.if TEXT_EMITTER
-LBL_ARRAY_IDS   = 128           ; checked build: squeezed under $c000
-.else
 LBL_ARRAY_IDS   = 256
-.fi
 LBL_FORDO_MAX   = 48
 
 ; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
@@ -14327,31 +14781,33 @@ LBL_FORDONE     = 9
 LBL_DOTOP       = 10
 LBL_DODONE      = 11
 
-lbladdr_if:        .fill LBL_IF_IDS * 2, 0
-lbladdr_on:        .fill LBL_ON_IDS * 2, 0
-lbladdr_arrayok:   .fill LBL_ARRAY_IDS * 2, 0
-lbladdr_arraypos:  .fill LBL_ARRAY_IDS * 2, 0
-lbladdr_arrayhieq: .fill LBL_ARRAY_IDS * 2, 0
-lbladdr_fortop:    .fill LBL_FORDO_MAX * 2, 0
-lbladdr_forneg:    .fill LBL_FORDO_MAX * 2, 0
-lbladdr_forinitneg: .fill LBL_FORDO_MAX * 2, 0
-lbladdr_forcont:   .fill LBL_FORDO_MAX * 2, 0
-lbladdr_fordone:   .fill LBL_FORDO_MAX * 2, 0
-lbladdr_dotop:     .fill LBL_FORDO_MAX * 2, 0
-lbladdr_dodone:    .fill LBL_FORDO_MAX * 2, 0
+; label tables live in bank 4 at LBLTAB_BASE; these are offsets
+LBLTAB_BASE     = $E000
+lbloff_if        = 0
+lbloff_on        = lbloff_if + LBL_IF_IDS * 2
+lbloff_arrayok   = lbloff_on + LBL_ON_IDS * 2
+lbloff_arraypos  = lbloff_arrayok + LBL_ARRAY_IDS * 2
+lbloff_arrayhieq = lbloff_arraypos + LBL_ARRAY_IDS * 2
+lbloff_fortop    = lbloff_arrayhieq + LBL_ARRAY_IDS * 2
+lbloff_forneg    = lbloff_fortop + LBL_FORDO_MAX * 2
+lbloff_forinitneg = lbloff_forneg + LBL_FORDO_MAX * 2
+lbloff_forcont   = lbloff_forinitneg + LBL_FORDO_MAX * 2
+lbloff_fordone   = lbloff_forcont + LBL_FORDO_MAX * 2
+lbloff_dotop     = lbloff_fordone + LBL_FORDO_MAX * 2
+lbloff_dodone    = lbloff_dotop + LBL_FORDO_MAX * 2
 
 lbladdr_base_lo:
-        .byte <lbladdr_if, <lbladdr_on
-        .byte <lbladdr_arrayok, <lbladdr_arraypos, <lbladdr_arrayhieq
-        .byte <lbladdr_fortop, <lbladdr_forneg, <lbladdr_forinitneg
-        .byte <lbladdr_forcont, <lbladdr_fordone
-        .byte <lbladdr_dotop, <lbladdr_dodone
+        .byte <(LBLTAB_BASE+lbloff_if), <(LBLTAB_BASE+lbloff_on)
+        .byte <(LBLTAB_BASE+lbloff_arrayok), <(LBLTAB_BASE+lbloff_arraypos), <(LBLTAB_BASE+lbloff_arrayhieq)
+        .byte <(LBLTAB_BASE+lbloff_fortop), <(LBLTAB_BASE+lbloff_forneg), <(LBLTAB_BASE+lbloff_forinitneg)
+        .byte <(LBLTAB_BASE+lbloff_forcont), <(LBLTAB_BASE+lbloff_fordone)
+        .byte <(LBLTAB_BASE+lbloff_dotop), <(LBLTAB_BASE+lbloff_dodone)
 lbladdr_base_hi:
-        .byte >lbladdr_if, >lbladdr_on
-        .byte >lbladdr_arrayok, >lbladdr_arraypos, >lbladdr_arrayhieq
-        .byte >lbladdr_fortop, >lbladdr_forneg, >lbladdr_forinitneg
-        .byte >lbladdr_forcont, >lbladdr_fordone
-        .byte >lbladdr_dotop, >lbladdr_dodone
+        .byte >(LBLTAB_BASE+lbloff_if), >(LBLTAB_BASE+lbloff_on)
+        .byte >(LBLTAB_BASE+lbloff_arrayok), >(LBLTAB_BASE+lbloff_arraypos), >(LBLTAB_BASE+lbloff_arrayhieq)
+        .byte >(LBLTAB_BASE+lbloff_fortop), >(LBLTAB_BASE+lbloff_forneg), >(LBLTAB_BASE+lbloff_forinitneg)
+        .byte >(LBLTAB_BASE+lbloff_forcont), >(LBLTAB_BASE+lbloff_fordone)
+        .byte >(LBLTAB_BASE+lbloff_dotop), >(LBLTAB_BASE+lbloff_dodone)
 
 string_addr_lo:  .fill STRING_MAX, 0
 string_addr_hi:  .fill STRING_MAX, 0

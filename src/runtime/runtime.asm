@@ -49,6 +49,8 @@ kernalplot   = $fff0
 kernalgetin  = $ffe4
 kernalrdtim  = $ffde
 kernalvector = $ff8d
+kernalload   = $ffd5
+kernalsave   = $ffd8
 kernalsetbnk = $ff6b
 kernalsetlfs = $ffba
 kernalsetnam = $ffbd
@@ -1592,6 +1594,313 @@ pf_pow2:
         .byte $e1,$96,$42,$86,$27,$03,$00,$00,$00
 pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
+
+;=======================================================================================
+; Disk verbs: DOS command strings on the command channel (15,8,15),
+; DS/DS$ drive status, BLOAD/BSAVE, DOPEN#/APPEND#/DCLOSE#. All KERNAL
+; calls ride the fio ROM bridge like the rest of the file layer.
+;=======================================================================================
+
+; command prefixes, indexed: 0 s0: 1 r0: 2 c0: 3 n0: 4 cd: 5 v0 6 i0
+cmdpretab:
+        .byte $73, $30, $3a     ; s0:
+        .byte $72, $30, $3a     ; r0:
+        .byte $63, $30, $3a     ; c0:
+        .byte $6e, $30, $3a     ; n0:
+        .byte $63, $64, $3a     ; cd:
+        .byte $76, $30, $00     ; v0
+        .byte $69, $30, $00     ; i0
+        .byte $00, $00, $00     ; 7: empty, plain filename
+
+; A = prefix index: reset the buffer and append the 2-3 byte prefix
+cmdpre:
+        sta cmd_i
+        lda #0
+        sta cmd_len
+        lda cmd_i
+        asl a
+        clc
+        adc cmd_i               ; *3
+        tax
+        ldy #0
+_cmdpre_loop:
+        lda cmdpretab,x
+        beq _cmdpre_done
+        jsr cmdputc
+        inx
+        iny
+        cpy #3
+        bne _cmdpre_loop
+_cmdpre_done:
+        rts
+
+cmdputc:
+        ldx cmd_len
+        cpx #48
+        bcs +
+        sta cmdbuf,x
+        inc cmd_len
++       rts
+
+cmdeq:
+        lda #$3d                ; =
+        bra cmdputc
+
+; append the heap string whose descriptor is in exprlo/exprhi
+cmdstr:
+        lda exprlo
+        ora exprhi
+        beq _cmdstr_done
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta cmd_n
+        lda #0
+        sta cmd_j
+_cmdstr_loop:
+        lda cmd_j
+        cmp cmd_n
+        beq _cmdstr_done
+        inc cmd_j
+        ldz cmd_j
+        lda [varptr],z
+        jsr cmdputc
+        bra _cmdstr_loop
+_cmdstr_done:
+        rts
+
+; RENAME/COPY stash the first string's descriptor across the second
+cmdstash:
+        lda exprlo
+        sta cmd_tmp
+        lda exprhi
+        sta cmd_tmp+1
+        rts
+
+cmdstashout:
+        lda cmd_tmp
+        sta exprlo
+        lda cmd_tmp+1
+        sta exprhi
+        bra cmdstr
+
+; send cmdbuf on the command channel: open 15,8,15,"cmd" then close
+cmdgo:
+        jsr fio_rom_on
+        lda #15
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk        ; command text in bank 0
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #15
+        ldx #8
+        ldy #15
+        jsr kernalsetlfs
+        jsr kernalopen
+        lda #15
+        jsr kernalclose
+        jmp fio_rom_off
+
+; DS: read the drive status line, cache the text and the 2-digit code
+dsreadf:
+        jsr fio_rom_on
+        lda #15
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda #0
+        jsr kernalsetnam
+        lda #15
+        ldx #8
+        ldy #15
+        jsr kernalsetlfs
+        jsr kernalopen
+        ldx #15
+        jsr kernalchkin
+        lda #0
+        sta ds_len
+_dsread_loop:
+        jsr kernalchrin2
+        cmp #13
+        beq _dsread_done
+        ldx ds_len
+        cpx #40
+        bcs _dsread_loop
+        sta dsbuf,x
+        inc ds_len
+        bra _dsread_loop
+_dsread_done:
+        jsr kernalclrchn
+        lda #15
+        jsr kernalclose
+        jsr fio_rom_off
+        lda #1
+        sta ds_valid
+        lda dsbuf               ; two ASCII digits -> code
+        sec
+        sbc #$30
+        asl a
+        sta ds_code
+        asl a
+        asl a
+        clc
+        adc ds_code             ; *10
+        sta ds_code
+        lda dsbuf+1
+        sec
+        sbc #$30
+        clc
+        adc ds_code
+        sta ds_code
+        rts
+
+; DS numeric intercept: fresh read each use, like the ROM
+rdds:
+        jsr dsreadf
+        lda ds_code
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; DS$ string intercept: last cached status (reads once if never read)
+dsstrf:
+        lda ds_valid
+        bne +
+        jsr dsreadf
++       lda ds_len
+        sta strlen
+        pha
+        jsr stralloc
+        pla
+        sta strlen
+        bcs _dsstrf_done
+        ldz #0
+        lda strlen
+        sta [varptr],z
+        ldy #0
+_dsstrf_loop:
+        cpy strlen
+        beq _dsstrf_done
+        lda dsbuf,y
+        inz
+        sta [varptr],z
+        iny
+        bne _dsstrf_loop
+_dsstrf_done:
+        rts
+
+; BLOAD name (already in cmdbuf via cmdpre-less cmdstr), P address
+bloadgo:
+        jsr fio_rom_on
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #1
+        ldx #8
+        ldy #0                  ; secondary 0: load to the given address
+        jsr kernalsetlfs
+        lda #0                  ; load, not verify
+        ldx bl_addr
+        ldy bl_addr+1
+        jsr kernalload
+        jmp fio_rom_off
+
+bladdr:
+        lda exprlo
+        sta bl_addr
+        lda exprhi
+        sta bl_addr+1
+        rts
+
+blend:
+        lda exprlo
+        sta bl_end
+        lda exprhi
+        sta bl_end+1
+        rts
+
+; BSAVE: name in cmdbuf, bl_addr..bl_end (end exclusive, KERNAL SAVE)
+bsavego:
+        jsr fio_rom_on
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #1
+        ldx #8
+        ldy #1
+        jsr kernalsetlfs
+        lda bl_addr
+        sta rtptr
+        lda bl_addr+1
+        sta rtptr+1
+        lda #rtptr
+        ldx bl_end
+        ldy bl_end+1
+        jsr kernalsave
+        jmp fio_rom_off
+
+; DOPEN#/APPEND#: channel in fio_lf, name in cmdbuf; append ,s,<mode>
+; (A = mode letter) then open with sa = (channel & 13) + 2
+dopmode:
+        pha
+        lda #$2c                ; ,s,
+        jsr cmdputc
+        lda #$73
+        jsr cmdputc
+        lda #$2c
+        jsr cmdputc
+        pla
+        jsr cmdputc
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda fio_lf
+        and #13
+        clc
+        adc #2
+        tay
+        ldx #8
+        lda fio_lf
+        jsr kernalsetlfs
+        jsr kernalopen
+        jmp fio_rom_off
+
+dopr:
+        lda #$72                ; r
+        bra dopmode
+dopw:
+        lda #$77                ; w
+        bra dopmode
+dopa:
+        lda #$61                ; a
+        bra dopmode
+
+dclosech:
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose
+        jmp fio_rom_off
 
 ;=======================================================================================
 ; File I/O layer: OPEN/CLOSE/PRINT#/INPUT#/GET#/ST. Channels are selected
@@ -4417,6 +4726,18 @@ rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
 ti_base:      .byte 0,0,0
+cmd_len:      .byte 0
+cmd_i:        .byte 0
+cmd_n:        .byte 0
+cmd_j:        .byte 0
+cmd_tmp:      .byte 0,0
+cmdbuf:       .fill 48, 0
+ds_len:       .byte 0
+ds_code:      .byte 0
+ds_valid:     .byte 0
+dsbuf:        .fill 40, 0
+bl_addr:      .byte 0,0
+bl_end:       .byte 0,0
 ti_ss:        .byte 0
 ti_mm:        .byte 0
 ti_hh:        .byte 0
