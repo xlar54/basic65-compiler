@@ -61,8 +61,8 @@ function Invoke-Fixture {
     cmd /c ".\build.bat $FixturePath" | Out-Null
     if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "BUILD FAILED" } }
 
-    .\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas | Out-Null
-    .\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas | Out-Null
+    cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas 2>&1" | Out-Null
+    cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas 2>&1" | Out-Null
 
     Write-Host "=== phase 1: compile $FixturePath on the MEGA65 ==="
     $p = Start-Process -FilePath $Xemu -ArgumentList @(
@@ -92,7 +92,7 @@ function Invoke-Fixture {
     Write-Host ("OUT.ASM extracted: {0} bytes" -f (Get-Item target\out.asm.seq).Length)
 
     Write-Host "=== link with runtime ==="
-    .\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg
+    cmd /c ".\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg 2>&1" | Out-Host
     if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "FAIL (link error)" } }
 
     if ($SkipRun) { return @{ Name = $name; Result = "PASS (link only)" } }
