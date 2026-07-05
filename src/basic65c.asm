@@ -163,7 +163,11 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240
-STRING_POOL_MAX         = $0580
+.if TEXT_EMITTER
+STRING_POOL_MAX         = $0480 ; checked build: squeezed under $c000
+.else
+STRING_POOL_MAX         = $0A00 ; lean build: full capacity
+.fi
 
 SYM_MAX                 = 128
 VAR_KIND_SCALAR         = 0
@@ -5119,6 +5123,8 @@ _compile_trap_arm:
 ; dispatch $FE-prefixed statements by their second token byte
 compile_ext_fe:
         jsr line_get
+        cmp #$03
+        beq _compile_ext_filter
         cmp #$04
         beq _compile_ext_play
         cmp #$05
@@ -5135,6 +5141,8 @@ compile_ext_fe:
         ldy #>msg_error_bad_sprite
         jsr fatal_statement_error
         rts
+_compile_ext_filter:
+        jmp compile_filter
 _compile_ext_play:
         jmp compile_play
 _compile_ext_tempo:
@@ -5192,6 +5200,46 @@ _compile_play_bad:
 _compile_play_done:
         clc
         rts
+
+; FILTER sid [, freq, lp, bp, hp, res]: trailing args optional
+compile_filter:
+        jsr compile_expression
+        bcs compile_env_bad
+        lda #<out_jsr_fltsetn
+        ldy #>out_jsr_fltsetn
+        jsr out_zstr
+        ldx #0
+_compile_flt_loop:
+        phx
+        jsr parse_opt_comma
+        bcs _compile_flt_done
+        jsr compile_expression
+        bcs _compile_flt_badx
+        plx
+        phx
+        lda fltsetterlo,x
+        ldy fltsetterhi,x
+        jsr out_zstr
+        plx
+        inx
+        cpx #5
+        bcc _compile_flt_loop
+        clc
+        rts
+_compile_flt_done:
+        plx
+        clc
+        rts
+_compile_flt_badx:
+        plx
+        jmp compile_env_bad
+
+fltsetterlo:
+        .byte <out_jsr_fltsetf, <out_jsr_fltsetlp, <out_jsr_fltsetbp
+        .byte <out_jsr_fltsethp, <out_jsr_fltsetres
+fltsetterhi:
+        .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
+        .byte >out_jsr_fltsethp, >out_jsr_fltsetres
 
 compile_tempo:
         jsr compile_expression
@@ -11513,6 +11561,48 @@ out_jsr_sndsetf:
 out_jsr_sndsetd:
 .if TEXT_EMITTER
         .text "        jsr sndsetd"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsetn:
+.if TEXT_EMITTER
+        .text "        jsr fltsetn"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsetf:
+.if TEXT_EMITTER
+        .text "        jsr fltsetf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsetlp:
+.if TEXT_EMITTER
+        .text "        jsr fltsetlp"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsetbp:
+.if TEXT_EMITTER
+        .text "        jsr fltsetbp"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsethp:
+.if TEXT_EMITTER
+        .text "        jsr fltsethp"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fltsetres:
+.if TEXT_EMITTER
+        .text "        jsr fltsetres"
         .byte 13, 0
 .else
         .byte 0

@@ -189,7 +189,7 @@ bt_out_jsr_ascstr:
 
 bt_out_jsr_bumpf:
         .byte 0, 3
-        .byte $20, $89, $47
+        .byte $20, $ce, $47
 
 bt_out_jsr_chout:
         .byte 0, 3
@@ -359,6 +359,30 @@ bt_out_jsr_float16:
         .byte 0, 3
         .byte $20, $63, $22
 
+bt_out_jsr_fltsetbp:
+        .byte 0, 3
+        .byte $20, $9e, $49
+
+bt_out_jsr_fltsetf:
+        .byte 0, 3
+        .byte $20, $73, $49
+
+bt_out_jsr_fltsethp:
+        .byte 0, 3
+        .byte $20, $a2, $49
+
+bt_out_jsr_fltsetlp:
+        .byte 0, 3
+        .byte $20, $9a, $49
+
+bt_out_jsr_fltsetn:
+        .byte 0, 3
+        .byte $20, $65, $49
+
+bt_out_jsr_fltsetres:
+        .byte 0, 3
+        .byte $20, $cc, $49
+
 bt_out_jsr_fmul:
         .byte 0, 3
         .byte $20, $e2, $24
@@ -433,7 +457,7 @@ bt_out_jsr_instrf:
 
 bt_out_jsr_joyf:
         .byte 0, 3
-        .byte $20, $4b, $47
+        .byte $20, $90, $47
 
 bt_out_jsr_label:
         .byte 2, 3
@@ -445,7 +469,7 @@ bt_out_jsr_loadintvar:
 
 bt_out_jsr_movsprgo:
         .byte 0, 3
-        .byte $20, $0e, $47
+        .byte $20, $53, $47
 
 bt_out_jsr_mul16:
         .byte 0, 3
@@ -525,39 +549,39 @@ bt_out_jsr_rtclr:
 
 bt_out_jsr_sndgo:
         .byte 0, 3
-        .byte $20, $9a, $49
+        .byte $20, $6a, $4a
 
 bt_out_jsr_sndsetd:
         .byte 0, 3
-        .byte $20, $50, $49
+        .byte $20, $20, $4a
 
 bt_out_jsr_sndsetdr:
         .byte 0, 3
-        .byte $20, $5d, $49
+        .byte $20, $2d, $4a
 
 bt_out_jsr_sndsetf:
         .byte 0, 3
-        .byte $20, $43, $49
+        .byte $20, $13, $4a
 
 bt_out_jsr_sndsetm:
         .byte 0, 3
-        .byte $20, $6a, $49
+        .byte $20, $3a, $4a
 
 bt_out_jsr_sndsetp:
         .byte 0, 3
-        .byte $20, $8d, $49
+        .byte $20, $5d, $4a
 
 bt_out_jsr_sndsets:
         .byte 0, 3
-        .byte $20, $77, $49
+        .byte $20, $47, $4a
 
 bt_out_jsr_sndsetv:
         .byte 0, 3
-        .byte $20, $33, $49
+        .byte $20, $03, $4a
 
 bt_out_jsr_sndsetw:
         .byte 0, 3
-        .byte $20, $84, $49
+        .byte $20, $54, $4a
 
 bt_out_jsr_spcn:
         .byte 0, 3
@@ -565,43 +589,43 @@ bt_out_jsr_spcn:
 
 bt_out_jsr_sprmc1:
         .byte 0, 3
-        .byte $20, $3d, $47
+        .byte $20, $82, $47
 
 bt_out_jsr_sprmc2:
         .byte 0, 3
-        .byte $20, $44, $47
+        .byte $20, $89, $47
 
 bt_out_jsr_sprsetexpx:
         .byte 0, 3
-        .byte $20, $d1, $46
+        .byte $20, $16, $47
 
 bt_out_jsr_sprsetexpy:
         .byte 0, 3
-        .byte $20, $d7, $46
+        .byte $20, $1c, $47
 
 bt_out_jsr_sprsetfg:
         .byte 0, 3
-        .byte $20, $a9, $46
+        .byte $20, $ee, $46
 
 bt_out_jsr_sprsetmode:
         .byte 0, 3
-        .byte $20, $dd, $46
+        .byte $20, $22, $47
 
 bt_out_jsr_sprsetn:
         .byte 0, 3
-        .byte $20, $82, $46
+        .byte $20, $c7, $46
 
 bt_out_jsr_sprsetprio:
         .byte 0, 3
-        .byte $20, $b3, $46
+        .byte $20, $f8, $46
 
 bt_out_jsr_sprsetx:
         .byte 0, 3
-        .byte $20, $01, $47
+        .byte $20, $46, $47
 
 bt_out_jsr_sprswitch:
         .byte 0, 3
-        .byte $20, $8b, $46
+        .byte $20, $d0, $46
 
 bt_out_jsr_sqrf:
         .byte 0, 3
@@ -713,7 +737,7 @@ bt_out_jsr_valstr:
 
 bt_out_jsr_volsnd:
         .byte 0, 3
-        .byte $20, $1e, $49
+        .byte $20, $e5, $49
 
 bt_out_lda_exprhi:
         .byte 0, 3
@@ -864,7 +888,7 @@ bt_out_sta_lhslo:
 
 bt_out_sta_playarg:
         .byte 0, 3
-        .byte $8d, $90, $4a
+        .byte $8d, $60, $4b
 
 bt_out_sta_rtptr:
         .byte 0, 2
@@ -1022,6 +1046,12 @@ bt_map:
         .word out_jsr_fiosetsa, bt_out_jsr_fiosetsa
         .word out_jsr_floadvar, bt_out_jsr_floadvar
         .word out_jsr_float16, bt_out_jsr_float16
+        .word out_jsr_fltsetbp, bt_out_jsr_fltsetbp
+        .word out_jsr_fltsetf, bt_out_jsr_fltsetf
+        .word out_jsr_fltsethp, bt_out_jsr_fltsethp
+        .word out_jsr_fltsetlp, bt_out_jsr_fltsetlp
+        .word out_jsr_fltsetn, bt_out_jsr_fltsetn
+        .word out_jsr_fltsetres, bt_out_jsr_fltsetres
         .word out_jsr_fmul, bt_out_jsr_fmul
         .word out_jsr_fneg, bt_out_jsr_fneg
         .word out_jsr_fopen, bt_out_jsr_fopen

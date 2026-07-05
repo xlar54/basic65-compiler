@@ -4839,9 +4839,9 @@ _ptick_char:
         sta $d418
         sta $d458
         bra _ptick_scan
-+       cmp #$58                ; X, M, P: consume the digit, ignore
-        beq _ptick_skiparg
-        cmp #$4d
++       cmp #$58                ; X: filter this voice
+        beq _ptick_xdir
+        cmp #$4d                ; M: consume the digit, ignore
         beq _ptick_skiparg
         cmp #$50
         bne +
@@ -4937,6 +4937,42 @@ _ptick_setdur:
         lda play_durtab,y
         sta play_dur,x
         bra _ptick_scan
+
+_ptick_xdir:
+        jsr _ptick_digit
+        sta play_xt1             ; 0 = off, else on
+        ldy #0
+        txa                     ; track 0-5 -> SID index + voice bit
+        cmp #3
+        bcc +
+        iny
+        sec
+        sbc #3
++       phx
+        tax
+        lda sprbit,x
+        sta play_xt2
+        lda play_xt1
+        beq _ptick_xdir_off
+        lda flt_rout,y
+        ora play_xt2
+        bra _ptick_xdir_wr
+_ptick_xdir_off:
+        lda play_xt2
+        eor #$ff
+        and flt_rout,y
+_ptick_xdir_wr:
+        sta flt_rout,y
+        ora flt_res,y
+        cpy #0
+        bne _ptick_xdir_s2
+        sta $d417
+        bra _ptick_xdir_done
+_ptick_xdir_s2:
+        sta $d457
+_ptick_xdir_done:
+        plx
+        jmp _ptick_scan
 
 ; read the digit after a directive letter; returns 0-9 in A
 _ptick_digit:
@@ -5325,16 +5361,99 @@ snd_regoff:
 snd_wftab:
         .byte $11, $21, $41, $81
 
+; FILTER sid[,freq,lp,bp,hp,res]: sid 1 = $d400, 2 = $d440 (PLAY's
+; SIDs). Mode/volume and resonance/routing share registers, so shadows
+; hold the filter half; volsnd and the X directive recombine them.
+fltoff:
+        .byte $00, $40
+
+fltsetn:
+        ldx exprlo
+        dex
+        cpx #2
+        bcc +
+        ldx #0
++       stx flt_n
+        rts
+
+fltsetf:
+        ldx flt_n
+        ldy fltoff,x
+        lda exprlo
+        and #7
+        sta $d415,y
+        lda exprhi
+        and #$0f
+        asl a
+        asl a
+        asl a
+        asl a
+        sta flt_tmp
+        lda exprlo
+        lsr a
+        lsr a
+        lsr a
+        ora flt_tmp
+        sta $d416,y
+        rts
+
+fltsetlp:
+        lda #$10
+        bra fltmodebit
+fltsetbp:
+        lda #$20
+        bra fltmodebit
+fltsethp:
+        lda #$40
+
+; set or clear the mode bit in A per exprlo, then rewrite mode|volume
+fltmodebit:
+        ldx flt_n
+        sta flt_tmp
+        lda exprlo
+        beq _fltmode_clear
+        lda flt_mode,x
+        ora flt_tmp
+        bra _fltmode_wr
+_fltmode_clear:
+        lda flt_tmp
+        eor #$ff
+        and flt_mode,x
+_fltmode_wr:
+        sta flt_mode,x
+        ora snd_vol
+        ldy fltoff,x
+        sta $d418,y
+        rts
+
+fltsetres:
+        ldx flt_n
+        lda exprlo
+        asl a
+        asl a
+        asl a
+        asl a
+        sei
+        sta flt_res,x
+        ora flt_rout,x
+        ldy fltoff,x
+        sta $d417,y
+        cli
+        rts
+
 ; VOL affects all voices (SOUND and PLAY), so write all four SIDs
 volsnd:
         lda exprlo
         and #$0f
         sta snd_vol
 volsndall:
-        sta $d418
         sta $d438
-        sta $d458
         sta $d478
+        ora flt_mode
+        sta $d418
+        lda snd_vol
+        ora flt_mode+1
+        sta $d458
         rts
 
 sndsetv:
@@ -5490,6 +5609,14 @@ play_ad:      .byte 0
 play_sr:      .byte 0
 play_wv:      .byte 0
 play_cplen:   .byte 0
+flt_n:        .byte 0
+flt_tmp:      .byte 0
+flt_tmp2:     .byte 0
+flt_mode:     .byte 0,0
+flt_res:      .byte 0,0
+flt_rout:     .byte 0,0
+play_xt1:     .byte 0
+play_xt2:     .byte 0
 play_envn:    .byte 0
 play_tdiv:    .byte 0
 play_tacc:    .byte 0,0
