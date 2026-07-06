@@ -27,9 +27,10 @@ matches the compiled output.
       to ROM speed. Caveat: the ROM leaks running motion across RUNs,
       so interpreted results are only clean on the FIRST run after
       loading. (Compiled halts motion at exit -- deliberate.)
-- [ ] sound.bas, play.bas, play2.bas, filter.bas -- run to completion
-      both ways; audio comparison by ear. FILTER timbre parity is a
-      known open item.
+- [x] sound.bas, play.bas, play2.bas, filter.bas -- run to completion
+      both ways; audio comparison by ear. FILTER timbre verified by ear
+      2026-07-06 (cutoff scaling + PLAY/FILTER mode-bit fixes). Caveat:
+      FOR-loop delays pace faster compiled, so sweeps run a bit quicker.
 - [ ] sprdemo.bas -- visual: sprite sweep, healthy READY after.
 - [ ] usr.bas -- runs interpreted but "USR OK" only prints compiled
       (register vs FAC calling convention, documented divergence).
