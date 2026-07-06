@@ -4835,6 +4835,7 @@ mth_e2:       .byte 0
 mod_a:        .byte 0,0
 mod_r:        .byte 0,0
 slp_last:     .byte 0
+slp_nz:       .byte 0
 wt_addr:      .byte 0,0
 wt_and:       .byte 0
 wt_xor:       .byte 0
@@ -5562,14 +5563,25 @@ _modf_next:
 
 ; SLEEP seconds (float in FAC): frame-granular wait on FRAMECOUNT
 sleepf:
+        lda facexp              ; remember a nonzero argument
+        sta slp_nz
         lda #<cfifty
         ldy #>cfifty
         jsr fldca
         jsr fmul
+        lda #<chalf2            ; round to nearest frame: MFLP products
+        ldy #>chalf2            ; like 0.02*50 can land just under 1.0,
+        jsr fldca               ; and flooring made short sleeps vanish
+        jsr fadd
         jsr qint                ; exprlo/hi = frames
         lda exprlo
         ora exprhi
         bne +
+        lda slp_nz
+        beq _sleepf_zero
+        inc exprlo              ; any nonzero sleep waits at least a frame
+        bra +
+_sleepf_zero:
         rts
 +       lda $d7fa
         sta slp_last
