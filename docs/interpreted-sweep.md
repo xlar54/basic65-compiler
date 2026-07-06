@@ -42,6 +42,9 @@ matches the compiled output.
 ## Interactive (manual input needed, no strict pass text)
 
 - [ ] ioarray.bas (INPUT), joydemo.bas (joystick), mouse.bas (mouse)
+- [ ] input.bas (INPUT regression for the KERNAL zp-clobber crash;
+      type the prompted values when running interactively. Unattended
+      compiled runs pass because CHRIN consumes the prompt line.)
 
 ## Compiled-only (do not expect interpreted parity)
 

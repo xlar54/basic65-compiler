@@ -91,6 +91,12 @@ strheaptop   = $f800
         * = $2012
 
 rtinit:
+        ldx #7                  ; the KERNAL editor keeps state in
+_rtinit_zpsave:                 ; $f7-$fe, which the runtime borrows
+        lda varptr,x            ; for its pointers; hand the editor's
+        sta edzpsave,x          ; bytes back at rtexit (READY text
+        dex                     ; went black without this)
+        bpl _rtinit_zpsave
         lda #0                  ; the program header lives at rtpbhi<<8
         sta rtptr
         lda rtpbhi
@@ -165,6 +171,12 @@ rtexit:
         txs
         lda rtd030save
         sta $d030
+        ldx #7
+_rtexit_zprest:
+        lda edzpsave,x
+        sta varptr,x
+        dex
+        bpl _rtexit_zprest
         rts
 
 ;=======================================================================================
@@ -2579,6 +2591,14 @@ inputline:
         jsr printch
         lda #$20
         jsr printch
+        ldx #7                  ; CHRIN runs the KERNAL screen editor,
+_inputline_save:                ; whose state lives in $f7-$fe where
+        lda varptr,x            ; the runtime keeps its pointers: park
+        sta inputzpsave,x       ; ours and hand the editor its own
+        lda edzpsave,x          ; bytes for the duration of the read
+        sta varptr,x            ; (varptr+3 corruption crashed fpack)
+        dex
+        bpl _inputline_save
         lda #0
         sta inputpos
         sta inputlen
@@ -2593,6 +2613,14 @@ inputlineloop:
         inc inputlen
         jmp inputlineloop
 inputlinedone:
+        ldx #7
+_inputline_restore:
+        lda varptr,x            ; editor state (possibly updated) back
+        sta edzpsave,x          ; to its parking spot, our pointers in
+        lda inputzpsave,x
+        sta varptr,x
+        dex
+        bpl _inputline_restore
         ldx inputlen
         lda #0
         sta inputbuf,x
@@ -4031,6 +4059,8 @@ scr_c:        .byte 0,0
 scr_r:        .byte 0
 cur_c:        .byte 0
 cur_r:        .byte 0
+inputzpsave:  .fill 8, 0
+edzpsave:     .fill 8, 0
 scr_off:      .byte 0,0
 ch_off:       .byte 0,0
 ch_k:         .byte 0

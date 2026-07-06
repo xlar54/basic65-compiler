@@ -5689,7 +5689,8 @@ scrarr_probe:
         bne _sap_no
 _sap_check:
         stx scrarr_kind
-        lda line_idx
+        sta scrarr_chr          ; callers pass the first char in A and
+        lda line_idx            ; expect it back untouched on a miss
         sta scrarr_save
         jsr line_at_end
         bcs _sap_restore
@@ -5706,9 +5707,10 @@ _sap_check:
 _sap_restore:
         lda scrarr_save
         sta line_idx
-_sap_no:
-        sec
-        rts
+        lda scrarr_chr          ; without this, A was the line index and
+_sap_no:                        ; every T/C variable in expression
+        sec                     ; context resolved to a column-keyed
+        rts                     ; phantom slot (source.bas E=10 border)
 
 ; "(col, row)" -> emitted setters
 compile_scrarr_index:
@@ -15171,6 +15173,8 @@ cmd2_tail:
 scrarr_kind:
         .byte 0
 scrarr_save:
+        .byte 0
+scrarr_chr:
         .byte 0
 brtab_lo:
         .byte 0
