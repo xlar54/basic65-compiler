@@ -6297,7 +6297,8 @@ envsetterhi:
         .byte >out_jsr_envseta, >out_jsr_envsetd, >out_jsr_envsetss
         .byte >out_jsr_envsetr, >out_jsr_envsetw, >out_jsr_envsetpw
 
-; MOVSPR num, x, y -- absolute pixel position form only
+; MOVSPR num, position: absolute x,y; +/- relative; angle#speed;
+; and start TO end, speed (IRQ-tick interpolation)
 compile_movspr:
         jsr compile_expression
         bcs compile_sprite_bad
@@ -6306,17 +6307,101 @@ compile_movspr:
         jsr out_zstr
         jsr parse_comma
         bcs compile_sprite_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compile_sprite_bad
+        jsr line_peek
+        cmp #TOK_PLUS
+        beq _movspr_relx
+        cmp #TOK_MINUS
+        beq _movspr_relx
         jsr compile_expression
         bcs compile_sprite_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compile_sprite_bad
+        jsr line_peek
+        cmp #'#'
+        beq _movspr_angle
         lda #<out_jsr_sprsetx
         ldy #>out_jsr_sprsetx
+        jsr out_zstr
+        bra _movspr_y
+_movspr_relx:
+        cmp #TOK_PLUS           ; the + is the relative marker, not a
+        bne +                   ; unary operator; - compiles as unary
+        jsr line_get
++       jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsetxr
+        ldy #>out_jsr_sprsetxr
+        jsr out_zstr
+_movspr_y:
+        jsr parse_comma
+        bcs compile_sprite_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs compile_sprite_bad
+        jsr line_peek
+        cmp #TOK_PLUS
+        beq _movspr_rely
+        cmp #TOK_MINUS
+        beq _movspr_rely
+        jsr compile_expression
+        bcs compile_sprite_bad
+        bra _movspr_place
+_movspr_rely:
+        cmp #TOK_PLUS
+        bne +
+        jsr line_get
++       jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsetyr
+        ldy #>out_jsr_sprsetyr
+        jsr out_zstr
+_movspr_place:
+        lda #<out_jsr_movsprgo
+        ldy #>out_jsr_movsprgo
+        jsr out_zstr
+        ; optional: TO endx, endy, speed
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _movspr_done
+        jsr line_peek
+        cmp #TOK_TO
+        bne _movspr_done
+        jsr line_get
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprsettx
+        ldy #>out_jsr_sprsettx
         jsr out_zstr
         jsr parse_comma
         bcs compile_sprite_bad
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_movsprgo
-        ldy #>out_jsr_movsprgo
+        lda #<out_jsr_sprsetty
+        ldy #>out_jsr_sprsetty
+        jsr out_zstr
+        jsr parse_comma
+        bcs compile_sprite_bad
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprgoto
+        ldy #>out_jsr_sprgoto
+        jsr out_zstr
+_movspr_done:
+        clc
+        rts
+_movspr_angle:
+        lda #<out_jsr_sprsetx   ; the angle stages through spr_x
+        ldy #>out_jsr_sprsetx
+        jsr out_zstr
+        jsr line_get            ; consume #
+        jsr compile_expression
+        bcs compile_sprite_bad
+        lda #<out_jsr_sprgoang
+        ldy #>out_jsr_sprgoang
         jsr out_zstr
         clc
         rts
@@ -13451,6 +13536,48 @@ out_jsr_decbinf:
 out_jsr_strbinf:
 .if TEXT_EMITTER
         .text "        jsr strbinf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsetxr:
+.if TEXT_EMITTER
+        .text "        jsr sprsetxr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsetyr:
+.if TEXT_EMITTER
+        .text "        jsr sprsetyr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsettx:
+.if TEXT_EMITTER
+        .text "        jsr sprsettx"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsetty:
+.if TEXT_EMITTER
+        .text "        jsr sprsetty"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprgoto:
+.if TEXT_EMITTER
+        .text "        jsr sprgoto"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprgoang:
+.if TEXT_EMITTER
+        .text "        jsr sprgoang"
         .byte 13, 0
 .else
         .byte 0

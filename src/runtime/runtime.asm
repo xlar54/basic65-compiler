@@ -66,7 +66,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $6000            ; hard cap; actual progbase is per-program
+progbase     = $6800            ; hard cap (sectioning fio/math out of core is the real fix)
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -6367,6 +6367,9 @@ sprsetx:
 
 ; MOVSPR n,x,y: y arrives in exprlo, x was staged by sprsetx
 movsprgo:
+        ldx spr_n
+        lda #0
+        sta mo_mode,x
         lda spr_n
         asl a
         tay
@@ -6495,6 +6498,7 @@ rtsound_isr:
         jsr play_tick
         jsr mouse_tick
         jsr col_tick
+        jsr spr_tick
         ldx #5
 _snd_isr_loop:
         lda snd_dur_lo,x
@@ -6616,6 +6620,12 @@ sndshutdown:
         lda #0
         sta mou_on
         sta col_armed
+        ldx #7
+_sndshut_mo:
+        sta mo_mode,x
+        dex
+        bpl _sndshut_mo
+        lda #0
         sta col_pending
         sta col_active
         jsr playoff
@@ -6746,8 +6756,10 @@ _rsppos_y:
         sta exprhi
         rts
 _rsppos_spd:
-        lda #0
+        ldx spr_n
+        lda mo_speed,x
         sta exprlo
+        lda #0
         sta exprhi
         rts
 
@@ -6804,6 +6816,361 @@ _rspcolor_2:
         sta exprlo
         lda #0
         sta exprhi
+        rts
+
+; MOVSPR motion engine: per-sprite 8.8 fixed-point velocities applied
+; each frame in the IRQ tick. angle#speed converts through SIN/COS at
+; statement time (0 degrees = up, clockwise, speed in pixels/frame);
+; TO-interpolation computes a per-frame vector and a frame count, then
+; snaps to the target and stops. Absolute/relative placement cancels
+; any running motion for that sprite.
+cdeg2rad:
+        .byte $7b, $0e, $fa, $35, $13
+c256f:
+        .byte $89, $00, $00, $00, $00
+
+; A = value in FAC -> signed 8.8 in exprlo/exprhi (value * 256, qint)
+sprfix88:
+        lda #<c256f
+        ldy #>c256f
+        jsr fldca
+        jsr fmul
+        jmp qint
+
+; angle#speed: angle staged by sprsetx (integer degrees), speed in
+; exprlo; compute vx = s*sin(a), vy = -s*cos(a)
+sprgoang:
+        lda exprlo
+        sta spr_spd
+        ldx spr_n
+        sta mo_speed,x
+        lda spr_x               ; angle -> radians in FAC
+        sta exprlo
+        lda spr_x+1
+        sta exprhi
+        jsr float16
+        lda #<cdeg2rad
+        ldy #>cdeg2rad
+        jsr fldca
+        jsr fmul
+        ldx #14
+        jsr fsavb               ; radians in buffer 2
+        jsr sinf
+        jsr _sprspeedmul        ; FAC = sin(a) * speed
+        jsr sprfix88
+        ldx spr_n
+        lda exprlo
+        sta mo_vxl,x
+        lda exprhi
+        sta mo_vxh,x
+        ldx #14
+        jsr frstb
+        jsr cosf
+        jsr _sprspeedmul
+        lda facsgn              ; vy = -speed*cos(a)
+        eor #$ff
+        sta facsgn
+        jsr sprfix88
+        ldx spr_n
+        lda exprlo
+        sta mo_vyl,x
+        lda exprhi
+        sta mo_vyh,x
+        jsr sprsyncpos
+        lda #1                  ; endless velocity mode
+        sta mo_mode,x
+        rts
+
+_sprspeedmul:
+        jsr fpush
+        lda spr_spd
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fpoparg
+        jmp fmul
+
+; TO-interpolation: target staged in spr_tx/spr_ty, speed in exprlo;
+; frames = max(|dx|,|dy|) / speed (at least 1), v = delta/frames
+sprgoto:
+        lda exprlo
+        bne +
+        lda #1                  ; speed 0 would never arrive
+        sta exprlo
++       lda exprlo
+        sta spr_spd
+        ldx spr_n
+        sta mo_speed,x
+        jsr sprsyncpos
+        ; dx = tx - x (16-bit signed), dy = ty - y
+        ldx spr_n
+        sec
+        lda spr_tx
+        sbc mo_xw,x
+        sta spr_dx
+        lda spr_tx+1
+        sbc mo_xwh,x
+        sta spr_dx+1
+        sec
+        lda spr_ty
+        sbc mo_yw,x
+        sta spr_dy
+        lda spr_dy+1
+        lda #0
+        sbc #0
+        sta spr_dy+1
+        lda spr_ty+1
+        beq +
++       ; frames = ceil(max(|dx|,|dy|) / speed), computed in floats
+        lda spr_dx
+        sta exprlo
+        lda spr_dx+1
+        sta exprhi
+        jsr float16
+        lda facsgn
+        pha
+        lda #0
+        sta facsgn              ; |dx|
+        ldx #7
+        jsr fsavb
+        lda spr_dy
+        sta exprlo
+        lda spr_dy+1
+        sta exprhi
+        jsr float16
+        lda facsgn
+        pha
+        lda #0
+        sta facsgn              ; |dy|
+        ldx #7
+        jsr fargb
+        jsr fcmp                ; FAC=|dy| vs ARG=|dx|
+        cmp #1
+        beq +                   ; |dy| bigger: keep FAC
+        ldx #7
+        jsr frstb               ; else use |dx|
++       jsr fpush
+        lda spr_spd
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fpoparg
+        jsr fdiv                ; frames = maxdelta / speed
+        jsr qint
+        pla
+        pla                     ; drop the saved signs
+        inc exprlo              ; ceil-ish, and never zero
+        bne +
+        inc exprhi
++       ldx spr_n
+        lda exprlo
+        sta mo_cntl,x
+        lda exprhi
+        sta mo_cnth,x
+        sta spr_fr+1
+        lda exprlo
+        sta spr_fr
+        ; vx = dx*256/frames, vy = dy*256/frames (signed 8.8)
+        lda spr_dx
+        sta exprlo
+        lda spr_dx+1
+        sta exprhi
+        jsr float16
+        jsr _spr_divfr
+        ldx spr_n
+        lda exprlo
+        sta mo_vxl,x
+        lda exprhi
+        sta mo_vxh,x
+        lda spr_dy
+        sta exprlo
+        lda spr_dy+1
+        sta exprhi
+        jsr float16
+        jsr _spr_divfr
+        ldx spr_n
+        lda exprlo
+        sta mo_vyl,x
+        lda exprhi
+        sta mo_vyh,x
+        lda spr_tx
+        sta mo_txl,x
+        lda spr_tx+1
+        sta mo_txh,x
+        lda spr_ty
+        sta mo_ty,x
+        lda #2                  ; counted interpolation mode
+        sta mo_mode,x
+        rts
+
+; FAC = FAC * 256 / frames -> signed 8.8 int
+_spr_divfr:
+        lda #<c256f
+        ldy #>c256f
+        jsr fldca
+        jsr fmul
+        jsr fpush
+        lda spr_fr
+        sta exprlo
+        lda spr_fr+1
+        sta exprhi
+        jsr float16
+        jsr fpoparg
+        jsr fdiv
+        jmp qint
+
+; copy the sprite's current VIC position into the motion state
+sprsyncpos:
+        ldx spr_n
+        txa
+        asl a
+        tay
+        lda $d000,y
+        sta mo_xw,x
+        lda #0
+        sta mo_xwh,x
+        lda $d010
+        and sprbit,x
+        beq +
+        lda #1
+        sta mo_xwh,x
++       lda $d001,y
+        sta mo_yw,x
+        lda #0
+        sta mo_xf,x
+        sta mo_yf,x
+        rts
+
+; TO/velocity targets staged before sprgoto
+sprsettx:
+        lda exprlo
+        sta spr_tx
+        lda exprhi
+        sta spr_tx+1
+        rts
+
+sprsetty:
+        lda exprlo
+        sta spr_ty
+        lda exprhi
+        sta spr_ty+1
+        rts
+
+; relative placement: add the current position to the staged value
+sprsetxr:
+        jsr sprsyncpos
+        ldx spr_n
+        clc
+        lda exprlo
+        adc mo_xw,x
+        sta spr_x
+        lda exprhi
+        adc mo_xwh,x
+        sta spr_x+1
+        rts
+
+sprsetyr:
+        ldx spr_n
+        clc
+        lda exprlo
+        adc mo_yw,x
+        sta exprlo
+        rts
+
+; the per-frame tick: advance moving sprites, write the VIC registers
+spr_tick:
+        ldx #7
+_sprt_loop:
+        lda mo_mode,x
+        beq _sprt_next
+        clc                     ; x += vx (16.8)
+        lda mo_xf,x
+        adc mo_vxl,x
+        sta mo_xf,x
+        lda mo_xw,x
+        adc mo_vxh,x
+        sta mo_xw,x
+        lda mo_vxh,x
+        bmi _sprt_xneg
+        lda mo_xwh,x
+        adc #0
+        bra _sprt_xstore
+_sprt_xneg:
+        lda mo_xwh,x
+        adc #$ff
+_sprt_xstore:
+        and #1                  ; wrap into the 9-bit VIC range
+        sta mo_xwh,x
+        clc                     ; y += vy (8.8, wraps as a byte)
+        lda mo_yf,x
+        adc mo_vyl,x
+        sta mo_yf,x
+        lda mo_yw,x
+        adc mo_vyh,x
+        sta mo_yw,x
+        ; write the VIC position
+        txa
+        asl a
+        tay
+        lda mo_xw,x
+        sta $d000,y
+        lda mo_yw,x
+        sta $d001,y
+        lda mo_xwh,x
+        beq _sprt_msboff
+        lda sprbit,x
+        ora $d010
+        sta $d010
+        bra _sprt_count
+_sprt_msboff:
+        lda sprbit,x
+        eor #$ff
+        and $d010
+        sta $d010
+_sprt_count:
+        lda mo_mode,x
+        cmp #2
+        bne _sprt_next
+        lda mo_cntl,x           ; counted mode: arrive and snap
+        bne +
+        dec mo_cnth,x
++       dec mo_cntl,x
+        lda mo_cntl,x
+        ora mo_cnth,x
+        bne _sprt_next
+        lda mo_txl,x            ; snap to the exact target
+        sta mo_xw,x
+        lda mo_txh,x
+        and #1
+        sta mo_xwh,x
+        lda mo_ty,x
+        sta mo_yw,x
+        txa
+        asl a
+        tay
+        lda mo_xw,x
+        sta $d000,y
+        lda mo_yw,x
+        sta $d001,y
+        lda mo_xwh,x
+        beq _sprt_smsboff
+        lda sprbit,x
+        ora $d010
+        sta $d010
+        bra _sprt_stop
+_sprt_smsboff:
+        lda sprbit,x
+        eor #$ff
+        and $d010
+        sta $d010
+_sprt_stop:
+        lda #0
+        sta mo_mode,x
+_sprt_next:
+        dex
+        bpl _sprt_loop
         rts
 
 ; COLLISION type[,line]: the IRQ tick latches VIC collision bits into
@@ -7406,6 +7773,28 @@ flt_tmp2:     .byte 0
 flt_mode:     .byte 0,0
 flt_res:      .byte 0,0
 flt_rout:     .byte 0,0
+spr_spd:      .byte 0
+spr_dx:       .byte 0,0
+spr_dy:       .byte 0,0
+spr_tx:       .byte 0,0
+spr_ty:       .byte 0,0
+spr_fr:       .byte 0,0
+mo_mode:      .fill 8, 0
+mo_xw:        .fill 8, 0
+mo_xwh:       .fill 8, 0
+mo_xf:        .fill 8, 0
+mo_yw:        .fill 8, 0
+mo_yf:        .fill 8, 0
+mo_vxl:       .fill 8, 0
+mo_vxh:       .fill 8, 0
+mo_vyl:       .fill 8, 0
+mo_vyh:       .fill 8, 0
+mo_txl:       .fill 8, 0
+mo_txh:       .fill 8, 0
+mo_ty:        .fill 8, 0
+mo_cntl:      .fill 8, 0
+mo_cnth:      .fill 8, 0
+mo_speed:     .fill 8, 0
 col_t:        .byte 0
 coltmp:      .byte 0,0
 col_new:      .byte 0
