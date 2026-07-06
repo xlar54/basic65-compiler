@@ -7216,7 +7216,8 @@ colarm:
         sta col_vlo,x
         lda coltmp+1
         sta col_vhi,x
-        jsr sndinit             ; needs the IRQ tick
+        jsr sndinit             ; needs the IRQ tick (clobbers X!)
+        ldx col_t
         lda colbit,x
         ora col_armed
         sta col_armed

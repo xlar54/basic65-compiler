@@ -275,11 +275,11 @@ bt_out_jsr_colarm:
 
 bt_out_jsr_colcheck:
         .byte 0, 3
-        .byte $20, $14, $59
+        .byte $20, $17, $59
 
 bt_out_jsr_coloff:
         .byte 0, 3
-        .byte $20, $bb, $58
+        .byte $20, $be, $58
 
 bt_out_jsr_colsett:
         .byte 0, 3
@@ -455,27 +455,27 @@ bt_out_jsr_float16:
 
 bt_out_jsr_fltsetbp:
         .byte 0, 3
-        .byte $20, $9b, $5b
+        .byte $20, $9e, $5b
 
 bt_out_jsr_fltsetf:
         .byte 0, 3
-        .byte $20, $70, $5b
+        .byte $20, $73, $5b
 
 bt_out_jsr_fltsethp:
         .byte 0, 3
-        .byte $20, $9f, $5b
+        .byte $20, $a2, $5b
 
 bt_out_jsr_fltsetlp:
         .byte 0, 3
-        .byte $20, $97, $5b
+        .byte $20, $9a, $5b
 
 bt_out_jsr_fltsetn:
         .byte 0, 3
-        .byte $20, $62, $5b
+        .byte $20, $65, $5b
 
 bt_out_jsr_fltsetres:
         .byte 0, 3
-        .byte $20, $c9, $5b
+        .byte $20, $cc, $5b
 
 bt_out_jsr_fmul:
         .byte 0, 3
@@ -587,27 +587,27 @@ bt_out_jsr_modseta:
 
 bt_out_jsr_mouseoff:
         .byte 0, 3
-        .byte $20, $00, $5a
+        .byte $20, $03, $5a
 
 bt_out_jsr_mouseon:
         .byte 0, 3
-        .byte $20, $c9, $59
+        .byte $20, $cc, $59
 
 bt_out_jsr_mousetp:
         .byte 0, 3
-        .byte $20, $56, $59
+        .byte $20, $59, $59
 
 bt_out_jsr_mousets:
         .byte 0, 3
-        .byte $20, $6d, $59
+        .byte $20, $70, $59
 
 bt_out_jsr_mousetx:
         .byte 0, 3
-        .byte $20, $76, $59
+        .byte $20, $79, $59
 
 bt_out_jsr_mousety:
         .byte 0, 3
-        .byte $20, $83, $59
+        .byte $20, $86, $59
 
 bt_out_jsr_movsprgo:
         .byte 0, 3
@@ -687,7 +687,7 @@ bt_out_jsr_readstr:
 
 bt_out_jsr_rmousef:
         .byte 0, 3
-        .byte $20, $f6, $5a
+        .byte $20, $f9, $5a
 
 bt_out_jsr_rndf:
         .byte 0, 3
@@ -727,39 +727,39 @@ bt_out_jsr_sleepf:
 
 bt_out_jsr_sndgo:
         .byte 0, 3
-        .byte $20, $67, $5c
+        .byte $20, $6a, $5c
 
 bt_out_jsr_sndsetd:
         .byte 0, 3
-        .byte $20, $1d, $5c
+        .byte $20, $20, $5c
 
 bt_out_jsr_sndsetdr:
         .byte 0, 3
-        .byte $20, $2a, $5c
+        .byte $20, $2d, $5c
 
 bt_out_jsr_sndsetf:
         .byte 0, 3
-        .byte $20, $10, $5c
+        .byte $20, $13, $5c
 
 bt_out_jsr_sndsetm:
         .byte 0, 3
-        .byte $20, $37, $5c
+        .byte $20, $3a, $5c
 
 bt_out_jsr_sndsetp:
         .byte 0, 3
-        .byte $20, $5a, $5c
+        .byte $20, $5d, $5c
 
 bt_out_jsr_sndsets:
         .byte 0, 3
-        .byte $20, $44, $5c
+        .byte $20, $47, $5c
 
 bt_out_jsr_sndsetv:
         .byte 0, 3
-        .byte $20, $00, $5c
+        .byte $20, $03, $5c
 
 bt_out_jsr_sndsetw:
         .byte 0, 3
-        .byte $20, $51, $5c
+        .byte $20, $54, $5c
 
 bt_out_jsr_spcn:
         .byte 0, 3
@@ -955,7 +955,7 @@ bt_out_jsr_valstr:
 
 bt_out_jsr_volsnd:
         .byte 0, 3
-        .byte $20, $e2, $5b
+        .byte $20, $e5, $5b
 
 bt_out_jsr_waitgo:
         .byte 0, 3
@@ -975,15 +975,15 @@ bt_out_jsr_waitsetx:
 
 bt_out_ld_mourb:
         .byte 0, 12
-        .byte $ad, $1b, $5e, $8d, $35, $46, $ad, $1c, $5e, $8d, $36, $46
+        .byte $ad, $1e, $5e, $8d, $35, $46, $ad, $1f, $5e, $8d, $36, $46
 
 bt_out_ld_mourx:
         .byte 0, 12
-        .byte $ad, $17, $5e, $8d, $35, $46, $ad, $18, $5e, $8d, $36, $46
+        .byte $ad, $1a, $5e, $8d, $35, $46, $ad, $1b, $5e, $8d, $36, $46
 
 bt_out_ld_moury:
         .byte 0, 12
-        .byte $ad, $19, $5e, $8d, $35, $46, $ad, $1a, $5e, $8d, $36, $46
+        .byte $ad, $1c, $5e, $8d, $35, $46, $ad, $1d, $5e, $8d, $36, $46
 
 bt_out_lda_exprhi:
         .byte 0, 3
@@ -1098,11 +1098,11 @@ bt_out_sta_abs:
 
 bt_out_sta_coltmp:
         .byte 0, 3
-        .byte $8d, $fc, $5d
+        .byte $8d, $ff, $5d
 
 bt_out_sta_coltmp1:
         .byte 0, 3
-        .byte $8d, $fd, $5d
+        .byte $8d, $00, $5e
 
 bt_out_sta_curline:
         .byte 0, 3
@@ -1142,7 +1142,7 @@ bt_out_sta_lhslo:
 
 bt_out_sta_playarg:
         .byte 0, 3
-        .byte $8d, $5d, $5d
+        .byte $8d, $60, $5d
 
 bt_out_sta_rtptr:
         .byte 0, 2
