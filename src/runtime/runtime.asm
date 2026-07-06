@@ -7797,8 +7797,9 @@ fltsetf:
         lda exprlo
         and #7
         sta $d415,y
-        lda exprhi
-        and #$0f
+        lda exprhi              ; FC_hi = value >> 3: high byte << 5,
+        and #$07                ; not << 4 -- every cutoff >= 256 was
+        asl a                   ; mis-scaled (the timbre discrepancy)
         asl a
         asl a
         asl a
