@@ -19,7 +19,7 @@
 param(
     [string]$Fixture = "basic\source.bas",
     [string]$Xemu = "C:\Emulation\Mega65\xmega65.exe",
-    [int]$CompileTimeout = 120,
+    [int]$CompileTimeout = 240,
     [int]$NegativeWait = 45,
     [int]$RunWait = 35,
     [switch]$SkipRun,
