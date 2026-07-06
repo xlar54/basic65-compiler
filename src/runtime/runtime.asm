@@ -6212,8 +6212,11 @@ _playtrk_copied:
         sta play_oct,x
         lda play_durtab+2       ; quarter notes until changed
         sta play_dur,x
+        lda snd_vol             ; volume must keep the FILTER mode bits:
+        ora flt_mode            ; a raw write here bypassed the filter
+        sta $d418               ; for every note PLAYed after a FILTER
         lda snd_vol
-        sta $d418
+        ora flt_mode+1
         sta $d458
         lda #1
         sta play_act,x
@@ -6353,7 +6356,11 @@ _ptick_char:
         bcs _ptick_scan
         tay
         lda play_voltab,y
+        sta snd_vol             ; U is the master volume; keep the
+        ora flt_mode            ; FILTER mode bits when rewriting
         sta $d418
+        lda snd_vol
+        ora flt_mode+1
         sta $d458
         bra _ptick_scan
 +       cmp #$58                ; X: filter this voice
