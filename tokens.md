@@ -22,7 +22,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 68 | 7 | 50 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 28 | 1 (OFF) | 41 |
+| $FE-prefixed statements | 70 | 30 | 1 (OFF) | 39 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -245,8 +245,8 @@ Legend:
 | $FE $3E | MOUSE | ✅ | MOUSE ON/OFF; position pair rejected (ROM rejects it too) |
 | $FE $3F | RMOUSE | ✅ | 1351 IRQ driver with built-in pointer sprite |
 | $FE $40 | DISK | ❌ | |
-| $FE $41 | CURSOR | ❌ | |
-| $FE $42 | RCURSOR | ❌ | |
+| $FE $41 | CURSOR | ⚠️ | positioning only: CURSOR [col][,row] via KERNAL PLOT; ON/OFF/style forms rejected |
+| $FE $42 | RCURSOR | ✅ | RCURSOR colvar,rowvar (zero-based) |
 | $FE $43 | LOADIFF | ❌ | |
 | $FE $44 | SAVEIFF | ❌ | |
 | $FE $45 | EDIT | ✖ | editor |

@@ -17,6 +17,9 @@ matches the compiled output.
 - [ ] cheap.bas        (XOR/MOD/LOG10/FRE/ERR$/SLEEP/WAIT/readers/TI$)
 - [ ] disk.bas         (DOPEN/RENAME/COPY/SCRATCH/DS$/BSAVE/BLOAD)
 - [x] concat.bas       (CONCAT -- interpreter verified 2026-07-06)
+- [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
+      verified 2026-07-06, interpreted run pending. Note: CURSOR
+      ON/OFF/style unsupported compiled -- positioning only.)
 - [ ] sprite.bas       (register round-trips)
 - [ ] mandel.bas, sieve.bas, ahl.bas
       (same output; note interpreted vs compiled SECONDS for the table;

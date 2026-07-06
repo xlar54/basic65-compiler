@@ -1960,94 +1960,18 @@ _compile_line_loop:
         jsr out_zstr
 +
         jsr line_get
-        cmp #TOK_FOR
-        beq _compile_for
-        cmp #TOK_NEXT
-        beq _compile_next
-        cmp #TOK_DO
-        beq _compile_do
-        cmp #TOK_LOOP
-        beq _compile_loop
-        cmp #TOK_EXIT
-        beq _compile_exit
-        cmp #TOK_PRINT
-        beq _compile_print
-        cmp #TOK_INPUT
-        beq _compile_input
-        cmp #TOK_GET
-        beq _compile_get
-        cmp #TOK_GOTO
-        beq _compile_goto
-        cmp #TOK_GOSUB
-        beq _compile_gosub
-        cmp #TOK_RETURN
-        beq _compile_return
-        cmp #TOK_END
-        beq _compile_end
-        cmp #TOK_STOP
-        beq _compile_end
-        cmp #TOK_REM
-        beq _compile_rem
-        cmp #TOK_SYS
-        beq _compile_sys
-        cmp #TOK_POKE
-        beq _compile_poke
-        cmp #TOK_GO
-        beq _compile_go
-        cmp #TOK_ON
-        beq _compile_on
-        cmp #TOK_DATA
-        beq _compile_data
-        cmp #TOK_DIM
-        beq _compile_dim
-        cmp #TOK_READ
-        beq _compile_read
-        cmp #TOK_RESTORE
-        beq _compile_restore
-        cmp #TOK_LET
-        beq _compile_let
-        cmp #TOK_CLR
-        beq _compile_clr
-        cmp #TOK_IF
-        beq _compile_if
-        cmp #TOK_ELSE
-        beq _compile_else
-        cmp #TOK_PRINT_HASH
-        beq _compile_print_hash
-        cmp #TOK_OPEN
-        beq _compile_open
-        cmp #TOK_CLOSE
-        beq _compile_close
-        cmp #TOK_INPUT_HASH
-        beq _compile_input_hash
-        cmp #TOK_TRAP
-        beq _compile_trap
-        cmp #TOK_RESUME
-        beq _compile_resume
-        cmp #TOK_SOUND
-        beq _compile_sound
-        cmp #TOK_VOL
-        beq _compile_vol
-        cmp #TOK_WAIT
-        beq _compile_wait
-        cmp #TOK_SCRATCH
-        beq _compile_dcmd
-        cmp #TOK_HEADER
-        beq _compile_dcmd
-        cmp #TOK_COLLECT
-        beq _compile_dcmd
-        cmp #TOK_COPY
-        beq _compile_dcmd
-        cmp #TOK_RENAME
-        beq _compile_dcmd
-        cmp #TOK_COLOR
-        beq _compile_fg
-        cmp #TOK_EXT_E0
-        beq _compile_e0
+        cmp #TOK_ELSE           ; ELSE returns out of the line loop, so
+        beq _compile_else       ; it stays outside the jsr dispatch
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
         beq _compile_extended_fe
+        ldx #(_stab_end - _stab) - 1
+_compile_stmt_scan:
+        cmp _stab,x
+        beq _compile_stmt_hit
+        dex
+        bpl _compile_stmt_scan
 
         sta token_value
         lda token_value
@@ -2056,177 +1980,16 @@ _compile_line_loop:
         bcc _compile_assignment_from_token
         bra _compile_unsupported_statement
 
-_compile_for:
-        jsr compile_for
-        bra _compile_line_loop
-
-_compile_next:
-        jsr compile_next
-        bra _compile_line_loop
-
-_compile_do:
-        jsr compile_do
-        bra _compile_line_loop
-
-_compile_loop:
-        jsr compile_loop
-        bra _compile_line_loop
-
-_compile_exit:
-        jsr compile_exit
-        bra _compile_line_loop
-
-_compile_print:
-        jsr compile_print
-        bra _compile_line_loop
-
-_compile_input:
-        jsr compile_input
-        bra _compile_line_loop
-
-_compile_get:
-        jsr compile_get
-        bra _compile_line_loop
-
-_compile_goto:
-        jsr compile_goto
-        bra _compile_line_loop
-
-_compile_gosub:
-        jsr compile_gosub
-        bra _compile_line_loop
-
-_compile_return:
-        lda #<out_rts
-        ldy #>out_rts
-        jsr out_zstr
-        bra _compile_line_loop
-
-_compile_end:
-        lda #<out_jmp_rtexit
-        ldy #>out_jmp_rtexit
-        jsr out_zstr
-        jsr line_skip_to_end
-        bra _compile_line_loop
-
-_compile_rem:
-        jsr compile_rem
-        bra _compile_line_loop
-
-_compile_sys:
-        jsr compile_sys
-        bra _compile_line_loop
-
-_compile_poke:
-        jsr compile_poke
-        bra _compile_line_loop
-
-_compile_go:
-        jsr compile_go
-        bra _compile_line_loop
-
-_compile_on:
-        jsr compile_on
-        bra _compile_line_loop
-
-_compile_data:
-        lda #<out_data_comment
-        ldy #>out_data_comment
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
-        bra _compile_line_loop
-
-_compile_dim:
-        lda #<out_dim_comment
-        ldy #>out_dim_comment
-        jsr out_zstr
-        jsr line_skip_to_stmt_end
-        bra _compile_line_loop
-
-_compile_read:
-        jsr compile_read
-        bra _compile_line_loop
-
-_compile_restore:
-        jsr compile_restore
-        bra _compile_line_loop
-
-_compile_let:
-        jsr compile_let
-        bra _compile_line_loop
-
-_compile_clr:
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _compile_clr_plain
-        jsr line_peek
-        cmp #$54                ; CLR TI resets the seconds timer
-        bne _compile_clr_plain
-        jsr line_get
-        jsr line_get
-        cmp #$49
-        bne _compile_clr_plain
-        lda #<out_jsr_clrti
-        ldy #>out_jsr_clrti
-        jsr out_zstr
+_compile_stmt_hit:
+        pha                     ; index -> jump table offset while keeping
+        txa                     ; the token in A (compile_diskcmd picks its
+        asl a                   ; DOS prefix from it)
+        tax
+        pla
+        jsr _compile_stmt_call
         jmp _compile_line_loop
-_compile_clr_plain:
-        lda #<out_jsr_rtclr
-        ldy #>out_jsr_rtclr
-        jsr out_zstr
-        jmp _compile_line_loop
-
-_compile_print_hash:
-        jsr compile_print_hash
-        jmp _compile_line_loop
-
-_compile_open:
-        jsr compile_open
-        jmp _compile_line_loop
-
-_compile_close:
-        jsr compile_close
-        jmp _compile_line_loop
-
-_compile_input_hash:
-        jsr compile_input_hash
-        jmp _compile_line_loop
-
-_compile_trap:
-        jsr compile_trap
-        jmp _compile_line_loop
-
-_compile_resume:
-        jsr compile_resume
-        jmp _compile_line_loop
-
-_compile_sound:
-        jsr compile_sound
-        jmp _compile_line_loop
-
-_compile_vol:
-        jsr compile_vol
-        jmp _compile_line_loop
-
-_compile_wait:
-        jsr compile_wait
-        jmp _compile_line_loop
-
-_compile_dcmd:
-        jsr compile_diskcmd
-        jmp _compile_line_loop
-
-_compile_fg:
-        jsr compile_attr_fg
-        jmp _compile_line_loop
-
-_compile_e0:
-        jsr compile_e0
-        jmp _compile_line_loop
-
-_compile_if:
-        jsr compile_if
-        bra _compile_line_loop
+_compile_stmt_call:
+        jmp (_stmt_jtab,x)
 
 _compile_else:
         lda compile_stop_on_else
@@ -2241,7 +2004,74 @@ _compile_else_bad:
         lda #<msg_error_bad_else
         ldy #>msg_error_bad_else
         jsr fatal_statement_error
-        bra _compile_line_loop
+        jmp _compile_line_loop
+
+; statement tokens, index-paired with handlers; handlers follow the
+; jsr convention (rts returns to the line loop)
+_stab:
+        .byte TOK_FOR, TOK_NEXT, TOK_DO, TOK_LOOP, TOK_EXIT, TOK_PRINT
+        .byte TOK_INPUT, TOK_GET, TOK_GOTO, TOK_GOSUB, TOK_RETURN
+        .byte TOK_END, TOK_STOP, TOK_REM, TOK_SYS, TOK_POKE, TOK_GO
+        .byte TOK_ON, TOK_DATA, TOK_DIM, TOK_READ, TOK_RESTORE, TOK_LET
+        .byte TOK_CLR, TOK_IF, TOK_PRINT_HASH, TOK_OPEN, TOK_CLOSE
+        .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
+        .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
+        .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0
+_stab_end:
+_stmt_jtab:
+        .word compile_for, compile_next, compile_do, compile_loop
+        .word compile_exit, compile_print, compile_input, compile_get
+        .word compile_goto, compile_gosub, _stmt_return, _stmt_end
+        .word _stmt_end, compile_rem, compile_sys, compile_poke
+        .word compile_go, compile_on, _stmt_data, _stmt_dim
+        .word compile_read, compile_restore, compile_let, _stmt_clr
+        .word compile_if, compile_print_hash, compile_open, compile_close
+        .word compile_input_hash, compile_trap, compile_resume
+        .word compile_sound, compile_vol, compile_wait, compile_diskcmd
+        .word compile_diskcmd, compile_diskcmd, compile_diskcmd
+        .word compile_diskcmd, compile_attr_fg, compile_e0
+
+_stmt_return:
+        lda #<out_rts
+        ldy #>out_rts
+        jmp out_zstr
+
+_stmt_end:
+        lda #<out_jmp_rtexit
+        ldy #>out_jmp_rtexit
+        jsr out_zstr
+        jmp line_skip_to_end
+
+_stmt_data:
+        lda #<out_data_comment
+        ldy #>out_data_comment
+        bra _stmt_skipstmt
+
+_stmt_dim:
+        lda #<out_dim_comment
+        ldy #>out_dim_comment
+_stmt_skipstmt:
+        jsr out_zstr
+        jmp line_skip_to_stmt_end
+
+_stmt_clr:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _stmt_clr_plain
+        jsr line_peek
+        cmp #$54                ; CLR TI resets the seconds timer
+        bne _stmt_clr_plain
+        jsr line_get
+        jsr line_get
+        cmp #$49
+        bne _stmt_clr_plain
+        lda #<out_jsr_clrti
+        ldy #>out_jsr_clrti
+        jmp out_zstr
+_stmt_clr_plain:
+        lda #<out_jsr_rtclr
+        ldy #>out_jsr_rtclr
+        jmp out_zstr
 
 _compile_assignment_from_token:
         lda token_value
@@ -2278,37 +2108,11 @@ _compile_unsupported_extended_emit:
         bra _compile_line_loop
 
 _compile_extended_fe:
-        jsr line_at_end
-        bcs _compile_unsupported_extended_fe
-        jsr line_peek
-        cmp #TOK_FE_WPOKE
-        beq _compile_wpoke
-        cmp #TOK_FE_BEGIN
-        beq _compile_begin
-        cmp #TOK_FE_BEND
-        beq _compile_bend
-
-_compile_unsupported_extended_fe:
         jsr compile_ext_fe
         bcs +
         jmp _compile_line_loop
 +       lda #TOK_EXT_FE
         bra _compile_unsupported_extended_token
-
-_compile_wpoke:
-        jsr line_get
-        jsr compile_wpoke
-        bra _compile_line_loop
-
-_compile_begin:
-        jsr line_get
-        jsr compile_begin
-        jmp _compile_line_loop
-
-_compile_bend:
-        jsr line_get
-        jsr compile_bend
-        jmp _compile_line_loop
 
 _compile_unsupported_statement:
         lda token_value         ; patch the offending byte into the message
@@ -5701,6 +5505,7 @@ _cef_tab:
         .byte $03, $04, $05, $0a, $0b, $3e, $3f, $0d
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
+        .byte $1d, $18, $19, $41, $42
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5709,6 +5514,8 @@ _cef_jtab:
         .word _compile_ext_dclear, _compile_ext_erase, _compile_ext_chdir, compile_collision
         .word compile_attr_fg, _compile_ext_bkg, _compile_ext_bdr, compile_movspr
         .word compile_sprite, compile_sprcolor, compile_concat, _compile_ext_format
+        .word compile_wpoke, compile_begin, compile_bend
+        .word compile_cursor, compile_rcursor
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6360,6 +6167,61 @@ compile_rmouse:
         clc
         rts
 _compile_rmouse_bad:
+        jmp compile_env_bad
+
+; CURSOR [col][,row]: position only -- the ROM's ON/OFF/style forms are
+; not supported (they error). Omitted arguments keep the current value.
+compile_cursor:
+        lda #<out_jsr_curinit
+        ldy #>out_jsr_curinit
+        jsr out_zstr
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cursor_go
+        jsr line_peek
+        cmp #$2c                ; leading comma: column omitted
+        beq _cursor_row
+        jsr compile_expression
+        bcs _cursor_bad
+        lda #<out_jsr_cursetc
+        ldy #>out_jsr_cursetc
+        jsr out_zstr
+_cursor_row:
+        jsr parse_opt_comma
+        bcs _cursor_go
+        jsr compile_expression
+        bcs _cursor_bad
+        lda #<out_jsr_cursetr
+        ldy #>out_jsr_cursetr
+        jsr out_zstr
+_cursor_go:
+        lda #<out_jsr_curgo
+        ldy #>out_jsr_curgo
+        jsr out_zstr
+        clc
+        rts
+_cursor_bad:
+        jmp compile_env_bad
+
+; RCURSOR colvar, rowvar
+compile_rcursor:
+        jsr compile_input_target_numeric
+        bcs _rcursor_bad
+        lda #<out_jsr_curcolf
+        ldy #>out_jsr_curcolf
+        jsr out_zstr
+        jsr emit_store_var
+        jsr parse_comma
+        bcs _rcursor_bad
+        jsr compile_input_target_numeric
+        bcs _rcursor_bad
+        lda #<out_jsr_currowf
+        ldy #>out_jsr_currowf
+        jsr out_zstr
+        jsr emit_store_var
+        clc
+        rts
+_rcursor_bad:
         jmp compile_env_bad
 
 ; parse a scalar numeric variable target into assign_var_* (RMOUSE)
@@ -13692,6 +13554,48 @@ out_jsr_cmdstr:
 out_jsr_cmdeq:
 .if TEXT_EMITTER
         .text "        jsr cmdeq"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_curinit:
+.if TEXT_EMITTER
+        .text "        jsr curinit"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cursetc:
+.if TEXT_EMITTER
+        .text "        jsr cursetc"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cursetr:
+.if TEXT_EMITTER
+        .text "        jsr cursetr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_curgo:
+.if TEXT_EMITTER
+        .text "        jsr curgo"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_curcolf:
+.if TEXT_EMITTER
+        .text "        jsr curcolf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_currowf:
+.if TEXT_EMITTER
+        .text "        jsr currowf"
         .byte 13, 0
 .else
         .byte 0

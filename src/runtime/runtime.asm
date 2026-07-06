@@ -4029,6 +4029,8 @@ rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
 scr_c:        .byte 0,0
 scr_r:        .byte 0
+cur_c:        .byte 0
+cur_r:        .byte 0
 scr_off:      .byte 0,0
 ch_off:       .byte 0,0
 ch_k:         .byte 0
@@ -4975,6 +4977,65 @@ spcn:
         dec exprlo
         bne -
 +       rts
+
+; CURSOR col,row positioning: curinit snapshots the current position
+; so omitted arguments keep their value; setters overwrite; curgo plots
+curinit:
+        phx
+        phy
+        sec
+        jsr kernalplot          ; row in X, column in Y
+        stx cur_r
+        sty cur_c
+        ply
+        plx
+        rts
+
+cursetc:
+        lda exprlo
+        sta cur_c
+        rts
+
+cursetr:
+        lda exprlo
+        sta cur_r
+        rts
+
+curgo:
+        phx
+        phy
+        ldx cur_r
+        ldy cur_c
+        clc
+        jsr kernalplot
+        ply
+        plx
+        rts
+
+; RCURSOR colvar, rowvar readers (zero-based, like the ROM)
+curcolf:
+        phx
+        phy
+        sec
+        jsr kernalplot
+        sty exprlo
+        lda #0
+        sta exprhi
+        ply
+        plx
+        rts
+
+currowf:
+        phx
+        phy
+        sec
+        jsr kernalplot
+        stx exprlo
+        lda #0
+        sta exprhi
+        ply
+        plx
+        rts
 
 ; current cursor column
 posf:
