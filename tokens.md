@@ -22,7 +22,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 68 | 7 | 50 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 26 | 1 (OFF) | 43 |
+| $FE-prefixed statements | 70 | 28 | 1 (OFF) | 41 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -202,7 +202,7 @@ Legend:
 | $FE $10 | BSAVE | ✅ | |
 | $FE $11 | BLOAD | ✅ | |
 | $FE $12 | RECORD | ❌ | |
-| $FE $13 | CONCAT | ❌ | |
+| $FE $13 | CONCAT | ✅ | DOS combine form; SEQ files only (DOS rule) |
 | $FE $14 | DVERIFY | ❌ | |
 | $FE $15 | DCLEAR | ✅ | |
 | $FE $16 | SPRSAV | ❌ | queued |
@@ -236,7 +236,7 @@ Legend:
 | $FE $34 | PALETTE | ❌ | graphics queued |
 | $FE $35 | DMODE | ❌ | graphics queued |
 | $FE $36 | DPAT | ❌ | graphics queued |
-| $FE $37 | FORMAT | ❌ | |
+| $FE $37 | FORMAT | ✅ | HEADER alias (same ROM routine, same compile path) |
 | $FE $38 | GENLOCK | ❌ | |
 | $FE $39 | FOREGROUND | ✅ | 0–15; ≥16 raises ILLEGAL QUANTITY (matches ROM V920413, despite book saying 0–31) |
 | $FE $3B | BACKGROUND | ✅ | 0–255 |

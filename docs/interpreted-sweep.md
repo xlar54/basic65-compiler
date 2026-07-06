@@ -16,6 +16,7 @@ matches the compiled output.
 - [ ] bin.bas          (DECBIN/STRBIN$ -- verified 2026-07-06)
 - [ ] cheap.bas        (XOR/MOD/LOG10/FRE/ERR$/SLEEP/WAIT/readers/TI$)
 - [ ] disk.bas         (DOPEN/RENAME/COPY/SCRATCH/DS$/BSAVE/BLOAD)
+- [x] concat.bas       (CONCAT -- interpreter verified 2026-07-06)
 - [ ] sprite.bas       (register round-trips)
 - [ ] mandel.bas, sieve.bas, ahl.bas
       (same output; note interpreted vs compiled SECONDS for the table;

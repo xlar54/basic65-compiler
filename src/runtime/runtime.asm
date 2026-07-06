@@ -5125,6 +5125,14 @@ cmdeq:
         lda #$3d                ; =
         bra cmdputc
 
+; CONCAT tail: the buffer holds "C0:target=" and exprlo/exprhi still
+; carries target; append it again, a comma, then the stashed appendfile
+cmdcat:
+        jsr cmdstr
+        lda #$2c                ; ,
+        jsr cmdputc
+        bra cmdstashout
+
 ; append the heap string whose descriptor is in exprlo/exprhi
 cmdstr:
         lda exprlo

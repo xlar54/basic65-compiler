@@ -1337,6 +1337,8 @@ _scan_vars_extended:
         beq _scan_ext_fio
         cmp #$4b
         beq _scan_ext_fio
+        cmp #$37                ; FORMAT (HEADER alias)
+        beq _scan_ext_fio
         bra _scan_ext_skip
 _scan_ext_col:
         ldx #1
@@ -5676,122 +5678,46 @@ compile_ext_fe:
         jsr line_at_end
         bcs _compile_ext_other
         jsr line_peek
-        cmp #$03
+        ldx #(_cef_tab_end - _cef_tab) - 1
+_compile_ext_scan:
+        cmp _cef_tab,x
         beq _compile_ext_take
-        cmp #$04
-        beq _compile_ext_take
-        cmp #$05
-        beq _compile_ext_take
-        cmp #$0a
-        beq _compile_ext_take
-        cmp #$0b
-        beq _compile_ext_take
-        cmp #$3e
-        beq _compile_ext_take
-        cmp #$3f
-        beq _compile_ext_take
-        cmp #$0d
-        beq _compile_ext_take
-        cmp #$0e
-        beq _compile_ext_take
-        cmp #$0f
-        beq _compile_ext_take
-        cmp #$10
-        beq _compile_ext_take
-        cmp #$11
-        beq _compile_ext_take
-        cmp #$15
-        beq _compile_ext_take
-        cmp #$2a
-        beq _compile_ext_take
-        cmp #$4b
-        beq _compile_ext_take
-        cmp #$17
-        beq _compile_ext_take
-        cmp #$39
-        beq _compile_ext_take
-        cmp #$3b
-        beq _compile_ext_take
-        cmp #$3c
-        beq _compile_ext_take
-        cmp #$06
-        beq _compile_ext_take
-        cmp #$07
-        beq _compile_ext_take
-        cmp #$08
-        beq _compile_ext_take
+        dex
+        bpl _compile_ext_scan
 _compile_ext_other:
         sec
         rts
 _compile_ext_take:
-        jsr line_get
-        cmp #$03
-        beq _compile_ext_filter
-        cmp #$04
-        beq _compile_ext_play
-        cmp #$05
-        beq _compile_ext_tempo
-        cmp #$0a
-        beq _compile_ext_envelope
-        cmp #$0b
-        beq _compile_ext_sleep
-        cmp #$3e
-        beq _compile_ext_mouse
-        cmp #$3f
-        beq _compile_ext_rmouse
-        cmp #$0d
-        beq _compile_ext_dopen
-        cmp #$0e
-        beq _compile_ext_append
-        cmp #$0f
-        beq _compile_ext_dclose
-        cmp #$10
-        beq _compile_ext_bsave
-        cmp #$11
-        beq _compile_ext_bload
-        cmp #$15
-        beq _compile_ext_dclear
-        cmp #$2a
-        beq _compile_ext_erase
-        cmp #$4b
-        beq _compile_ext_chdir
-        cmp #$17
-        beq _compile_ext_collision
-        cmp #$39
-        beq _compile_ext_fg
-        cmp #$3b
-        beq _compile_ext_bkg
-        cmp #$3c
-        beq _compile_ext_bdr
-        cmp #$06
-        beq _compile_ext_movspr
-        cmp #$07
-        beq _compile_ext_sprite
-        jmp compile_sprcolor
-_compile_ext_filter:
-        jmp compile_filter
-_compile_ext_play:
-        jmp compile_play
-_compile_ext_tempo:
-        jmp compile_tempo
-_compile_ext_sleep:
-        jmp compile_sleep
-_compile_ext_mouse:
-        jmp compile_mouse
-_compile_ext_rmouse:
-        jmp compile_rmouse
+        phx                     ; line_get clobbers X (the table index)
+        jsr line_get            ; consume the second byte
+        plx
+        txa
+        asl a
+        tax
+        jmp (_cef_jtab,x)
+
+; accepted FE second bytes, index-paired with their handlers below
+_cef_tab:
+        .byte $03, $04, $05, $0a, $0b, $3e, $3f, $0d
+        .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
+        .byte $39, $3b, $3c, $06, $07, $08, $13, $37
+_cef_tab_end:
+_cef_jtab:
+        .word compile_filter, compile_play, compile_tempo, compile_envelope
+        .word compile_sleep, compile_mouse, compile_rmouse, _compile_ext_dopen
+        .word _compile_ext_append, compile_dclose, compile_bsave, compile_bload
+        .word _compile_ext_dclear, _compile_ext_erase, _compile_ext_chdir, compile_collision
+        .word compile_attr_fg, _compile_ext_bkg, _compile_ext_bdr, compile_movspr
+        .word compile_sprite, compile_sprcolor, compile_concat, _compile_ext_format
+_compile_ext_format:
+        lda #3                  ; FORMAT and HEADER are ROM aliases
+        jmp compile_cmdname
 _compile_ext_dopen:
         lda #$52
         jmp compile_dopen
 _compile_ext_append:
         lda #$41
         jmp compile_dopen_append
-_compile_ext_dclose:
-        jmp compile_dclose
-_compile_ext_bsave:
-        jmp compile_bsave
-_compile_ext_bload:
-        jmp compile_bload
 _compile_ext_dclear:
         lda #6
         jmp compile_cmdbare
@@ -5801,10 +5727,6 @@ _compile_ext_erase:
 _compile_ext_chdir:
         lda #4
         jmp compile_cmdname
-_compile_ext_collision:
-        jmp compile_collision
-_compile_ext_fg:
-        jmp compile_attr_fg
 _compile_ext_bkg:
         lda #<out_jsr_bkgset
         ldy #>out_jsr_bkgset
@@ -5813,12 +5735,6 @@ _compile_ext_bdr:
         lda #<out_jsr_bdrset
         ldy #>out_jsr_bdrset
         jmp compile_attr_one
-_compile_ext_envelope:
-        jmp compile_envelope
-_compile_ext_movspr:
-        jmp compile_movspr
-_compile_ext_sprite:
-        jmp compile_sprite
 
 ; PLAY [string1 ... string6]: argument position selects the voice;
 ; bare PLAY silences everything
@@ -6098,8 +6014,21 @@ compile_diskcmd:
         bra compile_cmd2
 +       lda #1                  ; RENAME
 
+; CONCAT append TO target -> "C0:target=target,append" (the DOS combine
+; form the ROM also emits); shares cmd2 apart from the tail template
+compile_concat:
+        lda #2
+        ldx #<out_jsr_cmdcat
+        ldy #>out_jsr_cmdcat
+        bra cmd2entry
+
 ; two-name commands: first TO second -> prefix + second + '=' + first
 compile_cmd2:
+        ldx #<out_jsr_cmdstashout
+        ldy #>out_jsr_cmdstashout
+cmd2entry:
+        stx cmd2_tail
+        sty cmd2_tail+1
         pha
         jsr emit_string_temp_mark
         jsr compile_string_expression
@@ -6127,8 +6056,8 @@ compile_cmd2:
         lda #<out_jsr_cmdeq
         ldy #>out_jsr_cmdeq
         jsr out_zstr
-        lda #<out_jsr_cmdstashout
-        ldy #>out_jsr_cmdstashout
+        lda cmd2_tail
+        ldy cmd2_tail+1
         jsr out_zstr
         jsr emit_string_temp_release
         jsr emit_string_temp_release
@@ -13767,6 +13696,13 @@ out_jsr_cmdeq:
 .else
         .byte 0
 .fi
+out_jsr_cmdcat:
+.if TEXT_EMITTER
+        .text "        jsr cmdcat"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_cmdstash:
 .if TEXT_EMITTER
         .text "        jsr cmdstash"
@@ -15326,6 +15262,8 @@ fio_used:
         .byte 0
 math_used:
         .byte 0
+cmd2_tail:
+        .byte 0,0
 scrarr_kind:
         .byte 0
 scrarr_save:
