@@ -6482,6 +6482,7 @@ rtsound_isr:
         phy
         jsr play_tick
         jsr mouse_tick
+        jsr col_tick
         ldx #5
 _snd_isr_loop:
         lda snd_dur_lo,x
@@ -6602,6 +6603,9 @@ _swpstep_done2:
 sndshutdown:
         lda #0
         sta mou_on
+        sta col_armed
+        sta col_pending
+        sta col_active
         jsr playoff
         lda snd_hooked
         beq _sndshut_gates_only
@@ -6789,6 +6793,101 @@ _rspcolor_2:
         lda #0
         sta exprhi
         rts
+
+; COLLISION type[,line]: the IRQ tick latches VIC collision bits into
+; pending flags; colcheck (emitted at each line start when the program
+; uses COLLISION) dispatches a compiled GOSUB to the armed handler.
+; Only one handler runs at a time, per the book.
+colsett:
+        ldx exprlo
+        dex
+        cpx #3
+        bcc +
+        ldx #0
++       stx col_t
+        rts
+
+; arm type col_t with the handler address staged in coltmp
+colarm:
+        ldx col_t
+        lda coltmp
+        sta col_vlo,x
+        lda coltmp+1
+        sta col_vhi,x
+        jsr sndinit             ; needs the IRQ tick
+        lda colbit,x
+        ora col_armed
+        sta col_armed
+        rts
+
+coloff:
+        ldx col_t
+        lda colbit,x
+        eor #$ff
+        and col_armed
+        sta col_armed
+        rts
+
+colbit:
+        .byte 1, 2, 4
+
+; from the IRQ tick: fold the VIC latch into pending (armed types only)
+col_tick:
+        lda $d019
+        and #%00001110          ; b1 spr-data, b2 spr-spr, b3 light pen
+        beq +
+        sta $d019               ; write-ones clears the latch
+        lsr a                   ; b0 data, b1 sprite, b2 pen
+        tax
+        and #%00000010          ; sprite-sprite -> type 1 (bit 0)
+        lsr a
+        sta col_new
+        txa
+        and #%00000001          ; sprite-data -> type 2 (bit 1)
+        asl a
+        ora col_new
+        sta col_new
+        txa
+        and #%00000100          ; light pen -> type 3 (bit 2)
+        ora col_new
+        and col_armed
+        ora col_pending
+        sta col_pending
++       rts
+
+; between lines: run at most one pending handler as a GOSUB
+colcheck:
+        lda col_active
+        bne _colcheck_done
+        lda col_pending
+        beq _colcheck_done
+        ldx #0
+_colcheck_scan:
+        lda colbit,x
+        and col_pending
+        bne _colcheck_fire
+        inx
+        cpx #3
+        bne _colcheck_scan
+_colcheck_done:
+        rts
+_colcheck_fire:
+        lda colbit,x
+        eor #$ff
+        and col_pending
+        sta col_pending
+        lda #1
+        sta col_active
+        lda col_vlo,x
+        sta col_jmp
+        lda col_vhi,x
+        sta col_jmp+1
+        jsr _colcheck_call
+        lda #0
+        sta col_active
+        rts
+_colcheck_call:
+        jmp (col_jmp)
 
 ; MOUSE driver: 1351 proportional deltas decoded per frame in the IRQ
 ; tick; the pointer sprite follows. Left button = fire line (bit 7 of
@@ -7295,6 +7394,15 @@ flt_tmp2:     .byte 0
 flt_mode:     .byte 0,0
 flt_res:      .byte 0,0
 flt_rout:     .byte 0,0
+col_t:        .byte 0
+coltmp:      .byte 0,0
+col_new:      .byte 0
+col_armed:    .byte 0
+col_pending:  .byte 0
+col_active:   .byte 0
+col_jmp:      .byte 0,0
+col_vlo:      .fill 3, 0
+col_vhi:      .fill 3, 0
 mou_on:       .byte 0
 mou_port:     .byte 2
 mou_psel:     .byte $80

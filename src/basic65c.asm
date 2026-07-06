@@ -251,6 +251,7 @@ main:
         sta flt_lit_count
         sta trap_used
         sta snd_used
+        sta col_used
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -1271,7 +1272,11 @@ _scan_vars_extended:
         beq _scan_ext_snd
         cmp #$3f
         beq _scan_ext_snd
-        bra _scan_ext_skip
+        cmp #$17                ; COLLISION
+        bne _scan_ext_skip
+        ldx #1
+        stx col_used
+        bra _scan_ext_snd
 _scan_ext_ce:
         cmp #$02                ; POT..RSPCOLOR live in the slab
         bcc _scan_ext_skip
@@ -5587,6 +5592,8 @@ compile_ext_fe:
         beq _compile_ext_take
         cmp #$4b
         beq _compile_ext_take
+        cmp #$17
+        beq _compile_ext_take
         cmp #$06
         beq _compile_ext_take
         cmp #$07
@@ -5628,6 +5635,8 @@ _compile_ext_take:
         beq _compile_ext_erase
         cmp #$4b
         beq _compile_ext_chdir
+        cmp #$17
+        beq _compile_ext_collision
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5666,6 +5675,8 @@ _compile_ext_erase:
 _compile_ext_chdir:
         lda #4
         jmp compile_cmdname
+_compile_ext_collision:
+        jmp compile_collision
 _compile_ext_envelope:
         jmp compile_envelope
 _compile_ext_movspr:
@@ -5758,6 +5769,50 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; COLLISION type [, line]: with a line, arm the handler (compile-time
+; line label, like TRAP); without, disarm that type
+compile_collision:
+        jsr compile_expression
+        bcs _compile_col_bad
+        lda #<out_jsr_colsett
+        ldy #>out_jsr_colsett
+        jsr out_zstr
+        jsr parse_opt_comma
+        bcs _compile_col_off
+        jsr line_parse_number
+        bcs _compile_col_bad
+        jsr line_number_exists
+        bcs _compile_col_bad
+        lda #<out_lda_label_lo_imm
+        ldy #>out_lda_label_lo_imm
+        jsr out_zstr
+        jsr out_label_from_number
+        jsr out_cr
+        lda #<out_sta_coltmp
+        ldy #>out_sta_coltmp
+        jsr out_zstr
+        lda #<out_lda_label_hi_imm
+        ldy #>out_lda_label_hi_imm
+        jsr out_zstr
+        jsr out_label_from_number
+        jsr out_cr
+        lda #<out_sta_coltmp1
+        ldy #>out_sta_coltmp1
+        jsr out_zstr
+        lda #<out_jsr_colarm
+        ldy #>out_jsr_colarm
+        jsr out_zstr
+        clc
+        rts
+_compile_col_off:
+        lda #<out_jsr_coloff
+        ldy #>out_jsr_coloff
+        jsr out_zstr
+        clc
+        rts
+_compile_col_bad:
+        jmp compile_env_bad
 
 ; single-byte disk verbs share shapes: A = command prefix index
 compile_diskcmd:
@@ -9241,8 +9296,15 @@ _emit_line_label_bin:
         inc line_emit_idx
         rts
 
-; keep curline current for EL when any TRAP exists in the program
+; keep curline current for EL when any TRAP exists in the program;
+; also run the collision dispatcher at line starts when armed anywhere
 emit_line_track:
+        lda col_used
+        beq _elt_no_col
+        lda #<out_jsr_colcheck
+        ldy #>out_jsr_colcheck
+        jsr out_zstr
+_elt_no_col:
         lda trap_used
         bne +
         rts
@@ -13393,6 +13455,48 @@ out_jsr_strbinf:
 .else
         .byte 0
 .fi
+out_jsr_colsett:
+.if TEXT_EMITTER
+        .text "        jsr colsett"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_colarm:
+.if TEXT_EMITTER
+        .text "        jsr colarm"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_coloff:
+.if TEXT_EMITTER
+        .text "        jsr coloff"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_colcheck:
+.if TEXT_EMITTER
+        .text "        jsr colcheck"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_coltmp:
+.if TEXT_EMITTER
+        .text "        sta coltmp"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_coltmp1:
+.if TEXT_EMITTER
+        .text "        sta coltmp+1"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_usrf:
 .if TEXT_EMITTER
         .text "        jsr usrf"
@@ -14693,6 +14797,8 @@ trap_used:
 play_track_no:
         .byte 0
 snd_used:
+        .byte 0
+col_used:
         .byte 0
 pool_save:
         .byte 0,0,0,0
