@@ -8,6 +8,7 @@
 80 for x=60 to 300 step 2
 90 movspr 0,x,120
 100 sleep 0.02
+105 if c>0 then goto 120
 110 next x
 120 if c>0 then print " collision ok";c
 130 collision 1
