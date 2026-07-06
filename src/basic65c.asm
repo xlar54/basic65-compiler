@@ -1878,7 +1878,12 @@ _compile_line_loop:
         jsr line_skip_spaces_colons
         jsr line_at_end
         bcs _compile_line_done
-
+        lda col_used            ; COLLISION dispatches between statements
+        beq +
+        lda #<out_jsr_colcheck
+        ldy #>out_jsr_colcheck
+        jsr out_zstr
++
         jsr line_get
         cmp #TOK_FOR
         beq _compile_for
@@ -9384,12 +9389,6 @@ _emit_line_label_bin:
 ; keep curline current for EL when any TRAP exists in the program;
 ; also run the collision dispatcher at line starts when armed anywhere
 emit_line_track:
-        lda col_used
-        beq _elt_no_col
-        lda #<out_jsr_colcheck
-        ldy #>out_jsr_colcheck
-        jsr out_zstr
-_elt_no_col:
         lda trap_used
         bne +
         rts
