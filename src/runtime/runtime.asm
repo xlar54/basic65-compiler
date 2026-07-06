@@ -4027,6 +4027,9 @@ rtfltinit:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
+scr_c:        .byte 0,0
+scr_r:        .byte 0
+scr_off:      .byte 0,0
 ti_base:      .byte 0,0,0
 cmd_len:      .byte 0
 cmd_i:        .byte 0
@@ -4548,6 +4551,137 @@ fargb:
         sta argext
         rts
 
+
+; T@& and C@&: reserved array variables reading/writing the screen
+; code / colour code at (column, row). Screen RAM moves on the MEGA65,
+; so the address comes from SCRNPTR ($d060-$d062) and the line step
+; from $d058/$d059 each access; colour RAM is $ff80000 + COLPTR
+; ($d064/5) + the same offset. Out-of-range throws ARRAY BOUNDS.
+tcsetc:
+        lda exprlo
+        sta scr_c
+        lda exprhi
+        sta scr_c+1
+        rts
+
+tcsetr:
+        lda exprlo
+        sta scr_r
+        rts
+
+; shared: bounds check and offset = row*linestep + col into scr_off
+scroffs:
+        lda scr_c+1             ; col must fit the line step
+        bne _scroffs_bad
+        lda scr_c
+        cmp $d058
+        bcs _scroffs_bad
+        lda scr_r
+        cmp #25
+        bcs _scroffs_bad
+        lda scr_r               ; row * linestep on the math unit
+        sta $d770
+        lda #0
+        sta $d771
+        sta $d772
+        sta $d773
+        lda $d058
+        sta $d774
+        lda $d059
+        sta $d775
+        lda #0
+        sta $d776
+        sta $d777
+        lda $d778
+        clc
+        adc scr_c
+        sta scr_off
+        lda $d779
+        adc #0
+        sta scr_off+1
+        rts
+_scroffs_bad:
+        pla                     ; abandon the caller
+        pla
+        lda #18                 ; ARRAY BOUNDS (bad subscript)
+        jmp rterror
+
+; far pointer to the screen cell (borrows varptr, restores the bank-1
+; invariant afterwards like tistr does)
+scrptr:
+        jsr scroffs
+        lda $d060
+        clc
+        adc scr_off
+        sta varptr
+        lda $d061
+        adc scr_off+1
+        sta varptr+1
+        lda $d062
+        adc #0
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        rts
+
+colptr:
+        jsr scroffs
+        lda $d064
+        clc
+        adc scr_off
+        sta varptr
+        lda $d065
+        adc scr_off+1
+        sta varptr+1
+        lda #$f8
+        adc #0
+        sta varptr+2
+        lda #$0f
+        sta varptr+3
+        rts
+
+scrrestore:
+        lda #1                  ; varptr's bank-1 invariant
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        rts
+
+tscrf:
+        jsr scrptr
+        ldz #0
+        lda [varptr],z
+        sta exprlo
+        lda #0
+        sta exprhi
+        jmp scrrestore
+
+tscrw:
+        lda exprlo
+        pha
+        jsr scrptr
+        ldz #0
+        pla
+        sta [varptr],z
+        jmp scrrestore
+
+cscrf:
+        jsr colptr
+        ldz #0
+        lda [varptr],z
+        sta exprlo
+        lda #0
+        sta exprhi
+        jmp scrrestore
+
+cscrw:
+        lda exprlo
+        pha
+        jsr colptr
+        ldz #0
+        pla
+        sta [varptr],z
+        jmp scrrestore
 
 rtsndshut:
         jmp (snd_shutptr)

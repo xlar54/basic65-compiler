@@ -168,7 +168,11 @@ ASCII_LOWER_F           = $66
 
 LINE_BUF_MAX            = 240
 FILENAME_MAX            = 31
+.if TEXT_EMITTER
+LINE_MAX                = 224   ; checked build: squeezed under $c000
+.else
 LINE_MAX                = 240
+.fi
 BRANCH_MAX              = 128
 FOR_STACK_MAX           = 16
 IF_STACK_MAX            = 16
@@ -184,11 +188,7 @@ DATA_LINE_MAX           = 64
 .fi
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
-.if TEXT_EMITTER
-STRING_MAX              = 216   ; checked build: squeezed under $c000
-.else
-STRING_MAX              = 240
-.fi
+STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 SYM_MAX                 = 128
@@ -2229,6 +2229,12 @@ _compile_else_bad:
         bra _compile_line_loop
 
 _compile_assignment_from_token:
+        lda token_value
+        jsr scrarr_probe
+        bcs _compile_assign_plain
+        jsr compile_scrarr_store
+        bra _compile_line_loop
+_compile_assign_plain:
         lda token_value
         jsr compile_assignment_with_first_char
         bra _compile_line_loop
@@ -4587,6 +4593,8 @@ _factor_number_fail:
 
 _factor_variable:
         jsr line_get
+        jsr scrarr_probe        ; T@&( / C@&( reserved screen arrays
+        bcc _factor_scrarr
         jsr parse_variable_with_first_char
         bcs _factor_fail
         lda var_type
@@ -5274,6 +5282,22 @@ _factor_fre:
         clc
         rts
 
+_factor_scrarr:
+        jsr compile_scrarr_index
+        bcs _factor_fail
+        lda scrarr_kind
+        bne _factor_scrarr_c
+        lda #<out_jsr_tscrf
+        ldy #>out_jsr_tscrf
+        bra _factor_scrarr_emit
+_factor_scrarr_c:
+        lda #<out_jsr_cscrf
+        ldy #>out_jsr_cscrf
+_factor_scrarr_emit:
+        jsr out_zstr
+        clc
+        rts
+
 _factor_joy:
         jsr line_get            ; consume the JOY token
         jsr parse_open_paren
@@ -5846,6 +5870,86 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; probe for the reserved screen arrays: A = first char (consumed);
+; carry clear when the stream continues "@&(", with kind staged
+; (0 = T@& screen code, 1 = C@& colour) -- position left after the char
+scrarr_probe:
+        ldx #0
+        cmp #$54                ; T
+        beq _sap_check
+        inx
+        cmp #$43                ; C
+        bne _sap_no
+_sap_check:
+        stx scrarr_kind
+        lda line_idx
+        sta scrarr_save
+        jsr line_at_end
+        bcs _sap_restore
+        jsr line_get
+        cmp #$40                ; @
+        bne _sap_restore
+        jsr line_at_end
+        bcs _sap_restore
+        jsr line_get
+        cmp #$26                ; &
+        bne _sap_restore
+        clc
+        rts
+_sap_restore:
+        lda scrarr_save
+        sta line_idx
+_sap_no:
+        sec
+        rts
+
+; "(col, row)" -> emitted setters
+compile_scrarr_index:
+        jsr parse_open_paren
+        bcs _csi_bad
+        jsr compile_expression
+        bcs _csi_bad
+        lda #<out_jsr_tcsetc
+        ldy #>out_jsr_tcsetc
+        jsr out_zstr
+        jsr parse_comma
+        bcs _csi_bad
+        jsr compile_expression
+        bcs _csi_bad
+        lda #<out_jsr_tcsetr
+        ldy #>out_jsr_tcsetr
+        jsr out_zstr
+        jmp parse_close_paren
+_csi_bad:
+        sec
+        rts
+
+; assignment form: index, '=', value expression, store
+compile_scrarr_store:
+        jsr compile_scrarr_index
+        bcs _css_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _css_bad
+        jsr line_get
+        cmp #TOK_EQUAL
+        bne _css_bad
+        jsr compile_expression
+        bcs _css_bad
+        lda scrarr_kind
+        bne _css_c
+        lda #<out_jsr_tscrw
+        ldy #>out_jsr_tscrw
+        bra _css_emit
+_css_c:
+        lda #<out_jsr_cscrw
+        ldy #>out_jsr_cscrw
+_css_emit:
+        jsr out_zstr
+        rts
+_css_bad:
+        jmp compile_env_bad
 
 ; COLLISION type [, line]: with a line, arm the handler (compile-time
 ; line label, like TRAP); without, disarm that type
@@ -8514,10 +8618,7 @@ _find_string_none:
 
 string_literal_matches:
         ldx string_match_idx
-        lda string_off_lo,x
-        sta string_read_lo
-        lda string_off_hi,x
-        sta string_read_hi
+        jsr stroffload
         lda #0
         sta string_temp_idx
 
@@ -8548,10 +8649,7 @@ append_string_temp:
         bcs _append_string_fail
         sta current_string_id
         tax
-        lda string_pool_next_lo
-        sta string_off_lo,x
-        lda string_pool_next_hi
-        sta string_off_hi,x
+        jsr stroffstore
         lda #0
         sta string_temp_idx
 
@@ -8616,6 +8714,38 @@ string_pool_read_byte:
         ldz #0
         lda [source_ptr],z
         jmp pool_ptr_restore    ; A survives, restores the pointer
+
+; string offset tables live in bank 4 at $f000/$f100, one page each,
+; through the same borrowed pointer as the pool
+stroffload:
+        phx                     ; pool_ptr_save clobbers X
+        jsr pool_ptr_save
+        plx
+        stx source_ptr
+        lda #$f0
+        sta source_ptr+1
+        ldz #0
+        lda [source_ptr],z
+        sta string_read_lo
+        inc source_ptr+1
+        lda [source_ptr],z
+        sta string_read_hi
+        jmp pool_ptr_restore
+
+stroffstore:
+        phx                     ; pool_ptr_save clobbers X
+        jsr pool_ptr_save
+        plx
+        stx source_ptr
+        lda #$f0
+        sta source_ptr+1
+        ldz #0
+        lda string_pool_next_lo
+        sta [source_ptr],z
+        inc source_ptr+1
+        lda string_pool_next_hi
+        sta [source_ptr],z
+        jmp pool_ptr_restore
 
 pool_ptr_save:
         ldx source_ptr
@@ -9383,10 +9513,7 @@ _emit_string_pool_loop:
         jsr out_string_ref
         jsr emit_label_suffix
         ldx string_emit_idx
-        lda string_off_lo,x
-        sta string_read_lo
-        lda string_off_hi,x
-        sta string_read_hi
+        jsr stroffload
 
 _emit_string_byte_loop:
         jsr string_pool_read_byte
@@ -13653,6 +13780,48 @@ out_jsr_sprgoang:
 .else
         .byte 0
 .fi
+out_jsr_tcsetc:
+.if TEXT_EMITTER
+        .text "        jsr tcsetc"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_tcsetr:
+.if TEXT_EMITTER
+        .text "        jsr tcsetr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_tscrf:
+.if TEXT_EMITTER
+        .text "        jsr tscrf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_tscrw:
+.if TEXT_EMITTER
+        .text "        jsr tscrw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cscrf:
+.if TEXT_EMITTER
+        .text "        jsr cscrf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_cscrw:
+.if TEXT_EMITTER
+        .text "        jsr cscrw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_colsett:
 .if TEXT_EMITTER
         .text "        jsr colsett"
@@ -15002,6 +15171,10 @@ fio_used:
         .byte 0
 math_used:
         .byte 0
+scrarr_kind:
+        .byte 0
+scrarr_save:
+        .byte 0
 pool_save:
         .byte 0,0,0,0
 scan_ext_prefix:
@@ -15183,10 +15356,6 @@ data_line_hi:
         .fill DATA_LINE_MAX, 0
 data_line_index:
         .fill DATA_LINE_MAX, 0
-string_off_lo:
-        .fill STRING_MAX, 0
-string_off_hi:
-        .fill STRING_MAX, 0
 string_temp:
         .fill LINE_BUF_MAX + 1, 0
 string_pool:

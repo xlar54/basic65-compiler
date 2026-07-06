@@ -122,7 +122,10 @@ function Invoke-Fixture {
         Write-Host "native OUT.PRG missing"
     }
 
-    if ($SkipRun) { return @{ Name = $name; Result = "PASS (link only)" } }
+    if ($SkipRun) {
+        if (-not $nativeOk) { return @{ Name = $name; Result = "SUSPECT (link ok, native differs/missing)" } }
+        return @{ Name = $name; Result = "PASS (link only)" }
+    }
 
     Write-Host "=== phase 2: run OUT.PRG ==="
     if (-not $nativeOk) {
