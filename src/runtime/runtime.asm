@@ -5126,12 +5126,21 @@ cmdeq:
         bra cmdputc
 
 ; CONCAT tail: the buffer holds "C0:target=" and exprlo/exprhi still
-; carries target; append it again, a comma, then the stashed appendfile
+; carries target; emit "0:target,0:append" -- the sources need explicit
+; 0: drive prefixes or CBDOS quietly skips the append (probe-verified;
+; the ROM's CONCAT sends this same form)
 cmdcat:
+        jsr _cmdcat_drv
         jsr cmdstr
         lda #$2c                ; ,
         jsr cmdputc
+        jsr _cmdcat_drv
         bra cmdstashout
+_cmdcat_drv:
+        lda #$30                ; 0
+        jsr cmdputc
+        lda #$3a                ; :
+        jmp cmdputc
 
 ; append the heap string whose descriptor is in exprlo/exprhi
 cmdstr:
