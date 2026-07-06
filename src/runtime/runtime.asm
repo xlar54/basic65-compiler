@@ -4705,11 +4705,17 @@ fgtab:
         .byte 129, 149, 150, 151, 152, 153, 154, 155
 
 fgset:
+        lda exprhi
+        bne _fgset_bad
         lda exprlo
-        and #$0f
+        cmp #16                 ; the ROM rejects 16+ despite the book's
+        bcs _fgset_bad          ; documented 0-31 (user-tested V920413)
         tax
         lda fgtab,x
         jmp printch
+_fgset_bad:
+        lda #14                 ; ILLEGAL QUANTITY
+        jmp rterror
 
 chsetidx:
         lda exprlo              ; character index 0-255 -> *8 offset
