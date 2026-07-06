@@ -97,6 +97,8 @@ TOK_SCRATCH             = $F2
 TOK_COLLECT             = $F3
 TOK_COPY                = $F4
 TOK_RENAME              = $F5
+TOK_COLOR               = $E7
+TOK_EXT_E0              = $E0
 TOK_WAIT                = $92
 TOK_FRE                 = $B8
 TOK_USR                 = $B7
@@ -182,7 +184,7 @@ DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 DATA_MAX                = 128
 .if TEXT_EMITTER
-DATA_LINE_MAX           = 48    ; checked build: squeezed under $c000
+DATA_LINE_MAX           = 32    ; checked build: squeezed under $c000
 .else
 DATA_LINE_MAX           = 64
 .fi
@@ -1830,10 +1832,11 @@ record_branch_target:
 _record_branch_find:
         cpx branch_count
         beq _record_branch_create
-        lda branch_table_lo,x
+        jsr brtabload
+        lda brtab_lo
         cmp number_lo
         bne _record_branch_next
-        lda branch_table_hi,x
+        lda brtab_hi
         cmp number_hi
         beq _record_branch_done
 _record_branch_next:
@@ -1843,10 +1846,7 @@ _record_branch_next:
 _record_branch_create:
         cpx #BRANCH_MAX
         bcs _record_branch_fail
-        lda number_lo
-        sta branch_table_lo,x
-        lda number_hi
-        sta branch_table_hi,x
+        jsr brtabstore
         inc branch_count
 _record_branch_done:
         clc
@@ -1864,9 +1864,10 @@ _validate_branch_loop:
         cpx branch_count
         beq _validate_branch_done
         stx byte_value
-        lda branch_table_lo,x
+        jsr brtabload
+        lda brtab_lo
         sta number_lo
-        lda branch_table_hi,x
+        lda brtab_hi
         sta number_hi
         jsr line_number_exists
         bcc _validate_branch_next
@@ -2037,6 +2038,10 @@ _compile_line_loop:
         beq _compile_dcmd
         cmp #TOK_RENAME
         beq _compile_dcmd
+        cmp #TOK_COLOR
+        beq _compile_fg
+        cmp #TOK_EXT_E0
+        beq _compile_e0
         cmp #TOK_EXT_CE
         beq _compile_unsupported_extended_token
         cmp #TOK_EXT_FE
@@ -2207,6 +2212,14 @@ _compile_wait:
 
 _compile_dcmd:
         jsr compile_diskcmd
+        jmp _compile_line_loop
+
+_compile_fg:
+        jsr compile_attr_fg
+        jmp _compile_line_loop
+
+_compile_e0:
+        jsr compile_e0
         jmp _compile_line_loop
 
 _compile_if:
@@ -5695,6 +5708,12 @@ compile_ext_fe:
         beq _compile_ext_take
         cmp #$17
         beq _compile_ext_take
+        cmp #$39
+        beq _compile_ext_take
+        cmp #$3b
+        beq _compile_ext_take
+        cmp #$3c
+        beq _compile_ext_take
         cmp #$06
         beq _compile_ext_take
         cmp #$07
@@ -5738,6 +5757,12 @@ _compile_ext_take:
         beq _compile_ext_chdir
         cmp #$17
         beq _compile_ext_collision
+        cmp #$39
+        beq _compile_ext_fg
+        cmp #$3b
+        beq _compile_ext_bkg
+        cmp #$3c
+        beq _compile_ext_bdr
         cmp #$06
         beq _compile_ext_movspr
         cmp #$07
@@ -5778,6 +5803,16 @@ _compile_ext_chdir:
         jmp compile_cmdname
 _compile_ext_collision:
         jmp compile_collision
+_compile_ext_fg:
+        jmp compile_attr_fg
+_compile_ext_bkg:
+        lda #<out_jsr_bkgset
+        ldy #>out_jsr_bkgset
+        jmp compile_attr_one
+_compile_ext_bdr:
+        lda #<out_jsr_bdrset
+        ldy #>out_jsr_bdrset
+        jmp compile_attr_one
 _compile_ext_envelope:
         jmp compile_envelope
 _compile_ext_movspr:
@@ -5870,6 +5905,54 @@ fltsetterlo:
 fltsetterhi:
         .byte >out_jsr_fltsetf, >out_jsr_fltsetlp, >out_jsr_fltsetbp
         .byte >out_jsr_fltsethp, >out_jsr_fltsetres
+
+; FOREGROUND / COLOR: text colour via the runtime table
+compile_attr_fg:
+        lda #<out_jsr_fgset
+        ldy #>out_jsr_fgset
+
+; shared one-expression attribute statement; A/Y = the setter template
+compile_attr_one:
+        pha
+        phy
+        jsr compile_expression
+        bcs _cao_bad
+        ply
+        pla
+        jsr out_zstr
+        clc
+        rts
+_cao_bad:
+        ply
+        pla
+        jmp compile_env_bad
+
+; $E0-prefixed statements: only CHARDEF ($96) is supported
+compile_e0:
+        jsr line_at_end
+        bcs _ce0_bad
+        jsr line_get
+        cmp #$96
+        bne _ce0_bad
+        jsr compile_expression
+        bcs _ce0_bad
+        lda #<out_jsr_chsetidx
+        ldy #>out_jsr_chsetidx
+        jsr out_zstr
+_ce0_bytes:
+        jsr parse_opt_comma
+        bcs _ce0_done
+        jsr compile_expression
+        bcs _ce0_bad
+        lda #<out_jsr_chputb
+        ldy #>out_jsr_chputb
+        jsr out_zstr
+        bra _ce0_bytes
+_ce0_done:
+        clc
+        rts
+_ce0_bad:
+        jmp compile_env_bad
 
 ; probe for the reserved screen arrays: A = first char (consumed);
 ; carry clear when the stream continues "@&(", with kind staged
@@ -8717,6 +8800,43 @@ string_pool_read_byte:
 
 ; string offset tables live in bank 4 at $f000/$f100, one page each,
 ; through the same borrowed pointer as the pool
+; branch target table in bank 4 at $f200/$f300 (X preserved)
+brtabload:
+        phx
+        jsr pool_ptr_save
+        plx
+        phx
+        stx source_ptr
+        lda #$f2
+        sta source_ptr+1
+        ldz #0
+        lda [source_ptr],z
+        sta brtab_lo
+        inc source_ptr+1
+        lda [source_ptr],z
+        sta brtab_hi
+        jsr pool_ptr_restore
+        plx
+        rts
+
+brtabstore:
+        phx
+        jsr pool_ptr_save
+        plx
+        phx
+        stx source_ptr
+        lda #$f2
+        sta source_ptr+1
+        ldz #0
+        lda number_lo
+        sta [source_ptr],z
+        inc source_ptr+1
+        lda number_hi
+        sta [source_ptr],z
+        jsr pool_ptr_restore
+        plx
+        rts
+
 stroffload:
         phx                     ; pool_ptr_save clobbers X
         jsr pool_ptr_save
@@ -13780,6 +13900,41 @@ out_jsr_sprgoang:
 .else
         .byte 0
 .fi
+out_jsr_bdrset:
+.if TEXT_EMITTER
+        .text "        jsr bdrset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bkgset:
+.if TEXT_EMITTER
+        .text "        jsr bkgset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fgset:
+.if TEXT_EMITTER
+        .text "        jsr fgset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_chsetidx:
+.if TEXT_EMITTER
+        .text "        jsr chsetidx"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_chputb:
+.if TEXT_EMITTER
+        .text "        jsr chputb"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_tcsetc:
 .if TEXT_EMITTER
         .text "        jsr tcsetc"
@@ -15175,6 +15330,10 @@ scrarr_kind:
         .byte 0
 scrarr_save:
         .byte 0
+brtab_lo:
+        .byte 0
+brtab_hi:
+        .byte 0
 pool_save:
         .byte 0,0,0,0
 scan_ext_prefix:
@@ -15268,10 +15427,6 @@ line_table_lo:
         .fill LINE_MAX, 0
 line_table_hi:
         .fill LINE_MAX, 0
-branch_table_lo:
-        .fill BRANCH_MAX, 0
-branch_table_hi:
-        .fill BRANCH_MAX, 0
 for_stack_id:
         .fill FOR_STACK_MAX, 0
 for_stack_var_data_lo:
@@ -15369,7 +15524,11 @@ string_pool:
 LBL_IF_IDS      = 384
 LBL_ON_IDS      = 128
 LBL_ARRAY_IDS   = 256
+.if TEXT_EMITTER
+LBL_FORDO_MAX   = 32            ; checked build: squeezed under $c000
+.else
 LBL_FORDO_MAX   = 48
+.fi
 
 ; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
 ; so a single table keyed by id covers all five kinds; same for onnext/ondone.

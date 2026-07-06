@@ -4030,6 +4030,8 @@ snd_shutptr:  .word rtshutnop
 scr_c:        .byte 0,0
 scr_r:        .byte 0
 scr_off:      .byte 0,0
+ch_off:       .byte 0,0
+ch_k:         .byte 0
 ti_base:      .byte 0,0,0
 cmd_len:      .byte 0
 cmd_i:        .byte 0
@@ -4682,6 +4684,83 @@ cscrw:
         pla
         sta [varptr],z
         jmp scrrestore
+
+; screen attributes: BORDER/BACKGROUND take the full palette index;
+; FOREGROUND/COLOR set the text colour through the PETSCII colour
+; codes (exact for 0-15; 16-31 fall back to the low nibble until the
+; KERNAL's colour cell is identified). CHARDEF pokes the VIC character
+; generator at $ff7e000.
+bdrset:
+        lda exprlo
+        sta $d020
+        rts
+
+bkgset:
+        lda exprlo
+        sta $d021
+        rts
+
+fgtab:
+        .byte 144,   5,  28, 159, 156,  30,  31, 158
+        .byte 129, 149, 150, 151, 152, 153, 154, 155
+
+fgset:
+        lda exprlo
+        and #$0f
+        tax
+        lda fgtab,x
+        jmp printch
+
+chsetidx:
+        lda exprlo              ; character index 0-255 -> *8 offset
+        sta ch_off
+        lda #0
+        sta ch_off+1
+        asl ch_off
+        rol ch_off+1
+        asl ch_off
+        rol ch_off+1
+        asl ch_off
+        rol ch_off+1
+        lda #0
+        sta ch_k
+        rts
+
+; one bitmap byte; after 8 the offset rolls into the next character
+chputb:
+        lda varptr+2
+        pha
+        lda ch_off
+        sta varptr
+        lda ch_off+1
+        clc
+        adc #$e0
+        sta varptr+1
+        lda #$f7
+        adc #0
+        sta varptr+2
+        lda #$0f
+        sta varptr+3
+        ldz ch_k
+        lda exprlo
+        sta [varptr],z
+        pla
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        inc ch_k
+        lda ch_k
+        cmp #8
+        bcc +
+        lda #0
+        sta ch_k
+        clc
+        lda ch_off
+        adc #8
+        sta ch_off
+        bcc +
+        inc ch_off+1
++       rts
 
 rtsndshut:
         jmp (snd_shutptr)
