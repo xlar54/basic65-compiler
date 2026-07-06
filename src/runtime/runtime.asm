@@ -6840,6 +6840,7 @@ sprfix88:
 ; angle#speed: angle staged by sprsetx (integer degrees), speed in
 ; exprlo; compute vx = s*sin(a), vy = -s*cos(a)
 sprgoang:
+        jsr sndinit             ; motion runs on the IRQ tick
         lda exprlo
         sta spr_spd
         ldx spr_n
@@ -6898,7 +6899,8 @@ sprgoto:
         bne +
         lda #1                  ; speed 0 would never arrive
         sta exprlo
-+       lda exprlo
++       jsr sndinit             ; motion runs on the IRQ tick
+        lda exprlo
         sta spr_spd
         ldx spr_n
         sta mo_speed,x
