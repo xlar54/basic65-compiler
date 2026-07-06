@@ -6438,9 +6438,25 @@ bumpf:
         lda exprlo
         cmp #1
         bne _bump_data
+        lda col_armed
+        and #1
+        beq _bump_hw1
+        lda col_acc1            ; the tick owns the register: hand over
+        ldx #0                  ; the accumulated mask and clear it
+        stx col_acc1
+        bra _bump_done
+_bump_hw1:
         lda $d01e
         bra _bump_done
 _bump_data:
+        lda col_armed
+        and #2
+        beq _bump_hw2
+        lda col_acc2
+        ldx #0
+        stx col_acc2
+        bra _bump_done
+_bump_hw2:
         lda $d01f
 _bump_done:
         sta exprlo
@@ -7190,6 +7206,11 @@ colsett:
 
 ; arm type col_t with the handler address staged in coltmp
 colarm:
+        lda $d01e               ; reading re-arms the VIC latches and
+        lda $d01f               ; discards collisions from before arming
+        lda #0
+        sta col_acc1
+        sta col_acc2
         ldx col_t
         lda coltmp
         sta col_vlo,x
@@ -7212,29 +7233,37 @@ coloff:
 colbit:
         .byte 1, 2, 4
 
-; from the IRQ tick: fold the VIC latch into pending (armed types only)
+; from the IRQ tick: poll the collision registers directly -- the VIC
+; only re-arms them on read, so the $d019 flags go stale if a previous
+; program left the latch set. Reads accumulate for BUMP.
 col_tick:
-        lda $d019
-        and #%00001110          ; b1 spr-data, b2 spr-spr, b3 light pen
+        lda #0
+        sta col_new
+        lda $d01e               ; sprite-sprite (read re-arms)
         beq +
-        sta $d019               ; write-ones clears the latch
-        lsr a                   ; b0 data, b1 sprite, b2 pen
-        tax
-        and #%00000010          ; sprite-sprite -> type 1 (bit 0)
-        lsr a
+        ora col_acc1
+        sta col_acc1
+        lda #1                  ; type 1 pending
         sta col_new
-        txa
-        and #%00000001          ; sprite-data -> type 2 (bit 1)
-        asl a
-        ora col_new
++       lda $d01f               ; sprite-data
+        beq +
+        ora col_acc2
+        sta col_acc2
+        lda col_new
+        ora #2
         sta col_new
-        txa
-        and #%00000100          ; light pen -> type 3 (bit 2)
-        ora col_new
++       lda $d019
+        and #%00001000          ; light pen flag
+        beq +
+        sta $d019
+        lda col_new
+        ora #4
+        sta col_new
++       lda col_new
         and col_armed
         ora col_pending
         sta col_pending
-+       rts
+        rts
 
 ; between lines: run at most one pending handler as a GOSUB
 colcheck:
@@ -7800,6 +7829,8 @@ mo_speed:     .fill 8, 0
 col_t:        .byte 0
 coltmp:      .byte 0,0
 col_new:      .byte 0
+col_acc1:     .byte 0
+col_acc2:     .byte 0
 col_armed:    .byte 0
 col_pending:  .byte 0
 col_active:   .byte 0
