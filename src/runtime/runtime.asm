@@ -6940,16 +6940,16 @@ sprgoto:
         sta spr_dy+1
         lda spr_ty+1
         beq +
-+       ; frames = ceil(max(|dx|,|dy|) / speed), computed in floats
++       ; frames = sqrt(dx*dx + dy*dy) / speed -- the ROM's speed is
+        ; pixels per frame along the path (user-measured: 233px at
+        ; speed 4 took 1.18s interpreted)
         lda spr_dx
         sta exprlo
         lda spr_dx+1
         sta exprhi
         jsr float16
-        lda facsgn
-        pha
-        lda #0
-        sta facsgn              ; |dx|
+        jsr fmovaf
+        jsr fmul                ; dx*dx
         ldx #7
         jsr fsavb
         lda spr_dy
@@ -6957,28 +6957,21 @@ sprgoto:
         lda spr_dy+1
         sta exprhi
         jsr float16
-        lda facsgn
-        pha
-        lda #0
-        sta facsgn              ; |dy|
+        jsr fmovaf
+        jsr fmul                ; dy*dy
         ldx #7
         jsr fargb
-        jsr fcmp                ; FAC=|dy| vs ARG=|dx|
-        cmp #1
-        beq +                   ; |dy| bigger: keep FAC
-        ldx #7
-        jsr frstb               ; else use |dx|
-+       jsr fpush
+        jsr fadd
+        jsr sqrf                ; path length
+        jsr fpush
         lda spr_spd
         sta exprlo
         lda #0
         sta exprhi
         jsr float16
         jsr fpoparg
-        jsr fdiv                ; frames = maxdelta / speed
+        jsr fdiv                ; frames = dist / speed
         jsr qint
-        pla
-        pla                     ; drop the saved signs
         inc exprlo              ; ceil-ish, and never zero
         bne +
         inc exprhi
