@@ -1595,312 +1595,6 @@ pf_pow2:
 pf_pow3:
         .byte $00,$80,$40,$a0,$10,$e8,$64,$0a,$01
 
-;=======================================================================================
-; Disk verbs: DOS command strings on the command channel (15,8,15),
-; DS/DS$ drive status, BLOAD/BSAVE, DOPEN#/APPEND#/DCLOSE#. All KERNAL
-; calls ride the fio ROM bridge like the rest of the file layer.
-;=======================================================================================
-
-; command prefixes, indexed: 0 s0: 1 r0: 2 c0: 3 n0: 4 cd: 5 v0 6 i0
-cmdpretab:
-        .byte $53, $30, $3a     ; S0:  (PETSCII uppercase for DOS)
-        .byte $52, $30, $3a     ; R0:
-        .byte $43, $30, $3a     ; C0:
-        .byte $4e, $30, $3a     ; N0:
-        .byte $43, $44, $3a     ; CD:
-        .byte $56, $30, $00     ; V0
-        .byte $49, $30, $00     ; I0
-        .byte $00, $00, $00     ; 7: empty, plain filename
-
-; A = prefix index: reset the buffer and append the 2-3 byte prefix
-cmdpre:
-        sta cmd_i
-        lda #0
-        sta cmd_len
-        lda cmd_i
-        asl a
-        clc
-        adc cmd_i               ; *3
-        tax
-        ldy #0
-_cmdpre_loop:
-        lda cmdpretab,x
-        beq _cmdpre_done
-        jsr cmdputc
-        inx
-        iny
-        cpy #3
-        bne _cmdpre_loop
-_cmdpre_done:
-        rts
-
-cmdputc:
-        ldx cmd_len
-        cpx #48
-        bcs +
-        sta cmdbuf,x
-        inc cmd_len
-+       rts
-
-cmdeq:
-        lda #$3d                ; =
-        bra cmdputc
-
-; append the heap string whose descriptor is in exprlo/exprhi
-cmdstr:
-        lda exprlo
-        ora exprhi
-        beq _cmdstr_done
-        jsr setstrptrexpr
-        ldz #0
-        lda [varptr],z
-        sta cmd_n
-        lda #0
-        sta cmd_j
-_cmdstr_loop:
-        lda cmd_j
-        cmp cmd_n
-        beq _cmdstr_done
-        inc cmd_j
-        ldz cmd_j
-        lda [varptr],z
-        jsr cmdputc
-        bra _cmdstr_loop
-_cmdstr_done:
-        rts
-
-; RENAME/COPY stash the first string's descriptor across the second
-cmdstash:
-        lda exprlo
-        sta cmd_tmp
-        lda exprhi
-        sta cmd_tmp+1
-        rts
-
-cmdstashout:
-        lda cmd_tmp
-        sta exprlo
-        lda cmd_tmp+1
-        sta exprhi
-        bra cmdstr
-
-; send cmdbuf on the command channel: open 15,8,15,"cmd" then close
-cmdgo:
-        jsr fio_rom_on
-        lda #15
-        jsr kernalclose
-        lda #0
-        ldx #0
-        jsr kernalsetbnk        ; command text in bank 0
-        lda cmd_len
-        ldx #<cmdbuf
-        ldy #>cmdbuf
-        jsr kernalsetnam
-        lda #15
-        ldx #8
-        ldy #15
-        jsr kernalsetlfs
-        jsr kernalopen
-        lda #15
-        jsr kernalclose
-        jmp fio_rom_off
-
-; DS: read the drive status line, cache the text and the 2-digit code
-dsreadf:
-        jsr fio_rom_on
-        lda #15
-        jsr kernalclose
-        lda #0
-        ldx #0
-        jsr kernalsetbnk
-        lda #0
-        jsr kernalsetnam
-        lda #15
-        ldx #8
-        ldy #15
-        jsr kernalsetlfs
-        jsr kernalopen
-        ldx #15
-        jsr kernalchkin
-        lda #0
-        sta ds_len
-_dsread_loop:
-        jsr kernalchrin2
-        cmp #13
-        beq _dsread_done
-        ldx ds_len
-        cpx #40
-        bcs _dsread_loop
-        sta dsbuf,x
-        inc ds_len
-        bra _dsread_loop
-_dsread_done:
-        jsr kernalclrchn
-        lda #15
-        jsr kernalclose
-        jsr fio_rom_off
-        lda #1
-        sta ds_valid
-        lda dsbuf               ; two ASCII digits -> code
-        sec
-        sbc #$30
-        asl a
-        sta ds_code
-        asl a
-        asl a
-        clc
-        adc ds_code             ; *10
-        sta ds_code
-        lda dsbuf+1
-        sec
-        sbc #$30
-        clc
-        adc ds_code
-        sta ds_code
-        rts
-
-; DS numeric intercept: fresh read each use, like the ROM
-rdds:
-        jsr dsreadf
-        lda ds_code
-        sta exprlo
-        lda #0
-        sta exprhi
-        rts
-
-; DS$ string intercept: last cached status (reads once if never read)
-dsstrf:
-        lda ds_valid
-        bne +
-        jsr dsreadf
-+       lda ds_len
-        sta strlen
-        pha
-        jsr stralloc
-        pla
-        sta strlen
-        bcs _dsstrf_done
-        ldz #0
-        lda strlen
-        sta [varptr],z
-        ldy #0
-_dsstrf_loop:
-        cpy strlen
-        beq _dsstrf_done
-        lda dsbuf,y
-        inz
-        sta [varptr],z
-        iny
-        bne _dsstrf_loop
-_dsstrf_done:
-        rts
-
-; BLOAD name (already in cmdbuf via cmdpre-less cmdstr), P address
-bloadgo:
-        jsr fio_rom_on
-        lda #0
-        ldx #0
-        jsr kernalsetbnk
-        lda cmd_len
-        ldx #<cmdbuf
-        ldy #>cmdbuf
-        jsr kernalsetnam
-        lda #1
-        ldx #8
-        ldy #0                  ; secondary 0: load to the given address
-        jsr kernalsetlfs
-        lda #0                  ; load, not verify
-        ldx bl_addr
-        ldy bl_addr+1
-        jsr kernalload
-        jmp fio_rom_off
-
-bladdr:
-        lda exprlo
-        sta bl_addr
-        lda exprhi
-        sta bl_addr+1
-        rts
-
-blend:
-        lda exprlo
-        sta bl_end
-        lda exprhi
-        sta bl_end+1
-        rts
-
-; BSAVE: name in cmdbuf, bl_addr..bl_end (end exclusive, KERNAL SAVE)
-bsavego:
-        jsr fio_rom_on
-        lda #0
-        ldx #0
-        jsr kernalsetbnk
-        lda cmd_len
-        ldx #<cmdbuf
-        ldy #>cmdbuf
-        jsr kernalsetnam
-        lda #1
-        ldx #8
-        ldy #1
-        jsr kernalsetlfs
-        lda bl_addr
-        sta rtptr
-        lda bl_addr+1
-        sta rtptr+1
-        lda #rtptr
-        ldx bl_end
-        ldy bl_end+1
-        jsr kernalsave
-        jmp fio_rom_off
-
-; DOPEN#/APPEND#: channel in fio_lf, name in cmdbuf; append ,s,<mode>
-; (A = mode letter) then open with sa = (channel & 13) + 2
-dopmode:
-        pha
-        lda #$2c                ; ,S,
-        jsr cmdputc
-        lda #$53
-        jsr cmdputc
-        lda #$2c
-        jsr cmdputc
-        pla
-        jsr cmdputc
-        jsr fio_rom_on
-        lda fio_lf
-        jsr kernalclose
-        lda #0
-        ldx #0
-        jsr kernalsetbnk
-        lda cmd_len
-        ldx #<cmdbuf
-        ldy #>cmdbuf
-        jsr kernalsetnam
-        lda fio_lf
-        and #13
-        clc
-        adc #2
-        tay
-        ldx #8
-        lda fio_lf
-        jsr kernalsetlfs
-        jsr kernalopen
-        jmp fio_rom_off
-
-dopr:
-        lda #$52                ; R
-        bra dopmode
-dopw:
-        lda #$57                ; W
-        bra dopmode
-dopa:
-        lda #$41                ; A
-        bra dopmode
-
-dclosech:
-        jsr fio_rom_on
-        lda fio_lf
-        jsr kernalclose
-        jmp fio_rom_off
 
 ;=======================================================================================
 ; File I/O layer: OPEN/CLOSE/PRINT#/INPUT#/GET#/ST. Channels are selected
@@ -2023,475 +1717,6 @@ rdel:
         sta exprhi
         rts
 
-fiodefaults:
-        lda #8
-        sta fio_dev
-        lda #0
-        sta fio_sa
-        sta fio_name_lo
-        sta fio_name_hi
-        rts
-
-fiosetlf:
-        lda exprlo
-        sta fio_lf
-        rts
-
-fiosetdev:
-        lda exprlo
-        sta fio_dev
-        rts
-
-fiosetsa:
-        lda exprlo
-        sta fio_sa
-        rts
-
-fiosetname:
-        lda exprlo
-        sta fio_name_lo
-        lda exprhi
-        sta fio_name_hi
-        rts
-
-fopen:
-        jsr fio_rom_on
-        lda fio_lf
-        jsr kernalclose         ; forgiving re-open
-        lda fio_name_lo
-        ora fio_name_hi
-        beq _fopen_noname
-        lda #0                  ; data bank 0, filename in bank 1
-        ldx #1
-        jsr kernalsetbnk
-        lda fio_name_lo
-        sta varptr
-        lda fio_name_hi
-        sta varptr+1
-        ldz #0
-        lda [varptr],z
-        pha
-        lda fio_name_lo
-        clc
-        adc #1
-        tax
-        lda fio_name_hi
-        adc #0
-        tay
-        pla
-        jsr kernalsetnam
-        bra _fopen_lfs
-_fopen_noname:
-        lda #0
-        tax
-        jsr kernalsetbnk
-        lda #0
-        tax
-        tay
-        jsr kernalsetnam
-_fopen_lfs:
-        lda fio_lf
-        ldx fio_dev
-        ldy fio_sa
-        jsr kernalsetlfs
-        jsr kernalopen
-        jmp fio_rom_off
-
-fclose:
-        jsr fio_rom_on
-        lda exprlo
-        jsr kernalclose
-        jsr kernalclrchn
-        jmp fio_rom_off
-
-fiochkout:
-        jsr fio_rom_on
-        ldx exprlo
-        jsr kernalchkout
-        jsr fio_rom_off
-        lda #1
-        sta fio_out
-        rts
-
-fiochkin:
-        jsr fio_rom_on
-        ldx exprlo
-        jsr kernalchkin
-        jmp fio_rom_off
-
-fiodone:
-        jsr fio_rom_on
-        jsr kernalclrchn
-        jsr fio_rom_off
-        lda #0
-        sta fio_out
-        rts
-
-; read one record (to CR or end of file) into inputbuf for the INPUT#
-; field parsers
-fioreadline:
-        jsr fio_rom_on
-        lda #0
-        sta inputpos
-        sta inputlen
-_frl_loop:
-        jsr kernalchrin2
-        cmp #$0d
-        beq _frl_done
-        ldx inputlen
-        cpx #80
-        bcs _frl_status
-        sta inputbuf,x
-        inc inputlen
-_frl_status:
-        jsr kernalreadst
-        beq _frl_loop
-_frl_done:
-        ldx inputlen
-        lda #0
-        sta inputbuf,x
-        jmp fio_rom_off
-
-; one byte from the selected input channel
-fiogetbyte:
-        jsr fio_rom_on
-        jsr kernalchrin2
-        jsr fio_rom_off
-        sta exprlo
-        lda #0
-        sta exprhi
-        rts
-
-; one byte as a one-character heap string
-fiogetstr:
-        jsr fio_rom_on
-        jsr kernalchrin2
-        jsr fio_rom_off
-        sta digit
-        lda #1
-        sta strlen
-        jsr stralloc
-        bcs _fiogetstr_done
-        ldz #0
-        lda #1
-        sta [varptr],z
-        ldz #1
-        lda digit
-        sta [varptr],z
-        lda strdstlo
-        sta exprlo
-        lda strdsthi
-        sta exprhi
-_fiogetstr_done:
-        rts
-
-; ST: the KERNAL status byte
-rdst:
-        jsr fio_rom_on
-        jsr kernalreadst
-        jsr fio_rom_off
-        sta exprlo
-        lda #0
-        sta exprhi
-        rts
-
-;=======================================================================================
-; Tier-1 function runtime: RND, SQR, ASC, TAB(, SPC(, POS
-;=======================================================================================
-
-; 32-bit LCG stepped on the hardware multiplier; result becomes a float in
-; [0, 1). Seeded from the CIA timer by rtinit.
-rndf:
-        lda rndseed
-        sta $d770
-        lda rndseed+1
-        sta $d771
-        lda rndseed+2
-        sta $d772
-        lda rndseed+3
-        sta $d773
-        lda #$0d                ; 1664525 = $0019660d
-        sta $d774
-        lda #$66
-        sta $d775
-        lda #$19
-        sta $d776
-        lda #$00
-        sta $d777
--       bit $d70f
-        bvs -
-        clc                     ; + 1013904223 = $3c6ef35f
-        lda $d778
-        adc #$5f
-        sta rndseed
-        lda $d779
-        adc #$f3
-        sta rndseed+1
-        lda $d77a
-        adc #$6e
-        sta rndseed+2
-        lda $d77b
-        adc #$3c
-        sta rndseed+3
-        ; float in [0,1): mantissa = seed, exponent 0 -> fnorm cleans up
-        lda rndseed+3
-        sta facm0
-        lda rndseed+2
-        sta facm1
-        lda rndseed+1
-        sta facm2
-        lda rndseed
-        sta facm3
-        lda #$80
-        sta facexp
-        lda #0
-        sta facsgn
-        sta facext
-        jmp fnorm
-
-; FAC = sqrt(FAC) by Newton iteration: y' = (y + x/y) / 2, six rounds,
-; initial guess by halving the exponent. Negative input is treated as
-; positive (interpreted BASIC errors instead).
-sqrf:
-        lda facexp
-        bne +
-        rts
-+       lda #0
-        sta facsgn
-        jsr fsavex
-        lda facexp              ; y0: halve the (excess-128) exponent
-        sec
-        sbc #$80
-        cmp #$80                ; arithmetic halve for negative exponents
-        ror
-        clc
-        adc #$80
-        sta facexp
-        jsr fsavey
-        lda #6
-        sta sqr_it
-_sqr_loop:
-        jsr floadx_arg          ; ARG = x
-        jsr floady_fac          ; FAC = y
-        jsr fdiv                ; FAC = x / y
-        jsr floady_arg          ; ARG = y
-        jsr fadd                ; FAC = y + x/y
-        dec facexp              ; / 2, exact
-        jsr fsavey
-        dec sqr_it
-        bne _sqr_loop
-        rts
-
-fsavex:
-        lda facexp
-        sta sqrx
-        lda facm0
-        sta sqrx+1
-        lda facm1
-        sta sqrx+2
-        lda facm2
-        sta sqrx+3
-        lda facm3
-        sta sqrx+4
-        rts
-
-fsavey:
-        lda facexp
-        sta sqry
-        lda facm0
-        sta sqry+1
-        lda facm1
-        sta sqry+2
-        lda facm2
-        sta sqry+3
-        lda facm3
-        sta sqry+4
-        rts
-
-floadx_arg:
-        lda sqrx
-        sta argexp
-        lda sqrx+1
-        sta argm0
-        lda sqrx+2
-        sta argm1
-        lda sqrx+3
-        sta argm2
-        lda sqrx+4
-        sta argm3
-        lda #0
-        sta argsgn
-        sta argext
-        rts
-
-floady_arg:
-        lda sqry
-        sta argexp
-        lda sqry+1
-        sta argm0
-        lda sqry+2
-        sta argm1
-        lda sqry+3
-        sta argm2
-        lda sqry+4
-        sta argm3
-        lda #0
-        sta argsgn
-        sta argext
-        rts
-
-floady_fac:
-        lda sqry
-        sta facexp
-        lda sqry+1
-        sta facm0
-        lda sqry+2
-        sta facm1
-        lda sqry+3
-        sta facm2
-        lda sqry+4
-        sta facm3
-        lda #0
-        sta facsgn
-        sta facext
-        rts
-
-; first character code of the string whose heap ref is in exprlo/exprhi
-ascstr:
-        lda exprlo
-        ora exprhi
-        beq _ascstr_zero
-        jsr setstrptrexpr
-        ldz #0
-        lda [varptr],z
-        beq _ascstr_zero
-        ldz #1
-        lda [varptr],z
-        sta exprlo
-        lda #0
-        sta exprhi
-        rts
-_ascstr_zero:
-        lda #0
-        sta exprlo
-        sta exprhi
-        rts
-
-; print spaces until the real cursor column reaches exprlo (TAB target)
-tabto:
--       sec
-        jsr kernalplot          ; returns row in X, column in Y
-        cpy exprlo
-        bcs +
-        lda #' '
-        jsr printch
-        bra -
-+       rts
-
-; print exprlo spaces
-spcn:
-        lda exprlo
-        beq +
--       lda #' '
-        jsr printch
-        dec exprlo
-        bne -
-+       rts
-
-; current cursor column
-posf:
-        sec
-        jsr kernalplot
-        sty exprlo
-        lda #0
-        sta exprhi
-        rts
-
-; FAC = ARG ^ int(FAC): binary exponentiation with fmul; negative
-; exponents via a final reciprocal. 0^0 = 1 like the interpreter.
-fpowi:
-        jsr qint                ; exponent
-        lda exprhi
-        sta pow_neg
-        bpl +
-        sec                     ; |e|
-        lda #0
-        sbc exprlo
-        sta exprlo
-        lda #0
-        sbc exprhi
-        sta exprhi
-+       lda exprlo
-        sta pow_e
-        lda exprhi
-        sta pow_e+1
-        jsr fmovfa              ; FAC = base
-        jsr fsavex              ; x-buffer = running square
-        lda #1
-        sta exprlo
-        lda #0
-        sta exprhi
-        jsr float16
-        jsr fsavey              ; y-buffer = result, starts at 1
-_fpow_loop:
-        lda pow_e
-        ora pow_e+1
-        beq _fpow_done
-        lda pow_e
-        and #1
-        beq _fpow_square
-        jsr floady_fac          ; result = result * square
-        jsr floadx_arg
-        jsr fmul
-        jsr fsavey
-_fpow_square:
-        lsr pow_e+1
-        ror pow_e
-        beq _fpow_check_done
-_fpow_squared:
-        jsr floadx_fac          ; square = square * square
-        jsr floadx_arg
-        jsr fmul
-        jsr fsavex
-        bra _fpow_loop
-_fpow_check_done:
-        lda pow_e+1
-        bne _fpow_squared
-        bra _fpow_loop
-_fpow_done:
-        jsr floady_fac
-        lda pow_neg
-        bpl +
-        jsr fmovaf              ; 1 / result
-        lda #1
-        sta exprlo
-        lda #0
-        sta exprhi
-        jsr float16
-        jsr fswapfa
-        jsr fdiv
-+       rts
-
-floadx_fac:
-        lda sqrx
-        sta facexp
-        lda sqrx+1
-        sta facm0
-        lda sqrx+2
-        sta facm1
-        lda sqrx+3
-        sta facm2
-        lda sqrx+4
-        sta facm3
-        lda #0
-        sta facsgn
-        sta facext
-        rts
-
-; USR(x): call the ML routine vectored at $02f8 like the ROM, but with
-; a compiled-world convention: argument as a 16-bit int in A(lo)/Y(hi)
-; (also exprlo/exprhi), result returned the same way. The ROM's
-; FAC-based convention assumes interpreter internals we do not keep.
 ; DECBIN(s$): binary text to number, stops at the first non-binary char
 decbinf:
         lda #0
@@ -4969,84 +4194,229 @@ inputdigits:  .byte 0
 inputbuf:     .fill 81,0
 
 
-;=======================================================================================
-; Transcendental math: SIN COS TAN ATN LOG EXP over the MFLP core.
-; Coefficients are generated and packed offline (Taylor/artanh series,
-; Horner order); fpoly evaluates them. Three 7-byte buffers snapshot
-; the unpacked FAC. fsub is ARG-FAC and fdiv is ARG/FAC throughout.
-;=======================================================================================
+; MOD(a,b): 16-bit remainder by shift-subtract; b=0 raises DIV BY ZERO
+modseta:
+        lda exprlo
+        sta mod_a
+        lda exprhi
+        sta mod_a+1
+        rts
 
-; sin(2*pi*u), u^2-poly coeffs, highest power first
-csin:
-        .byte $84, $f1, $83, $a7, $ef   ; -15.094642576822984
-        .byte $86, $28, $3c, $1a, $44   ; 42.058693944897634
-        .byte $87, $99, $69, $66, $73   ; -76.70585975306136
-        .byte $87, $23, $35, $e3, $3c   ; 81.60524927607504
-        .byte $86, $a5, $5d, $e7, $31   ; -41.341702240399755
-        .byte $83, $49, $0f, $da, $a2   ; 6.283185307179586
-; quarter turn for cos
-chalf:
-        .byte $7f, $00, $00, $00, $00   ; 0.25
-; 1/(2*pi)
-cinv2pi:
-        .byte $7e, $22, $f9, $83, $6e   ; 0.15915494309189535
-; artanh series *2, highest first
-clog:
-        .byte $7e, $63, $8e, $38, $e4   ; 0.2222222222222222
-        .byte $7f, $12, $49, $24, $92   ; 0.2857142857142857
-        .byte $7f, $4c, $cc, $cc, $cd   ; 0.4
-        .byte $80, $2a, $aa, $aa, $ab   ; 0.6666666666666666
-        .byte $82, $00, $00, $00, $00   ; 2.0
-; sqrt(0.5)
-csqh:
-        .byte $80, $35, $04, $f3, $34   ; 0.7071067811865476
-; ln(sqrt(0.5))
-clnsqh:
-        .byte $7f, $b1, $72, $17, $f8   ; -0.3465735902799726
-; ln 2
-cln2:
-        .byte $80, $31, $72, $17, $f8   ; 0.6931471805599453
-; 1/ln 2
-cinvln2:
-        .byte $81, $38, $aa, $3b, $29   ; 1.4426950408889634
-; exp Taylor, highest first
-cexp:
-        .byte $74, $50, $0d, $00, $d0   ; 0.0001984126984126984
-        .byte $77, $36, $0b, $60, $b6   ; 0.001388888888888889
-        .byte $7a, $08, $88, $88, $89   ; 0.008333333333333333
-        .byte $7c, $2a, $aa, $aa, $ab   ; 0.041666666666666664
-        .byte $7e, $2a, $aa, $aa, $ab   ; 0.16666666666666666
-        .byte $80, $00, $00, $00, $00   ; 0.5
-        .byte $81, $00, $00, $00, $00   ; 1.0
-        .byte $81, $00, $00, $00, $00   ; 1.0
-; atan t^2-poly coeffs, highest first
-catn:
-        .byte $7c, $70, $f0, $f0, $f1   ; 0.058823529411764705
-        .byte $7d, $88, $88, $88, $89   ; -0.06666666666666667
-        .byte $7d, $1d, $89, $d8, $9e   ; 0.07692307692307693
-        .byte $7d, $ba, $2e, $8b, $a3   ; -0.09090909090909091
-        .byte $7d, $63, $8e, $38, $e4   ; 0.1111111111111111
-        .byte $7e, $92, $49, $24, $92   ; -0.14285714285714285
-        .byte $7e, $4c, $cc, $cc, $cd   ; 0.2
-        .byte $7f, $aa, $aa, $aa, $ab   ; -0.3333333333333333
-        .byte $81, $00, $00, $00, $00   ; 1.0
-; pi/4
-cpi4:
-        .byte $80, $49, $0f, $da, $a2   ; 0.7853981633974483
-; pi/2
-cpi2:
-        .byte $81, $49, $0f, $da, $a2   ; 1.5707963267948966
-; 1.0
-cone:
-        .byte $81, $00, $00, $00, $00   ; 1.0
+modf:
+        lda exprlo
+        ora exprhi
+        bne +
+        lda #20
+        jmp rterror
++       lda #0
+        sta mod_r
+        sta mod_r+1
+        ldx #16
+_modf_loop:
+        asl mod_a
+        rol mod_a+1
+        rol mod_r
+        rol mod_r+1
+        lda mod_r
+        sec
+        sbc exprlo
+        tay
+        lda mod_r+1
+        sbc exprhi
+        bcc _modf_next
+        sta mod_r+1
+        sty mod_r
+        inc mod_a
+_modf_next:
+        dex
+        bne _modf_loop
+        lda mod_r
+        sta exprlo
+        lda mod_r+1
+        sta exprhi
+        rts
+
+; SLEEP seconds (float in FAC): frame-granular wait on FRAMECOUNT
+sleepf:
+        lda facexp              ; remember a nonzero argument
+        sta slp_nz
+        lda #<cfifty
+        ldy #>cfifty
+        jsr fldca
+        jsr fmul
+        lda #<chalf2            ; round to nearest frame: MFLP products
+        ldy #>chalf2            ; like 0.02*50 can land just under 1.0,
+        jsr fldca               ; and flooring made short sleeps vanish
+        jsr fadd
+        jsr qint                ; exprlo/hi = frames
+        lda exprlo
+        ora exprhi
+        bne +
+        lda slp_nz
+        beq _sleepf_zero
+        inc exprlo              ; any nonzero sleep waits at least a frame
+        bra +
+_sleepf_zero:
+        rts
++       lda $d7fa
+        sta slp_last
+_sleepf_loop:
+        lda $d7fa
+        cmp slp_last
+        beq _sleepf_loop
+        sta slp_last
+        lda exprlo
+        bne +
+        dec exprhi
++       dec exprlo
+        lda exprlo
+        ora exprhi
+        bne _sleepf_loop
+        rts
+
+; WAIT address, andmask [, xormask]
+waitseta:
+        lda exprlo
+        sta wt_addr
+        lda exprhi
+        sta wt_addr+1
+        rts
+
+waitsetm:
+        lda exprlo
+        sta wt_and
+        lda #0
+        sta wt_xor
+        rts
+
+waitsetx:
+        lda exprlo
+        sta wt_xor
+        rts
+
+waitgo:
+        lda wt_addr
+        sta rtptr
+        lda wt_addr+1
+        sta rtptr+1
+        ldy #0
+_waitgo_loop:
+        lda (rtptr),y
+        and wt_and
+        eor wt_xor
+        beq _waitgo_loop
+        rts
+
+; FRE(1) = bank-1 string heap bottom minus the variable heap end;
+; FRE(0) and FRE(-1) have no compiled equivalent and return 0
+fref:
+        lda exprlo
+        cmp #1
+        beq _fref_bank1
+        lda #0
+        sta exprlo
+        sta exprhi
+        jmp float16
+_fref_bank1:
+        lda strheaplo
+        sec
+        sbc rtvheapend
+        sta exprlo
+        lda strheaphi
+        sbc rtvheapend+1
+        sta exprhi
+        pha
+        jsr float16             ; result exceeds signed 16 bits: go float
+        pla
+        bpl _fref_done
+        lda #<c65536
+        ldy #>c65536
+        jsr fldca
+        jsr fadd
+_fref_done:
+        rts
+
+; ERR$(n): our error message table covers the codes the runtime can
+; raise; anything else out of 1-41 errors, in-range-but-unknown gets ""
+errstrf:
+        lda exprhi
+        bne _errstrf_bad
+        lda exprlo
+        beq _errstrf_bad
+        cmp #42
+        bcs _errstrf_bad
+        sta err_no
+        ldx #0
+_errstrf_scan:
+        lda rterrtab,x
+        beq _errstrf_empty      ; unknown in-range code: empty string
+        cmp err_no
+        beq _errstrf_found
+        inx
+        inx
+        inx
+        bra _errstrf_scan
+_errstrf_found:
+        lda rterrtab+1,x
+        sta rtptr
+        lda rterrtab+2,x
+        sta rtptr+1
+        ldy #0
+_errstrf_len:
+        lda (rtptr),y
+        beq _errstrf_alloc
+        iny
+        bne _errstrf_len
+_errstrf_alloc:
+        sty strlen
+        tya
+        pha
+        jsr stralloc
+        pla
+        sta strlen
+        bcs _errstrf_done
+        ldz #0
+        lda strlen
+        sta [varptr],z
+        ldy #0
+_errstrf_copy:
+        cpy strlen
+        beq _errstrf_done
+        lda (rtptr),y
+        inz
+        sta [varptr],z
+        iny
+        bne _errstrf_copy
+_errstrf_done:
+        rts
+_errstrf_empty:
+        lda #0
+        sta strlen
+        jsr stralloc
+        bcs _errstrf_done
+        ldz #0
+        lda #0
+        sta [varptr],z
+        rts
+
+_errstrf_bad:
+        lda #14
+        jmp rterror
+
 ; 0.5
 chalf2:
         .byte $80, $00, $00, $00, $00   ; 0.5
-; tan(pi/8)
-ctan8:
-        .byte $7f, $54, $13, $cc, $d0   ; 0.41421356237309503
+; 1.0
+cone:
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; 1/ln(10) and the PAL jiffy rate, packed MFLP
+c1oln10:
+        .byte $7f, $5e, $5b, $d8, $a9
+c65536:
+        .byte $91, $00, $00, $00, $00
+cfifty:
+        .byte $86, $48, $00, $00, $00
 
-; packed 5-byte constant at A/Y (bank 0) -> FAC
 fldc:
         sta rtfltptr
         sty rtfltptr+1
@@ -5178,6 +4548,868 @@ fargb:
         sta argext
         rts
 
+
+rtsndshut:
+        jmp (snd_shutptr)
+rtshutnop:
+        rts
+
+;=======================================================================================
+; Tier-1 function runtime: RND, SQR, ASC, TAB(, SPC(, POS
+;=======================================================================================
+
+; 32-bit LCG stepped on the hardware multiplier; result becomes a float in
+; [0, 1). Seeded from the CIA timer by rtinit.
+rndf:
+        lda rndseed
+        sta $d770
+        lda rndseed+1
+        sta $d771
+        lda rndseed+2
+        sta $d772
+        lda rndseed+3
+        sta $d773
+        lda #$0d                ; 1664525 = $0019660d
+        sta $d774
+        lda #$66
+        sta $d775
+        lda #$19
+        sta $d776
+        lda #$00
+        sta $d777
+-       bit $d70f
+        bvs -
+        clc                     ; + 1013904223 = $3c6ef35f
+        lda $d778
+        adc #$5f
+        sta rndseed
+        lda $d779
+        adc #$f3
+        sta rndseed+1
+        lda $d77a
+        adc #$6e
+        sta rndseed+2
+        lda $d77b
+        adc #$3c
+        sta rndseed+3
+        ; float in [0,1): mantissa = seed, exponent 0 -> fnorm cleans up
+        lda rndseed+3
+        sta facm0
+        lda rndseed+2
+        sta facm1
+        lda rndseed+1
+        sta facm2
+        lda rndseed
+        sta facm3
+        lda #$80
+        sta facexp
+        lda #0
+        sta facsgn
+        sta facext
+        jmp fnorm
+
+; FAC = sqrt(FAC) by Newton iteration: y' = (y + x/y) / 2, six rounds,
+; initial guess by halving the exponent. Negative input is treated as
+; positive (interpreted BASIC errors instead).
+sqrf:
+        lda facexp
+        bne +
+        rts
++       lda #0
+        sta facsgn
+        jsr fsavex
+        lda facexp              ; y0: halve the (excess-128) exponent
+        sec
+        sbc #$80
+        cmp #$80                ; arithmetic halve for negative exponents
+        ror
+        clc
+        adc #$80
+        sta facexp
+        jsr fsavey
+        lda #6
+        sta sqr_it
+_sqr_loop:
+        jsr floadx_arg          ; ARG = x
+        jsr floady_fac          ; FAC = y
+        jsr fdiv                ; FAC = x / y
+        jsr floady_arg          ; ARG = y
+        jsr fadd                ; FAC = y + x/y
+        dec facexp              ; / 2, exact
+        jsr fsavey
+        dec sqr_it
+        bne _sqr_loop
+        rts
+
+fsavex:
+        lda facexp
+        sta sqrx
+        lda facm0
+        sta sqrx+1
+        lda facm1
+        sta sqrx+2
+        lda facm2
+        sta sqrx+3
+        lda facm3
+        sta sqrx+4
+        rts
+
+fsavey:
+        lda facexp
+        sta sqry
+        lda facm0
+        sta sqry+1
+        lda facm1
+        sta sqry+2
+        lda facm2
+        sta sqry+3
+        lda facm3
+        sta sqry+4
+        rts
+
+floadx_arg:
+        lda sqrx
+        sta argexp
+        lda sqrx+1
+        sta argm0
+        lda sqrx+2
+        sta argm1
+        lda sqrx+3
+        sta argm2
+        lda sqrx+4
+        sta argm3
+        lda #0
+        sta argsgn
+        sta argext
+        rts
+
+floady_arg:
+        lda sqry
+        sta argexp
+        lda sqry+1
+        sta argm0
+        lda sqry+2
+        sta argm1
+        lda sqry+3
+        sta argm2
+        lda sqry+4
+        sta argm3
+        lda #0
+        sta argsgn
+        sta argext
+        rts
+
+floady_fac:
+        lda sqry
+        sta facexp
+        lda sqry+1
+        sta facm0
+        lda sqry+2
+        sta facm1
+        lda sqry+3
+        sta facm2
+        lda sqry+4
+        sta facm3
+        lda #0
+        sta facsgn
+        sta facext
+        rts
+
+; first character code of the string whose heap ref is in exprlo/exprhi
+ascstr:
+        lda exprlo
+        ora exprhi
+        beq _ascstr_zero
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        beq _ascstr_zero
+        ldz #1
+        lda [varptr],z
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+_ascstr_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+
+; print spaces until the real cursor column reaches exprlo (TAB target)
+tabto:
+-       sec
+        jsr kernalplot          ; returns row in X, column in Y
+        cpy exprlo
+        bcs +
+        lda #' '
+        jsr printch
+        bra -
++       rts
+
+; print exprlo spaces
+spcn:
+        lda exprlo
+        beq +
+-       lda #' '
+        jsr printch
+        dec exprlo
+        bne -
++       rts
+
+; current cursor column
+posf:
+        sec
+        jsr kernalplot
+        sty exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; FAC = ARG ^ int(FAC): binary exponentiation with fmul; negative
+; exponents via a final reciprocal. 0^0 = 1 like the interpreter.
+fpowi:
+        jsr qint                ; exponent
+        lda exprhi
+        sta pow_neg
+        bpl +
+        sec                     ; |e|
+        lda #0
+        sbc exprlo
+        sta exprlo
+        lda #0
+        sbc exprhi
+        sta exprhi
++       lda exprlo
+        sta pow_e
+        lda exprhi
+        sta pow_e+1
+        jsr fmovfa              ; FAC = base
+        jsr fsavex              ; x-buffer = running square
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fsavey              ; y-buffer = result, starts at 1
+_fpow_loop:
+        lda pow_e
+        ora pow_e+1
+        beq _fpow_done
+        lda pow_e
+        and #1
+        beq _fpow_square
+        jsr floady_fac          ; result = result * square
+        jsr floadx_arg
+        jsr fmul
+        jsr fsavey
+_fpow_square:
+        lsr pow_e+1
+        ror pow_e
+        beq _fpow_check_done
+_fpow_squared:
+        jsr floadx_fac          ; square = square * square
+        jsr floadx_arg
+        jsr fmul
+        jsr fsavex
+        bra _fpow_loop
+_fpow_check_done:
+        lda pow_e+1
+        bne _fpow_squared
+        bra _fpow_loop
+_fpow_done:
+        jsr floady_fac
+        lda pow_neg
+        bpl +
+        jsr fmovaf              ; 1 / result
+        lda #1
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fswapfa
+        jsr fdiv
++       rts
+
+floadx_fac:
+        lda sqrx
+        sta facexp
+        lda sqrx+1
+        sta facm0
+        lda sqrx+2
+        sta facm1
+        lda sqrx+3
+        sta facm2
+        lda sqrx+4
+        sta facm3
+        lda #0
+        sta facsgn
+        sta facext
+        rts
+
+; USR(x): call the ML routine vectored at $02f8 like the ROM, but with
+; a compiled-world convention: argument as a 16-bit int in A(lo)/Y(hi)
+; (also exprlo/exprhi), result returned the same way. The ROM's
+; FAC-based convention assumes interpreter internals we do not keep.
+
+rtendcore:
+
+.if RTLEVEL >= 1
+;=======================================================================================
+; Disk verbs: DOS command strings on the command channel (15,8,15),
+; DS/DS$ drive status, BLOAD/BSAVE, DOPEN#/APPEND#/DCLOSE#. All KERNAL
+; calls ride the fio ROM bridge like the rest of the file layer.
+;=======================================================================================
+
+; command prefixes, indexed: 0 s0: 1 r0: 2 c0: 3 n0: 4 cd: 5 v0 6 i0
+cmdpretab:
+        .byte $53, $30, $3a     ; S0:  (PETSCII uppercase for DOS)
+        .byte $52, $30, $3a     ; R0:
+        .byte $43, $30, $3a     ; C0:
+        .byte $4e, $30, $3a     ; N0:
+        .byte $43, $44, $3a     ; CD:
+        .byte $56, $30, $00     ; V0
+        .byte $49, $30, $00     ; I0
+        .byte $00, $00, $00     ; 7: empty, plain filename
+
+; A = prefix index: reset the buffer and append the 2-3 byte prefix
+cmdpre:
+        sta cmd_i
+        lda #0
+        sta cmd_len
+        lda cmd_i
+        asl a
+        clc
+        adc cmd_i               ; *3
+        tax
+        ldy #0
+_cmdpre_loop:
+        lda cmdpretab,x
+        beq _cmdpre_done
+        jsr cmdputc
+        inx
+        iny
+        cpy #3
+        bne _cmdpre_loop
+_cmdpre_done:
+        rts
+
+cmdputc:
+        ldx cmd_len
+        cpx #48
+        bcs +
+        sta cmdbuf,x
+        inc cmd_len
++       rts
+
+cmdeq:
+        lda #$3d                ; =
+        bra cmdputc
+
+; append the heap string whose descriptor is in exprlo/exprhi
+cmdstr:
+        lda exprlo
+        ora exprhi
+        beq _cmdstr_done
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta cmd_n
+        lda #0
+        sta cmd_j
+_cmdstr_loop:
+        lda cmd_j
+        cmp cmd_n
+        beq _cmdstr_done
+        inc cmd_j
+        ldz cmd_j
+        lda [varptr],z
+        jsr cmdputc
+        bra _cmdstr_loop
+_cmdstr_done:
+        rts
+
+; RENAME/COPY stash the first string's descriptor across the second
+cmdstash:
+        lda exprlo
+        sta cmd_tmp
+        lda exprhi
+        sta cmd_tmp+1
+        rts
+
+cmdstashout:
+        lda cmd_tmp
+        sta exprlo
+        lda cmd_tmp+1
+        sta exprhi
+        bra cmdstr
+
+; send cmdbuf on the command channel: open 15,8,15,"cmd" then close
+cmdgo:
+        jsr fio_rom_on
+        lda #15
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk        ; command text in bank 0
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #15
+        ldx #8
+        ldy #15
+        jsr kernalsetlfs
+        jsr kernalopen
+        lda #15
+        jsr kernalclose
+        jmp fio_rom_off
+
+; DS: read the drive status line, cache the text and the 2-digit code
+dsreadf:
+        jsr fio_rom_on
+        lda #15
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda #0
+        jsr kernalsetnam
+        lda #15
+        ldx #8
+        ldy #15
+        jsr kernalsetlfs
+        jsr kernalopen
+        ldx #15
+        jsr kernalchkin
+        lda #0
+        sta ds_len
+_dsread_loop:
+        jsr kernalchrin2
+        cmp #13
+        beq _dsread_done
+        ldx ds_len
+        cpx #40
+        bcs _dsread_loop
+        sta dsbuf,x
+        inc ds_len
+        bra _dsread_loop
+_dsread_done:
+        jsr kernalclrchn
+        lda #15
+        jsr kernalclose
+        jsr fio_rom_off
+        lda #1
+        sta ds_valid
+        lda dsbuf               ; two ASCII digits -> code
+        sec
+        sbc #$30
+        asl a
+        sta ds_code
+        asl a
+        asl a
+        clc
+        adc ds_code             ; *10
+        sta ds_code
+        lda dsbuf+1
+        sec
+        sbc #$30
+        clc
+        adc ds_code
+        sta ds_code
+        rts
+
+; DS numeric intercept: fresh read each use, like the ROM
+rdds:
+        jsr dsreadf
+        lda ds_code
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; DS$ string intercept: last cached status (reads once if never read)
+dsstrf:
+        lda ds_valid
+        bne +
+        jsr dsreadf
++       lda ds_len
+        sta strlen
+        pha
+        jsr stralloc
+        pla
+        sta strlen
+        bcs _dsstrf_done
+        ldz #0
+        lda strlen
+        sta [varptr],z
+        ldy #0
+_dsstrf_loop:
+        cpy strlen
+        beq _dsstrf_done
+        lda dsbuf,y
+        inz
+        sta [varptr],z
+        iny
+        bne _dsstrf_loop
+_dsstrf_done:
+        rts
+
+; BLOAD name (already in cmdbuf via cmdpre-less cmdstr), P address
+bloadgo:
+        jsr fio_rom_on
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #1
+        ldx #8
+        ldy #0                  ; secondary 0: load to the given address
+        jsr kernalsetlfs
+        lda #0                  ; load, not verify
+        ldx bl_addr
+        ldy bl_addr+1
+        jsr kernalload
+        jmp fio_rom_off
+
+bladdr:
+        lda exprlo
+        sta bl_addr
+        lda exprhi
+        sta bl_addr+1
+        rts
+
+blend:
+        lda exprlo
+        sta bl_end
+        lda exprhi
+        sta bl_end+1
+        rts
+
+; BSAVE: name in cmdbuf, bl_addr..bl_end (end exclusive, KERNAL SAVE)
+bsavego:
+        jsr fio_rom_on
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #1
+        ldx #8
+        ldy #1
+        jsr kernalsetlfs
+        lda bl_addr
+        sta rtptr
+        lda bl_addr+1
+        sta rtptr+1
+        lda #rtptr
+        ldx bl_end
+        ldy bl_end+1
+        jsr kernalsave
+        jmp fio_rom_off
+
+; DOPEN#/APPEND#: channel in fio_lf, name in cmdbuf; append ,s,<mode>
+; (A = mode letter) then open with sa = (channel & 13) + 2
+dopmode:
+        pha
+        lda #$2c                ; ,S,
+        jsr cmdputc
+        lda #$53
+        jsr cmdputc
+        lda #$2c
+        jsr cmdputc
+        pla
+        jsr cmdputc
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda fio_lf
+        and #13
+        clc
+        adc #2
+        tay
+        ldx #8
+        lda fio_lf
+        jsr kernalsetlfs
+        jsr kernalopen
+        jmp fio_rom_off
+
+dopr:
+        lda #$52                ; R
+        bra dopmode
+dopw:
+        lda #$57                ; W
+        bra dopmode
+dopa:
+        lda #$41                ; A
+        bra dopmode
+
+dclosech:
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose
+        jmp fio_rom_off
+
+fiodefaults:
+        lda #8
+        sta fio_dev
+        lda #0
+        sta fio_sa
+        sta fio_name_lo
+        sta fio_name_hi
+        rts
+
+fiosetlf:
+        lda exprlo
+        sta fio_lf
+        rts
+
+fiosetdev:
+        lda exprlo
+        sta fio_dev
+        rts
+
+fiosetsa:
+        lda exprlo
+        sta fio_sa
+        rts
+
+fiosetname:
+        lda exprlo
+        sta fio_name_lo
+        lda exprhi
+        sta fio_name_hi
+        rts
+
+fopen:
+        jsr fio_rom_on
+        lda fio_lf
+        jsr kernalclose         ; forgiving re-open
+        lda fio_name_lo
+        ora fio_name_hi
+        beq _fopen_noname
+        lda #0                  ; data bank 0, filename in bank 1
+        ldx #1
+        jsr kernalsetbnk
+        lda fio_name_lo
+        sta varptr
+        lda fio_name_hi
+        sta varptr+1
+        ldz #0
+        lda [varptr],z
+        pha
+        lda fio_name_lo
+        clc
+        adc #1
+        tax
+        lda fio_name_hi
+        adc #0
+        tay
+        pla
+        jsr kernalsetnam
+        bra _fopen_lfs
+_fopen_noname:
+        lda #0
+        tax
+        jsr kernalsetbnk
+        lda #0
+        tax
+        tay
+        jsr kernalsetnam
+_fopen_lfs:
+        lda fio_lf
+        ldx fio_dev
+        ldy fio_sa
+        jsr kernalsetlfs
+        jsr kernalopen
+        jmp fio_rom_off
+
+fclose:
+        jsr fio_rom_on
+        lda exprlo
+        jsr kernalclose
+        jsr kernalclrchn
+        jmp fio_rom_off
+
+fiochkout:
+        jsr fio_rom_on
+        ldx exprlo
+        jsr kernalchkout
+        jsr fio_rom_off
+        lda #1
+        sta fio_out
+        rts
+
+fiochkin:
+        jsr fio_rom_on
+        ldx exprlo
+        jsr kernalchkin
+        jmp fio_rom_off
+
+fiodone:
+        jsr fio_rom_on
+        jsr kernalclrchn
+        jsr fio_rom_off
+        lda #0
+        sta fio_out
+        rts
+
+; read one record (to CR or end of file) into inputbuf for the INPUT#
+; field parsers
+fioreadline:
+        jsr fio_rom_on
+        lda #0
+        sta inputpos
+        sta inputlen
+_frl_loop:
+        jsr kernalchrin2
+        cmp #$0d
+        beq _frl_done
+        ldx inputlen
+        cpx #80
+        bcs _frl_status
+        sta inputbuf,x
+        inc inputlen
+_frl_status:
+        jsr kernalreadst
+        beq _frl_loop
+_frl_done:
+        ldx inputlen
+        lda #0
+        sta inputbuf,x
+        jmp fio_rom_off
+
+; one byte from the selected input channel
+fiogetbyte:
+        jsr fio_rom_on
+        jsr kernalchrin2
+        jsr fio_rom_off
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+; one byte as a one-character heap string
+fiogetstr:
+        jsr fio_rom_on
+        jsr kernalchrin2
+        jsr fio_rom_off
+        sta digit
+        lda #1
+        sta strlen
+        jsr stralloc
+        bcs _fiogetstr_done
+        ldz #0
+        lda #1
+        sta [varptr],z
+        ldz #1
+        lda digit
+        sta [varptr],z
+        lda strdstlo
+        sta exprlo
+        lda strdsthi
+        sta exprhi
+_fiogetstr_done:
+        rts
+
+; ST: the KERNAL status byte
+rdst:
+        jsr fio_rom_on
+        jsr kernalreadst
+        jsr fio_rom_off
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+.fi
+
+rtendfio:
+.if RTLEVEL >= 2
+;=======================================================================================
+; Transcendental math: SIN COS TAN ATN LOG EXP over the MFLP core.
+; Coefficients are generated and packed offline (Taylor/artanh series,
+; Horner order); fpoly evaluates them. Three 7-byte buffers snapshot
+; the unpacked FAC. fsub is ARG-FAC and fdiv is ARG/FAC throughout.
+;=======================================================================================
+
+; sin(2*pi*u), u^2-poly coeffs, highest power first
+csin:
+        .byte $84, $f1, $83, $a7, $ef   ; -15.094642576822984
+        .byte $86, $28, $3c, $1a, $44   ; 42.058693944897634
+        .byte $87, $99, $69, $66, $73   ; -76.70585975306136
+        .byte $87, $23, $35, $e3, $3c   ; 81.60524927607504
+        .byte $86, $a5, $5d, $e7, $31   ; -41.341702240399755
+        .byte $83, $49, $0f, $da, $a2   ; 6.283185307179586
+; quarter turn for cos
+chalf:
+        .byte $7f, $00, $00, $00, $00   ; 0.25
+; 1/(2*pi)
+cinv2pi:
+        .byte $7e, $22, $f9, $83, $6e   ; 0.15915494309189535
+; artanh series *2, highest first
+clog:
+        .byte $7e, $63, $8e, $38, $e4   ; 0.2222222222222222
+        .byte $7f, $12, $49, $24, $92   ; 0.2857142857142857
+        .byte $7f, $4c, $cc, $cc, $cd   ; 0.4
+        .byte $80, $2a, $aa, $aa, $ab   ; 0.6666666666666666
+        .byte $82, $00, $00, $00, $00   ; 2.0
+; sqrt(0.5)
+csqh:
+        .byte $80, $35, $04, $f3, $34   ; 0.7071067811865476
+; ln(sqrt(0.5))
+clnsqh:
+        .byte $7f, $b1, $72, $17, $f8   ; -0.3465735902799726
+; ln 2
+cln2:
+        .byte $80, $31, $72, $17, $f8   ; 0.6931471805599453
+; 1/ln 2
+cinvln2:
+        .byte $81, $38, $aa, $3b, $29   ; 1.4426950408889634
+; exp Taylor, highest first
+cexp:
+        .byte $74, $50, $0d, $00, $d0   ; 0.0001984126984126984
+        .byte $77, $36, $0b, $60, $b6   ; 0.001388888888888889
+        .byte $7a, $08, $88, $88, $89   ; 0.008333333333333333
+        .byte $7c, $2a, $aa, $aa, $ab   ; 0.041666666666666664
+        .byte $7e, $2a, $aa, $aa, $ab   ; 0.16666666666666666
+        .byte $80, $00, $00, $00, $00   ; 0.5
+        .byte $81, $00, $00, $00, $00   ; 1.0
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; atan t^2-poly coeffs, highest first
+catn:
+        .byte $7c, $70, $f0, $f0, $f1   ; 0.058823529411764705
+        .byte $7d, $88, $88, $88, $89   ; -0.06666666666666667
+        .byte $7d, $1d, $89, $d8, $9e   ; 0.07692307692307693
+        .byte $7d, $ba, $2e, $8b, $a3   ; -0.09090909090909091
+        .byte $7d, $63, $8e, $38, $e4   ; 0.1111111111111111
+        .byte $7e, $92, $49, $24, $92   ; -0.14285714285714285
+        .byte $7e, $4c, $cc, $cc, $cd   ; 0.2
+        .byte $7f, $aa, $aa, $aa, $ab   ; -0.3333333333333333
+        .byte $81, $00, $00, $00, $00   ; 1.0
+; pi/4
+cpi4:
+        .byte $80, $49, $0f, $da, $a2   ; 0.7853981633974483
+; pi/2
+cpi2:
+        .byte $81, $49, $0f, $da, $a2   ; 1.5707963267948966
+; tan(pi/8)
+ctan8:
+        .byte $7f, $54, $13, $cc, $d0   ; 0.41421356237309503
+
+; packed 5-byte constant at A/Y (bank 0) -> FAC
 ; FAC = poly(FAC): packed coeffs at A/Y (highest power first), X terms
 fpoly:
         sta mth_ptr
@@ -5504,14 +5736,6 @@ _expf_ovf:
         lda #15                 ; OVERFLOW
         jmp rterror
 
-; 1/ln(10) and the PAL jiffy rate, packed MFLP
-c1oln10:
-        .byte $7f, $5e, $5b, $d8, $a9
-c65536:
-        .byte $91, $00, $00, $00, $00
-cfifty:
-        .byte $86, $48, $00, $00, $00
-
 log10f:
         jsr logf
         lda #<c1oln10
@@ -5519,228 +5743,17 @@ log10f:
         jsr fldca
         jmp fmul
 
-; MOD(a,b): 16-bit remainder by shift-subtract; b=0 raises DIV BY ZERO
-modseta:
-        lda exprlo
-        sta mod_a
-        lda exprhi
-        sta mod_a+1
-        rts
+.fi
 
-modf:
-        lda exprlo
-        ora exprhi
-        bne +
-        lda #20
-        jmp rterror
-+       lda #0
-        sta mod_r
-        sta mod_r+1
-        ldx #16
-_modf_loop:
-        asl mod_a
-        rol mod_a+1
-        rol mod_r
-        rol mod_r+1
-        lda mod_r
-        sec
-        sbc exprlo
-        tay
-        lda mod_r+1
-        sbc exprhi
-        bcc _modf_next
-        sta mod_r+1
-        sty mod_r
-        inc mod_a
-_modf_next:
-        dex
-        bne _modf_loop
-        lda mod_r
-        sta exprlo
-        lda mod_r+1
-        sta exprhi
-        rts
+rtendmath:
 
-; SLEEP seconds (float in FAC): frame-granular wait on FRAMECOUNT
-sleepf:
-        lda facexp              ; remember a nonzero argument
-        sta slp_nz
-        lda #<cfifty
-        ldy #>cfifty
-        jsr fldca
-        jsr fmul
-        lda #<chalf2            ; round to nearest frame: MFLP products
-        ldy #>chalf2            ; like 0.02*50 can land just under 1.0,
-        jsr fldca               ; and flooring made short sleeps vanish
-        jsr fadd
-        jsr qint                ; exprlo/hi = frames
-        lda exprlo
-        ora exprhi
-        bne +
-        lda slp_nz
-        beq _sleepf_zero
-        inc exprlo              ; any nonzero sleep waits at least a frame
-        bra +
-_sleepf_zero:
-        rts
-+       lda $d7fa
-        sta slp_last
-_sleepf_loop:
-        lda $d7fa
-        cmp slp_last
-        beq _sleepf_loop
-        sta slp_last
-        lda exprlo
-        bne +
-        dec exprhi
-+       dec exprlo
-        lda exprlo
-        ora exprhi
-        bne _sleepf_loop
-        rts
-
-; WAIT address, andmask [, xormask]
-waitseta:
-        lda exprlo
-        sta wt_addr
-        lda exprhi
-        sta wt_addr+1
-        rts
-
-waitsetm:
-        lda exprlo
-        sta wt_and
-        lda #0
-        sta wt_xor
-        rts
-
-waitsetx:
-        lda exprlo
-        sta wt_xor
-        rts
-
-waitgo:
-        lda wt_addr
-        sta rtptr
-        lda wt_addr+1
-        sta rtptr+1
-        ldy #0
-_waitgo_loop:
-        lda (rtptr),y
-        and wt_and
-        eor wt_xor
-        beq _waitgo_loop
-        rts
-
-; FRE(1) = bank-1 string heap bottom minus the variable heap end;
-; FRE(0) and FRE(-1) have no compiled equivalent and return 0
-fref:
-        lda exprlo
-        cmp #1
-        beq _fref_bank1
-        lda #0
-        sta exprlo
-        sta exprhi
-        jmp float16
-_fref_bank1:
-        lda strheaplo
-        sec
-        sbc rtvheapend
-        sta exprlo
-        lda strheaphi
-        sbc rtvheapend+1
-        sta exprhi
-        pha
-        jsr float16             ; result exceeds signed 16 bits: go float
-        pla
-        bpl _fref_done
-        lda #<c65536
-        ldy #>c65536
-        jsr fldca
-        jsr fadd
-_fref_done:
-        rts
-
-; ERR$(n): our error message table covers the codes the runtime can
-; raise; anything else out of 1-41 errors, in-range-but-unknown gets ""
-errstrf:
-        lda exprhi
-        bne _errstrf_bad
-        lda exprlo
-        beq _errstrf_bad
-        cmp #42
-        bcs _errstrf_bad
-        sta err_no
-        ldx #0
-_errstrf_scan:
-        lda rterrtab,x
-        beq _errstrf_empty      ; unknown in-range code: empty string
-        cmp err_no
-        beq _errstrf_found
-        inx
-        inx
-        inx
-        bra _errstrf_scan
-_errstrf_found:
-        lda rterrtab+1,x
-        sta rtptr
-        lda rterrtab+2,x
-        sta rtptr+1
-        ldy #0
-_errstrf_len:
-        lda (rtptr),y
-        beq _errstrf_alloc
-        iny
-        bne _errstrf_len
-_errstrf_alloc:
-        sty strlen
-        tya
-        pha
-        jsr stralloc
-        pla
-        sta strlen
-        bcs _errstrf_done
-        ldz #0
-        lda strlen
-        sta [varptr],z
-        ldy #0
-_errstrf_copy:
-        cpy strlen
-        beq _errstrf_done
-        lda (rtptr),y
-        inz
-        sta [varptr],z
-        iny
-        bne _errstrf_copy
-_errstrf_done:
-        rts
-_errstrf_empty:
-        lda #0
-        sta strlen
-        jsr stralloc
-        bcs _errstrf_done
-        ldz #0
-        lda #0
-        sta [varptr],z
-        rts
-
-_errstrf_bad:
-        lda #14
-        jmp rterror
-
-rtsndshut:
-        jmp (snd_shutptr)
-rtshutnop:
-        rts
-
-rtendcore:
 
 .weak
-RTSOUND = 1
+RTLEVEL = 3                     ; 0 core, 1 +fio, 2 +math, 3 +sound
 rtpb = $5400                    ; overridden by each generated OUT.ASM                    ; OUT.ASM sets 0 when the program uses no sound
 .endweak
 
-.if RTSOUND != 0
+.if RTLEVEL >= 3
 
 ;=======================================================================================
 ; Optional sections below: programs that never use sound, PLAY, or

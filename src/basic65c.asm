@@ -185,7 +185,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 .if TEXT_EMITTER
-STRING_MAX              = 224   ; checked build: squeezed under $c000
+STRING_MAX              = 216   ; checked build: squeezed under $c000
 .else
 STRING_MAX              = 240
 .fi
@@ -252,6 +252,8 @@ main:
         sta trap_used
         sta snd_used
         sta col_used
+        sta fio_used
+        sta math_used
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -433,11 +435,23 @@ run_size_pass:
         lda #BK_SIZE
         sta backend_mode
         jsr reset_emit_counters
-        lda snd_used
-        bne _size_pass_base
-        lda #>((RT_END_CORE + $00ff) & $ff00)
+        ldx #0                  ; runtime level: highest section needed
+        lda fio_used
+        beq +
+        ldx #1
++       lda math_used
+        beq +
+        ldx #2
++       lda snd_used
+        beq +
+        ldx #3
++       stx rt_level
+        lda rtpbtab,x
         sta prog_base_hi
-_size_pass_base:
+        lda rttrunclo,x
+        sta rt_trunc
+        lda rttrunchi,x
+        sta rt_trunc+1
         lda #0
         sta bin_pc
         lda prog_base_hi
@@ -618,14 +632,12 @@ _copy_runtime_read_done:
 _copy_runtime_write:
         cpy rt_chunk_len
         beq _copy_runtime_written
-        lda snd_used
-        bne _copy_runtime_keep
-        lda bin_pc+1            ; sound unused: truncate at rtendcore
-        cmp #>RT_END_CORE
+        lda bin_pc+1            ; truncate at this level's boundary
+        cmp rt_trunc+1
         bcc _copy_runtime_keep
         bne _copy_runtime_written
         lda bin_pc
-        cmp #<RT_END_CORE
+        cmp rt_trunc
         bcs _copy_runtime_written
 _copy_runtime_keep:
         lda bin_pc+1
@@ -1207,6 +1219,29 @@ _scan_vars_snd:
         ldx #1
         stx snd_used
 _scan_vars_no_snd:
+        cmp #TOK_OPEN
+        beq _scan_vars_fio
+        cmp #TOK_CLOSE
+        beq _scan_vars_fio
+        cmp #TOK_PRINT_HASH
+        beq _scan_vars_fio
+        cmp #TOK_INPUT_HASH
+        beq _scan_vars_fio
+        cmp #TOK_HEADER         ; $f1-$f5 disk verbs
+        bcc _scan_vars_no_fio
+        cmp #TOK_RENAME+1
+        bcs _scan_vars_no_fio
+_scan_vars_fio:
+        ldx #1
+        stx fio_used
+_scan_vars_no_fio:
+        cmp #$bc                ; LOG EXP COS SIN TAN ATN
+        bcc _scan_vars_no_math
+        cmp #$c1+1
+        bcs _scan_vars_no_math
+        ldx #1
+        stx math_used
+_scan_vars_no_math:
 
         sta token_value
         lda token_value
@@ -1230,6 +1265,24 @@ _scan_vars_no_snd:
         bra _scan_vars_loop
 
 _scan_vars_scalar:
+        lda var_name_1
+        cmp #$53                ; ST
+        bne _svs_not_st
+        lda var_name_2
+        cmp #$54
+        bne _svs_resolve
+        lda #1
+        sta fio_used
+        bra _svs_resolve
+_svs_not_st:
+        cmp #$44                ; DS / DS$
+        bne _svs_resolve
+        lda var_name_2
+        cmp #$53
+        bne _svs_resolve
+        lda #1
+        sta fio_used
+_svs_resolve:
         jsr resolve_var
         bcs _scan_vars_fail
         bra _scan_vars_loop
@@ -1273,12 +1326,31 @@ _scan_vars_extended:
         cmp #$3f
         beq _scan_ext_snd
         cmp #$17                ; COLLISION
-        bne _scan_ext_skip
+        beq _scan_ext_col
+        cmp #$0d                ; DOPEN..DCLEAR, ERASE, CHDIR
+        bcc _scan_ext_skip
+        cmp #$15+1
+        bcc _scan_ext_fio
+        cmp #$2a
+        beq _scan_ext_fio
+        cmp #$4b
+        beq _scan_ext_fio
+        bra _scan_ext_skip
+_scan_ext_col:
         ldx #1
         stx col_used
         bra _scan_ext_snd
+_scan_ext_fio:
+        ldx #1
+        stx fio_used
+        bra _scan_ext_skip
 _scan_ext_ce:
-        cmp #$02                ; POT..RSPCOLOR live in the slab
+        cmp #$08                ; LOG10
+        bne +
+        ldx #1
+        stx math_used
+        bra _scan_ext_skip
++       cmp #$02                ; POT..RSPCOLOR live in the slab
         bcc _scan_ext_skip
         cmp #$07+1
         bcc _scan_ext_snd
@@ -8921,11 +8993,12 @@ _pop_if_fail:
 emit_generated_header:
         ldx backend_mode
         bne _emit_generated_header_bin
-        lda snd_used
-        bne _emit_header_text
-        lda #<out_rtsoundoff
-        ldy #>out_rtsoundoff
+        lda #<out_rtlevel_pre
+        ldy #>out_rtlevel_pre
         jsr out_zstr
+        lda rt_level
+        jsr out_hex_byte
+        jsr out_cr
 _emit_header_text:
         lda #<out_rtpb_pre
         ldy #>out_rtpb_pre
@@ -12184,10 +12257,9 @@ out_header_post:
 .else
         .byte 0
 .fi
-out_rtsoundoff:
+out_rtlevel_pre:
 .if TEXT_EMITTER
-        .text "rtsound = 0"
-        .byte 13
+        .text "rtlevel = $"
         .byte 0
 .else
         .byte 0
@@ -14926,12 +14998,29 @@ snd_used:
         .byte 0
 col_used:
         .byte 0
+fio_used:
+        .byte 0
+math_used:
+        .byte 0
 pool_save:
         .byte 0,0,0,0
 scan_ext_prefix:
         .byte 0
 prog_base_hi:
         .byte 0
+rt_level:
+        .byte 0
+rt_trunc:
+        .byte 0,0
+rtpbtab:
+        .byte >((RT_END_CORE + $00ff) & $ff00)
+        .byte >((RT_END_FIO + $00ff) & $ff00)
+        .byte >((RT_END_MATH + $00ff) & $ff00)
+        .byte >((RT_END_SOUND + $00ff) & $ff00)
+rttrunclo:
+        .byte <RT_END_CORE, <RT_END_FIO, <RT_END_MATH, <RT_END_SOUND
+rttrunchi:
+        .byte >RT_END_CORE, >RT_END_FIO, >RT_END_MATH, >RT_END_SOUND
 
 if_begin_taken:
         .byte 0
