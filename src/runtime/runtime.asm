@@ -4663,6 +4663,7 @@ dma_tmp:      .byte 0
 dma_args:     .fill 28, 0
 dmalist:      .fill 18, 0
 cur_bank:     .byte 128
+boot_addr:    .byte 0,0
 sys_a:        .byte 0
 sys_x:        .byte 0
 sys_y:        .byte 0
@@ -6164,6 +6165,94 @@ rdds:
         lda #0
         sta exprhi
         rts
+
+; BOOT filename$: chain-load a PRG and jump to its header address.
+; The loader runs from a trampoline at $1e00 because the incoming file
+; may overwrite the runtime (including this routine); the KERNAL name
+; pointer is latched before the jump and the target address is read
+; from the file's two-byte header first.
+bootgo:
+        lda #7                  ; filename into cmdbuf, no DOS prefix
+        jsr cmdpre
+        jsr cmdstr
+        jsr fio_rom_on
+        lda #0                  ; read the PRG header for the start
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #4
+        ldx #8
+        ldy #4                  ; sec 4: raw file read
+        jsr kernalsetlfs
+        jsr kernalopen
+        bcs _boot_fail
+        ldx #4
+        jsr kernalchkin
+        jsr kernalchrin2
+        sta boot_addr
+        jsr kernalchrin2
+        sta boot_addr+1
+        lda #4
+        jsr kernalclose
+        jsr kernalclrchn
+        ; stage the real load
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda cmd_len
+        ldx #<cmdbuf
+        ldy #>cmdbuf
+        jsr kernalsetnam
+        lda #1
+        ldx #8
+        ldy #1                  ; sec 1: honour the header address
+        jsr kernalsetlfs
+        jsr rtsndshut           ; unhook the IRQ engine
+        lda rtd030save          ; restore the ROM banking the target
+        sta $d030               ; will expect
+        ldx #7                  ; hand the editor its zero page back
+_boot_zp:
+        lda edzpsave,x
+        sta varptr,x
+        dex
+        bpl _boot_zp
+        ldx #0                  ; copy the trampoline out of harm's way
+_boot_copy:
+        lda boottramp,x
+        sta $1e00,x
+        inx
+        cpx #boottrampend-boottramp
+        bne _boot_copy
+        lda boot_addr
+        sta $1e20
+        lda boot_addr+1
+        sta $1e21
+        jmp $1e00
+_boot_fail:
+        lda #4
+        jsr kernalclose
+        jsr kernalclrchn
+        jsr fio_rom_off
+        lda #21                 ; FILE NOT FOUND-ish
+        jmp rterror
+
+; assembled for $1e00 (target address slot at $1e20)
+boottramp:
+        .logical $1e00
+        lda #0
+        ldx #$ff
+        ldy #$ff
+        jsr $ffd5               ; KERNAL LOAD (sec 1: header address)
+        bcs _bt_fail
+        jmp ($1e20)
+_bt_fail:
+        inc $d020               ; visible freeze on a failed chain
+        bra _bt_fail
+        .endlogical
+boottrampend:
 
 ; bare DISK: read the drive status fresh and print it
 dskst:

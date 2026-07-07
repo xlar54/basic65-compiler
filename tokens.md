@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 71 | 39 | 1 (OFF) | 31 |
+| $FE-prefixed statements | 71 | 40 | 1 (OFF) | 30 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -217,7 +217,7 @@ Legend:
 | $FE $18 | BEGIN | ✅ | |
 | $FE $19 | BEND | ✅ | |
 | $FE $1A | WINDOW | ⚠️ | left,top,right,bottom[,clear] via editor ESC T/B; CHR$(19)×2 resets like the ROM. No range validation (ROM raises ILLEGAL QUANTITY on bad coords) |
-| $FE $1B | BOOT | ❌ | queued: filename chain-load form |
+| $FE $1B | BOOT | ⚠️ | BOOT filename$ chain-loads a PRG to its header address via a $1e00 trampoline and jumps; SYS/bare/,B/,P/,D/,U forms unsupported |
 | $FE $1C | FREAD# | ❌ | |
 | $FE $1D | WPOKE | ✅ | MEGA65 reassignment (petcat's table still says SPRDEF here); fixer rewrites |
 | $FE $1E | FWRITE# | ❌ | |

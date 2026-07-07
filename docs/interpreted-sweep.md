@@ -20,6 +20,9 @@ matches the compiled output.
 - [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
       verified 2026-07-06, interpreted run pending. Note: CURSOR
       ON/OFF/style unsupported compiled -- positioning only.)
+- [ ] boot.bas         (BOOT chain-load; booted stub paints BOOT OK
+      into screen RAM and freezes by design -- no READY. Compiled run
+      verified 2026-07-07.)
 - [ ] bankrreg.bas     (BANK far peek/poke + RREG capture + VSYNC;
       compiled run verified 2026-07-07)
 - [ ] dma.bas          (EDMA fill/copy/far + legacy DMA; compiled run

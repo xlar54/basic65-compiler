@@ -1348,6 +1348,8 @@ _scan_vars_extended:
         beq _scan_ext_fio
         cmp #$40                ; DISK
         beq _scan_ext_fio
+        cmp #$1b                ; BOOT
+        beq _scan_ext_fio
         cmp #$47                ; FGOTO / FGOSUB need the line table
         beq _scan_ext_fg
         cmp #$48
@@ -5384,7 +5386,7 @@ _cef_tab:
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
-        .byte $1f, $21, $02, $09, $54
+        .byte $1f, $21, $02, $09, $54, $1b
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5398,6 +5400,7 @@ _cef_jtab:
         .word compile_diskstmt, compile_fgoto, compile_fgosub
         .word compile_dma, compile_edma
         .word compile_bank, compile_rreg, compile_vsync
+        .word compile_boot
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6098,6 +6101,17 @@ _cursor_go:
         .word out_jsr_curgo
 _cursor_bad:
         jmp compile_env_bad
+
+; BOOT filename$ chain-loads a PRG (header address) and never returns;
+; the SYS/bare/,B/,P/,D/,U forms are unsupported
+compile_boot:
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs +
+        jsr emit_tmpl
+        .word out_jsr_bootgo
+        jmp emit_string_temp_release
++       jmp compile_env_bad
 
 ; BANK n / VSYNC raster: one expression, one runtime call
 compile_bank:
@@ -13444,6 +13458,13 @@ out_lineref_sep:
 .if TEXT_EMITTER
         .text ", l"
         .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_bootgo:
+.if TEXT_EMITTER
+        .text "        jsr bootgo"
+        .byte 13, 0
 .else
         .byte 0
 .fi
