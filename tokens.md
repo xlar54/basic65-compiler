@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 68 | 7 | 50 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 30 | 1 (OFF) | 39 |
+| $FE-prefixed statements | 70 | 31 | 1 (OFF) | 38 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -216,7 +216,7 @@ Legend:
 | $FE $17 | COLLISION | ✅ | first working implementation on the platform — the ROM's is unfinished |
 | $FE $18 | BEGIN | ✅ | |
 | $FE $19 | BEND | ✅ | |
-| $FE $1A | WINDOW | ❌ | |
+| $FE $1A | WINDOW | ⚠️ | left,top,right,bottom[,clear] via editor ESC T/B; CHR$(19)×2 resets like the ROM. No range validation (ROM raises ILLEGAL QUANTITY on bad coords) |
 | $FE $1B | BOOT | ❌ | |
 | $FE $1C | FREAD# | ❌ | |
 | $FE $1D | WPOKE | ✅ | MEGA65 reassignment (petcat's table still says SPRDEF here); fixer rewrites |
@@ -252,7 +252,7 @@ Legend:
 | $FE $3E | MOUSE | ✅ | MOUSE ON/OFF; position pair rejected (ROM rejects it too) |
 | $FE $3F | RMOUSE | ✅ | 1351 IRQ driver with built-in pointer sprite |
 | $FE $40 | DISK | ❌ | |
-| $FE $41 | CURSOR | ⚠️ | positioning only: CURSOR [col][,row] via KERNAL PLOT; ON/OFF/style forms rejected |
+| $FE $41 | CURSOR | ⚠️ | positioning only: CURSOR [col][,row] via KERNAL PLOT; ON/OFF/style forms rejected; no range validation (ROM raises ILLEGAL QUANTITY) |
 | $FE $42 | RCURSOR | ✅ | RCURSOR colvar,rowvar (zero-based) |
 | $FE $43 | LOADIFF | ❌ | |
 | $FE $44 | SAVEIFF | ❌ | |

@@ -20,6 +20,9 @@ matches the compiled output.
 - [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
       verified 2026-07-06, interpreted run pending. Note: CURSOR
       ON/OFF/style unsupported compiled -- positioning only.)
+- [ ] window.bas       (WINDOW + T@& readback; compiled run verified
+      2026-07-06, interpreted run pending. Caveat: compiled does no
+      coordinate validation, ROM raises ILLEGAL QUANTITY.)
 - [ ] sprite.bas       (register round-trips)
 - [ ] mandel.bas, sieve.bas, ahl.bas
       (same output; note interpreted vs compiled SECONDS for the table;

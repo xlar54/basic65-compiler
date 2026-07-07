@@ -2347,9 +2347,7 @@ _string_factor_scalar_var:
         bne _string_factor_nods
         lda #<out_jsr_dsstrf
         ldy #>out_jsr_dsstrf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _string_factor_nods:
         lda var_name_1
         cmp #$54                ; TI$ reads the RTC as "hh:mm:ss"
@@ -2359,9 +2357,7 @@ _string_factor_nods:
         bne _string_factor_resolve
         lda #<out_jsr_tistr
         ldy #>out_jsr_tistr
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _string_factor_resolve:
         jsr resolve_existing_var
         bcs _string_factor_fail
@@ -2417,9 +2413,7 @@ _string_factor_ce:
         bcs _string_factor_fail
         lda #<out_jsr_strbinf
         ldy #>out_jsr_strbinf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _string_factor_err:
         jsr parse_open_paren
@@ -2430,9 +2424,7 @@ _string_factor_err:
         bcs _string_factor_fail
         lda #<out_jsr_errstrf
         ldy #>out_jsr_errstrf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _string_factor_hex:
         jsr parse_open_paren
@@ -2443,9 +2435,7 @@ _string_factor_hex:
         bcs _string_factor_fail
         lda #<out_jsr_hexstr
         ldy #>out_jsr_hexstr
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _string_factor_left:
         jsr compile_left_string_function
@@ -4455,9 +4445,7 @@ _factor_scalar_plain:
         bne _factor_scalar_var2
         lda #<out_jsr_rdst      ; ST reads the KERNAL status byte
         ldy #>out_jsr_rdst
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_scalar_var2:
         lda var_name_1
         cmp #$44                ; letter D
@@ -4470,9 +4458,7 @@ _factor_scalar_var2:
         bne _factor_scalar_var2e
         lda #<out_jsr_rdds
         ldy #>out_jsr_rdds
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_scalar_var2e:
         lda var_name_1
         cmp #$45                ; letter E
@@ -4495,16 +4481,12 @@ _factor_scalar_var3:
 _factor_er:
         lda #<out_jsr_rder
         ldy #>out_jsr_rder
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_el:
         lda #<out_jsr_rdel
         ldy #>out_jsr_rdel
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_array_variable:
         lda #VAR_KIND_ARRAY1
@@ -4578,9 +4560,7 @@ _factor_minus_emit:
         beq _factor_minus_int
         lda #<out_jsr_fneg
         ldy #>out_jsr_fneg
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_minus_int:
         jsr emit_neg_expr
         clc
@@ -4662,9 +4642,7 @@ _factor_abs:
         beq _factor_abs_int
         lda #<out_jsr_fabsf
         ldy #>out_jsr_fabsf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_abs_int:
         jsr emit_abs_expr
         clc
@@ -4682,9 +4660,7 @@ _factor_sgn:
         beq _factor_sgn_int
         lda #<out_jsr_fsgnf
         ldy #>out_jsr_fsgnf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_sgn_int:
         jsr emit_sgn_expr
         clc
@@ -4785,9 +4761,7 @@ _factor_pos:
         bcs _factor_fail
         lda #<out_jsr_posf
         ldy #>out_jsr_posf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_dec:
         jsr line_get
@@ -4868,9 +4842,7 @@ _factor_ext_ce:
         bcs _factor_fail
         lda #<out_jsr_bumpf
         ldy #>out_jsr_bumpf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_wpeek:
         jsr parse_open_paren
@@ -4904,9 +4876,7 @@ _factor_mod:
         bcs _factor_fail
         lda #<out_jsr_modf
         ldy #>out_jsr_modf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_rsppos:
         jsr parse_open_paren
@@ -4924,9 +4894,7 @@ _factor_rsppos:
         bcs _factor_fail
         lda #<out_jsr_rspposf
         ldy #>out_jsr_rspposf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_rsprite:
         jsr parse_open_paren
@@ -4944,9 +4912,7 @@ _factor_rsprite:
         bcs _factor_fail
         lda #<out_jsr_rspritef
         ldy #>out_jsr_rspritef
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_decbin:
         jsr parse_open_paren
@@ -4987,9 +4953,7 @@ _factor_one:
         bcs _factor_one_fail
         ply
         pla
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _factor_one_fail:
         ply
         pla
@@ -5005,9 +4969,7 @@ _factor_rplay:
         bcs _factor_fail
         lda #<out_jsr_rplayf
         ldy #>out_jsr_rplayf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_sin:
         lda #<out_jsr_sinf
@@ -5081,9 +5043,7 @@ _factor_usr:
         bcs _factor_fail
         lda #<out_jsr_usrf
         ldy #>out_jsr_usrf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_fre:
         jsr line_get
@@ -5113,9 +5073,7 @@ _factor_scrarr_c:
         lda #<out_jsr_cscrf
         ldy #>out_jsr_cscrf
 _factor_scrarr_emit:
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _factor_joy:
         jsr line_get            ; consume the JOY token
@@ -5127,9 +5085,7 @@ _factor_joy:
         bcs _factor_fail
         lda #<out_jsr_joyf
         ldy #>out_jsr_joyf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 compile_array_index:
         lda current_sym_index
@@ -5505,7 +5461,7 @@ _cef_tab:
         .byte $03, $04, $05, $0a, $0b, $3e, $3f, $0d
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
-        .byte $1d, $18, $19, $41, $42
+        .byte $1d, $18, $19, $41, $42, $1a
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5515,7 +5471,7 @@ _cef_jtab:
         .word compile_attr_fg, _compile_ext_bkg, _compile_ext_bdr, compile_movspr
         .word compile_sprite, compile_sprcolor, compile_concat, _compile_ext_format
         .word compile_wpoke, compile_begin, compile_bend
-        .word compile_cursor, compile_rcursor
+        .word compile_cursor, compile_rcursor, compile_window
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -5551,9 +5507,7 @@ compile_play:
         bcc _compile_playargs
         lda #<out_jsr_playoff
         ldy #>out_jsr_playoff
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_playargs:
         lda #0
         sta play_track_no
@@ -5642,9 +5596,7 @@ compile_attr_one:
         bcs _cao_bad
         ply
         pla
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _cao_bad:
         ply
         pla
@@ -5791,15 +5743,11 @@ compile_collision:
         jsr out_zstr
         lda #<out_jsr_colarm
         ldy #>out_jsr_colarm
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_col_off:
         lda #<out_jsr_coloff
         ldy #>out_jsr_coloff
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_col_bad:
         jmp compile_env_bad
 
@@ -5901,6 +5849,10 @@ compile_cmdbare:
 compile_cmd_go:
         lda #<out_jsr_cmdgo
         ldy #>out_jsr_cmdgo
+        jmp out_zstr_ok
+
+; shared tail: emit a template and return success
+out_zstr_ok:
         jsr out_zstr
         clc
         rts
@@ -5936,9 +5888,7 @@ compiledopenmode:
         jsr emit_lda_imm
         lda #<out_jsr_dopmode
         ldy #>out_jsr_dopmode
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 compiledopenbad:
         pla
         jmp compile_env_bad
@@ -5996,9 +5946,7 @@ compile_dclose:
         jsr out_zstr
         lda #<out_jsr_dclosech
         ldy #>out_jsr_dclosech
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_dclose_bad:
         jmp compile_env_bad
 
@@ -6013,9 +5961,7 @@ compile_bload:
         jsr out_zstr
         lda #<out_jsr_bloadgo
         ldy #>out_jsr_bloadgo
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 compilebloadbad:
         jmp compile_env_bad
 
@@ -6041,9 +5987,7 @@ compile_bsave:
         jsr out_zstr
         lda #<out_jsr_bsavego
         ldy #>out_jsr_bsavego
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 ; name into cmdbuf with the empty prefix
 compile_bname:
@@ -6097,9 +6041,7 @@ compile_mouse:
         bne _compile_mouse_bad
         lda #<out_jsr_mouseoff
         ldy #>out_jsr_mouseoff
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_mouse_on:
         jsr line_get
         jsr parse_opt_comma
@@ -6133,9 +6075,7 @@ _compile_mouse_on:
 _compile_mouse_go:
         lda #<out_jsr_mouseon
         ldy #>out_jsr_mouseon
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _compile_mouse_bad:
         jmp compile_env_bad
 
@@ -6199,10 +6139,46 @@ _cursor_row:
 _cursor_go:
         lda #<out_jsr_curgo
         ldy #>out_jsr_curgo
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 _cursor_bad:
+        jmp compile_env_bad
+
+; WINDOW left, top, right, bottom [, clear]
+compile_window:
+        lda #<out_jsr_winrst
+        ldy #>out_jsr_winrst
+        jsr out_zstr
+        ldx #0
+_cw_loop:
+        phx
+        jsr compile_expression
+        bcs _cw_badx
+        lda #<out_jsr_winarg
+        ldy #>out_jsr_winarg
+        jsr out_zstr
+        plx
+        inx
+        cpx #4
+        bcc _cw_comma           ; args 1-3: comma required
+        bne _cw_go              ; arg 5 taken: done
+        phx                     ; the parsers clobber X (the arg count)
+        jsr parse_opt_comma     ; after arg 4 the clear flag is optional
+        plx
+        bcs _cw_go
+        bra _cw_loop
+_cw_comma:
+        phx
+        jsr parse_comma
+        plx
+        bcs _cw_bad
+        bra _cw_loop
+_cw_go:
+        lda #<out_jsr_wingo
+        ldy #>out_jsr_wingo
+        jmp out_zstr_ok
+_cw_badx:
+        plx
+_cw_bad:
         jmp compile_env_bad
 
 ; RCURSOR colvar, rowvar
@@ -6268,9 +6244,7 @@ compile_sleep:
 _compile_sleep_f:
         lda #<out_jsr_sleepf
         ldy #>out_jsr_sleepf
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 ; WAIT address, andmask [, xormask]
 compile_wait:
@@ -6296,18 +6270,14 @@ compile_wait:
 _compile_wait_go:
         lda #<out_jsr_waitgo
         ldy #>out_jsr_waitgo
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 compile_tempo:
         jsr compile_expression
         bcs compile_env_bad
         lda #<out_jsr_tempof
         ldy #>out_jsr_tempof
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 ; ENVELOPE n [, attack, decay, sustain, release, waveform, pw] --
 ; each optional argument patches the slot immediately
@@ -6459,9 +6429,7 @@ _movspr_angle:
         bcs compile_sprite_bad
         lda #<out_jsr_sprgoang
         ldy #>out_jsr_sprgoang
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 compile_sprite_bad:
         lda #<msg_error_bad_sprite
@@ -6481,9 +6449,7 @@ compile_sprcolor:
         bcs compile_sprite_bad
         lda #<out_jsr_sprmc2
         ldy #>out_jsr_sprmc2
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 ; SPRITE num [{, switch, colour, prio, expx, expy, mode}] -- empty slots
 ; (adjacent commas) leave that attribute unchanged, like the interpreter
@@ -6626,9 +6592,7 @@ compile_sound:
 _compile_sound_go:
         lda #<out_jsr_sndgo
         ldy #>out_jsr_sndgo
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 compile_sound_bad:
         lda #<msg_error_bad_sound
@@ -6641,9 +6605,7 @@ compile_vol:
         bcs compile_sound_bad
         lda #<out_jsr_volsnd
         ldy #>out_jsr_volsnd
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 compile_trap_bad:
         lda #<msg_error_bad_trap
@@ -6710,9 +6672,7 @@ compile_open:
 _compile_open_done:
         lda #<out_jsr_fopen
         ldy #>out_jsr_fopen
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _compile_open_bad:
         lda #<msg_error_bad_open
@@ -6739,9 +6699,7 @@ compile_close:
         bcs _compile_close_bad
         lda #<out_jsr_fclose
         ldy #>out_jsr_fclose
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _compile_close_bad:
         lda #<msg_error_bad_open
@@ -6954,9 +6912,7 @@ _compile_input_array_flt:
         jsr emit_restore_arrayptr
         lda #<out_jsr_fstorevar
         ldy #>out_jsr_fstorevar
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _compile_input_target_bad:
         sec
@@ -7108,9 +7064,7 @@ _compile_get_array_flt:
         jsr emit_restore_arrayptr
         lda #<out_jsr_fstorevar
         ldy #>out_jsr_fstorevar
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _compile_get_target_bad:
         sec
@@ -7237,9 +7191,7 @@ _try_print_num_var_float:
         jsr out_zstr
         lda #<out_jsr_printflt
         ldy #>out_jsr_printflt
-        jsr out_zstr
-        clc
-        rts
+        jmp out_zstr_ok
 
 _try_print_num_var_restore_fail:
         lda line_idx_save
@@ -13598,6 +13550,27 @@ out_jsr_curcolf:
 out_jsr_currowf:
 .if TEXT_EMITTER
         .text "        jsr currowf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_winrst:
+.if TEXT_EMITTER
+        .text "        jsr winrst"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_winarg:
+.if TEXT_EMITTER
+        .text "        jsr winarg"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_wingo:
+.if TEXT_EMITTER
+        .text "        jsr wingo"
         .byte 13, 0
 .else
         .byte 0

@@ -4249,6 +4249,8 @@ scr_c:        .byte 0,0
 scr_r:        .byte 0
 cur_c:        .byte 0
 cur_r:        .byte 0
+win_i:        .byte 0
+win_a:        .fill 5, 0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
 gcphase:      .byte 0
@@ -5237,6 +5239,68 @@ curgo:
         ply
         plx
         rts
+
+; WINDOW l,t,r,b[,clear]: winrst/winarg stage the arguments, wingo
+; releases any old window (home-home), marks the corners with the
+; editor's printable ESC T / ESC B at PLOT-positioned cursor spots,
+; and clears inside the window when the flag argument is nonzero
+winrst:
+        lda #0
+        sta win_i
+        rts
+
+winarg:
+        ldx win_i
+        cpx #5
+        bcs +
+        lda exprlo
+        sta win_a,x
+        inc win_i
++       rts
+
+wingo:
+        lda #$13                ; home-home: back to the full screen
+        jsr kernalchrout
+        lda #$13
+        jsr kernalchrout
+        phx
+        phy
+        ldx win_a+1             ; PLOT wants row in X, column in Y
+        ldy win_a+0
+        clc
+        jsr kernalplot
+        lda #$1b
+        jsr kernalchrout
+        lda #$54                ; ESC T: top-left corner
+        jsr kernalchrout
+        sec                     ; once the top-left is set, PLOT works
+        lda win_a+3             ; window-relative -- aim at the corner
+        sbc win_a+1             ; as (bottom-top, right-left)
+        tax
+        sec
+        lda win_a+2
+        sbc win_a+0
+        tay
+        clc
+        jsr kernalplot
+        lda #$1b
+        jsr kernalchrout
+        lda #$42                ; ESC B: bottom-right corner
+        jsr kernalchrout
+        lda #$13                ; home the cursor inside the window,
+        jsr kernalchrout        ; like the ROM's WINDOW does
+        ply
+        plx
+        lda #0
+        sta printcol
+        lda win_i
+        cmp #5
+        bcc +
+        lda win_a+4
+        beq +
+        lda #$93                ; clear flag: clear inside the window
+        jsr kernalchrout
++       rts
 
 ; RCURSOR colvar, rowvar readers (zero-based, like the ROM)
 curcolf:
