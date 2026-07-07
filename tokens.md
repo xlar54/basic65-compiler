@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 71 | 40 | 1 (OFF) | 30 |
+| $FE-prefixed statements | 71 | 41 | 1 (OFF) | 29 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -212,7 +212,7 @@ Legend:
 | $FE $13 | CONCAT | ✅ | DOS combine form with explicit 0: source prefixes (CBDOS silently skips the append without them); SEQ files only (DOS rule) |
 | $FE $14 | DVERIFY | ❌ | |
 | $FE $15 | DCLEAR | ✅ | |
-| $FE $16 | SPRSAV | ❌ | queued |
+| $FE $16 | SPRSAV | ⚠️ | sprite#/string$ both directions (64-byte C64-style shapes, pointers read at screen+$3F8, VIC bank 0); array-cell targets rejected |
 | $FE $17 | COLLISION | ✅ | first working implementation on the platform — the ROM's is unfinished |
 | $FE $18 | BEGIN | ✅ | |
 | $FE $19 | BEND | ✅ | |

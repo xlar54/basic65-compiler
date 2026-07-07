@@ -195,7 +195,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 104   ; checked build: squeezed under $c000
+SYM_MAX                 = 92    ; checked build: squeezed under $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -5386,7 +5386,7 @@ _cef_tab:
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
-        .byte $1f, $21, $02, $09, $54, $1b
+        .byte $1f, $21, $02, $09, $54, $1b, $16
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5400,7 +5400,7 @@ _cef_jtab:
         .word compile_diskstmt, compile_fgoto, compile_fgosub
         .word compile_dma, compile_edma
         .word compile_bank, compile_rreg, compile_vsync
-        .word compile_boot
+        .word compile_boot, compile_sprsav
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6101,6 +6101,82 @@ _cursor_go:
         .word out_jsr_curgo
 _cursor_bad:
         jmp compile_env_bad
+
+; SPRSAV source, destination: each side is a sprite number or a
+; string variable (probed by type; anything else parses numerically)
+compile_sprsav:
+        jsr sprsav_probe_string
+        bcc _csp_src_str
+        jsr compile_expression
+        bcs _csp_bad
+        jsr emit_tmpl
+        .word out_jsr_sprsava
+        bra _csp_dest
+_csp_src_str:
+        jsr compile_string_factor
+        bcs _csp_bad
+        jsr emit_tmpl
+        .word out_jsr_sprsavs
+_csp_dest:
+        jsr parse_comma
+        bcs _csp_bad
+        jsr sprsav_probe_string
+        bcc _csp_dst_str
+        jsr compile_expression
+        bcs _csp_bad
+        jsr emit_tmpl_done
+        .word out_jsr_sprsavdn
+_csp_dst_str:
+        jsr line_get            ; first char of the target variable
+        jsr parse_variable_with_first_char
+        bcs _csp_bad
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs +
+        jsr line_peek
+        cmp #'('                ; array cells unsupported as targets
+        beq _csp_bad
++       jsr resolve_var
+        bcs _csp_bad
+        lda current_var_data_lo
+        sta assign_var_data_lo
+        lda current_var_data_hi
+        sta assign_var_data_hi
+        lda var_type
+        sta assign_var_type
+        jsr emit_tmpl
+        .word out_jsr_sprsavstr
+        jsr emit_store_var
+        clc
+        rts
+_csp_bad:
+        jmp compile_env_bad
+
+; peek ahead: C clear if a string variable ($ suffix) starts here;
+; the line position is restored either way
+sprsav_probe_string:
+        jsr line_skip_spaces
+        lda line_idx
+        sta sprsav_save
+        jsr line_at_end
+        bcs _spp_no
+        jsr line_get
+        jsr is_var_start
+        bcs _spp_no
+        jsr parse_variable_with_first_char
+        bcs _spp_no
+        lda var_type
+        cmp #VAR_TYPE_STRING
+        bne _spp_no
+        lda sprsav_save
+        sta line_idx
+        clc
+        rts
+_spp_no:
+        lda sprsav_save
+        sta line_idx
+        sec
+        rts
 
 ; BOOT filename$ chain-loads a PRG (header address) and never returns;
 ; the SYS/bare/,B/,P/,D/,U forms are unsupported
@@ -13461,6 +13537,34 @@ out_lineref_sep:
 .else
         .byte 0
 .fi
+out_jsr_sprsava:
+.if TEXT_EMITTER
+        .text "        jsr sprsava"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsavs:
+.if TEXT_EMITTER
+        .text "        jsr sprsavs"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsavdn:
+.if TEXT_EMITTER
+        .text "        jsr sprsavdn"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sprsavstr:
+.if TEXT_EMITTER
+        .text "        jsr sprsavstr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_bootgo:
 .if TEXT_EMITTER
         .text "        jsr bootgo"
@@ -15200,6 +15304,8 @@ fgoto_used:
 bank_used:
         .byte 0
 cdma_i:
+        .byte 0
+sprsav_save:
         .byte 0
 cdma_go:
         .byte 0,0

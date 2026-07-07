@@ -3193,6 +3193,109 @@ fgosub:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
 
+; SPRSAV: 64-byte C64-style sprite shapes staged through sprsavbuf.
+; Sprite data is found through the live pointers at screen+1016 (the
+; screen base comes from SCRNPTR, VIC bank 0 assumed).
+sprdataptr:
+        lda $d060               ; screen base + $3f8 + sprite#
+        clc
+        adc #$f8
+        sta varptr
+        lda $d061
+        adc #$03
+        sta varptr+1
+        lda $d062
+        adc #0
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        lda exprlo
+        and #7
+        taz
+        lda [varptr],z          ; the sprite pointer byte
+        sta rtptr+1             ; *64: byte<<6 across 16 bits
+        lda #0
+        sta rtptr
+        lsr rtptr+1
+        ror rtptr
+        lsr rtptr+1
+        ror rtptr
+        jmp scrrestore          ; varptr bank-1 invariant back
+
+sprsava:                        ; numeric source: sprite -> buffer
+        jsr sprdataptr
+        ldy #0
+_ssa_loop:
+        lda (rtptr),y
+        sta sprsavbuf,y
+        iny
+        cpy #64
+        bne _ssa_loop
+        rts
+
+sprsavs:                        ; string source -> buffer (pad with 0)
+        ldy #0
+        tya
+_sss_clr:
+        sta sprsavbuf,y
+        iny
+        cpy #64
+        bne _sss_clr
+        lda exprlo
+        ora exprhi
+        beq _sss_done
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        cmp #65
+        bcc +
+        lda #64
++       sta sprs_len
+        ldy #0
+_sss_copy:
+        cpy sprs_len
+        bcs _sss_done
+        iny
+        tya
+        taz
+        lda [varptr],z
+        dey
+        sta sprsavbuf,y
+        iny
+        bra _sss_copy
+_sss_done:
+        rts
+
+sprsavdn:                       ; buffer -> sprite (numeric dest)
+        jsr sprdataptr
+        ldy #0
+_ssd_loop:
+        lda sprsavbuf,y
+        sta (rtptr),y
+        iny
+        cpy #64
+        bne _ssd_loop
+        rts
+
+sprsavstr:                      ; buffer -> fresh 64-byte heap string
+        lda #64
+        sta strlen
+        jsr stralloc
+        bcs _sstr_done
+        ldz #0
+        lda #64
+        sta [varptr],z
+        ldy #0
+_sstr_loop:
+        lda sprsavbuf,y
+        inz
+        sta [varptr],z
+        iny
+        cpy #64
+        bne _sstr_loop
+_sstr_done:
+        rts
+
 ; VSYNC raster: busy-wait until the 9-bit VIC raster matches
 vsync:
         lda $d012
@@ -4664,6 +4767,8 @@ dma_args:     .fill 28, 0
 dmalist:      .fill 18, 0
 cur_bank:     .byte 128
 boot_addr:    .byte 0,0
+sprs_len:     .byte 0
+sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0
 sys_x:        .byte 0
 sys_y:        .byte 0
