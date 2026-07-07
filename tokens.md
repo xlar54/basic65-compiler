@@ -7,6 +7,13 @@ STRBIN$, CHDIR — see `tools/fix-basic65-petcat-tokens.ps1`).
 Compiler-side status extracted from the dispatch tables in
 `src/basic65c.asm`.
 
+Last full sweep: 2026-07-06 — 43/43 fixtures compile on the MEGA65
+with byte-identical native output (negative fixture rejected, 3
+interactive fixtures skipped). Statuses below reflect that build.
+Open runtime defects that cut across tokens (notably string-heap
+corruption under heavy GC churn in large programs) are tracked in
+[KNOWN-ISSUES.md](KNOWN-ISSUES.md), not per-row here.
+
 Legend:
 - ✅ compiled — full runtime support, interpreter parity
 - ⚠️ partial — compiles with documented caveats
@@ -202,7 +209,7 @@ Legend:
 | $FE $10 | BSAVE | ✅ | |
 | $FE $11 | BLOAD | ✅ | |
 | $FE $12 | RECORD | ❌ | |
-| $FE $13 | CONCAT | ✅ | DOS combine form; SEQ files only (DOS rule) |
+| $FE $13 | CONCAT | ✅ | DOS combine form with explicit 0: source prefixes (CBDOS silently skips the append without them); SEQ files only (DOS rule) |
 | $FE $14 | DVERIFY | ❌ | |
 | $FE $15 | DCLEAR | ✅ | |
 | $FE $16 | SPRSAV | ❌ | queued |
