@@ -55,6 +55,17 @@ foreach ($item in $Path) {
                 continue
             }
 
+            # SETBIT/CLRBIT: petcat leaves the BIT half as text
+            if ($i + 3 -lt $lineEnd -and
+                (($b -eq 0x2d -and $i -ge 1 -and $bytes[$i-1] -eq 0xfe) -or $b -eq 0x9c) -and
+                $bytes[$i+1] -eq 0x42 -and $bytes[$i+2] -eq 0x49 -and $bytes[$i+3] -eq 0x54) {
+                $bytes[$i+1] = 0x20
+                $bytes[$i+2] = 0xfe
+                $bytes[$i+3] = 0x4e
+                $changed++
+                $i += 3
+                continue
+            }
             # VSYNC: newer ROM token petcat does not know at all
             if ($i + 4 -lt $lineEnd -and $b -eq 0x56 -and
                 $bytes[$i+1] -eq 0x53 -and $bytes[$i+2] -eq 0x59 -and

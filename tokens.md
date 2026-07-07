@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 71 | 41 | 1 (OFF) | 29 |
+| $FE-prefixed statements | 72 | 42 | 2 (OFF, BIT) | 28 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -65,7 +65,7 @@ Legend:
 | $99 | PRINT | ✅ | PRINT USING not supported ($FB) |
 | $9A | CONT | ✖ | direct-mode |
 | $9B | LIST | ✖ | direct-mode |
-| $9C | CLR | ✅ | plus CLR TI special form (timer reset) |
+| $9C | CLR | ✅ | plus CLR TI (timer reset) and CLRBIT ($9C $FE $4E) forms |
 | $9D | CMD | ❌ | |
 | $9E | SYS | ✅ | |
 | $9F | OPEN | ✅ | |
@@ -233,7 +233,7 @@ Legend:
 | $FE $2A | ERASE | ✅ | |
 | $FE $2B | FIND | ✖ | editor |
 | $FE $2C | CHANGE | ✖ | editor |
-| $FE $2D | SET | ❌ | |
+| $FE $2D | SET | ⚠️ | only as SETBIT ($FE $2D $FE $4E): set one bit, BANK-aware <=64K, flat 28-bit above |
 | $FE $2E | SCREEN | ❌ | graphics queued |
 | $FE $2F | POLYGON | ❌ | graphics queued |
 | $FE $30 | ELLIPSE | ❌ | graphics queued |
@@ -260,6 +260,7 @@ Legend:
 | $FE $46 | FONT | ❌ | |
 | $FE $47 | FGOTO | ✅ | computed jump via emitted line table (header vector 7); miss raises UNDEF'D STATEMENT |
 | $FE $48 | FGOSUB | ✅ | computed call, same table |
+| $FE $4E | (BIT) | 🔧 | second half of SETBIT/CLRBIT; newer ROM token, petcat gap, fixer rewrites |
 | $FE $4B | CHDIR | ✅ | MEGA65 addition; petcat gap |
 
 | $FE $54 | VSYNC | ✅ | waits for the 9-bit raster line; newer ROM token, petcat gap, fixer rewrites |

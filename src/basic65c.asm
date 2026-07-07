@@ -183,7 +183,11 @@ DO_STACK_MAX            = 16
 FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
+.if TEXT_EMITTER
+DATA_MAX                = 116   ; checked build: squeezed under $c000
+.else
 DATA_MAX                = 128
+.fi
 .if TEXT_EMITTER
 DATA_LINE_MAX           = 32    ; checked build: squeezed under $c000
 .else
@@ -195,7 +199,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 92    ; checked build: squeezed under $c000
+SYM_MAX                 = 84    ; checked build: squeezed under $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -2081,7 +2085,13 @@ _stmt_clr:
         jsr line_at_end_or_colon
         bcs _stmt_clr_plain
         jsr line_peek
-        cmp #$54                ; CLR TI resets the seconds timer
+        cmp #TOK_EXT_FE         ; CLR + BIT pair = CLRBIT
+        bne +
+        jsr line_get
+        lda #<out_jsr_clrbitgo
+        ldy #>out_jsr_clrbitgo
+        jmp compile_bitargs
++       cmp #$54                ; CLR TI resets the seconds timer
         bne _stmt_clr_plain
         jsr line_get
         jsr line_get
@@ -5386,7 +5396,7 @@ _cef_tab:
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
-        .byte $1f, $21, $02, $09, $54, $1b, $16
+        .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5400,7 +5410,7 @@ _cef_jtab:
         .word compile_diskstmt, compile_fgoto, compile_fgosub
         .word compile_dma, compile_edma
         .word compile_bank, compile_rreg, compile_vsync
-        .word compile_boot, compile_sprsav
+        .word compile_boot, compile_sprsav, compile_setbit
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6100,6 +6110,50 @@ _cursor_go:
         jsr emit_tmpl_done
         .word out_jsr_curgo
 _cursor_bad:
+        jmp compile_env_bad
+
+; SETBIT addr, bit ($FE $2D $FE $4E) / CLRBIT ($9C $FE $4E): the
+; shared argument compiler follows the BIT token pair
+compile_setbit:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cbit_bad
+        jsr line_get
+        cmp #TOK_EXT_FE
+        bne _cbit_bad
+        lda #<out_jsr_setbitgo
+        ldy #>out_jsr_setbitgo
+        bra compile_bitargs
+_cbit_bad:
+        jmp compile_env_bad
+
+compile_bitargs:
+        sta cdma_go
+        sty cdma_go+1
+        jsr line_at_end
+        bcs _cbit_bad2
+        jsr line_get
+        cmp #$4e                ; the BIT token's second byte
+        bne _cbit_bad2
+        jsr compile_expression
+        bcs _cbit_bad2
+        lda expr_type
+        beq _cbit_a16
+        jsr emit_tmpl
+        .word out_jsr_bitadr32
+        bra _cbit_comma
+_cbit_a16:
+        jsr emit_tmpl
+        .word out_jsr_bitadr16
+_cbit_comma:
+        jsr parse_comma
+        bcs _cbit_bad2
+        jsr compile_expression
+        bcs _cbit_bad2
+        lda cdma_go
+        ldy cdma_go+1
+        jmp out_zstr_ok
+_cbit_bad2:
         jmp compile_env_bad
 
 ; SPRSAV source, destination: each side is a sprite number or a
@@ -13534,6 +13588,34 @@ out_lineref_sep:
 .if TEXT_EMITTER
         .text ", l"
         .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_bitadr16:
+.if TEXT_EMITTER
+        .text "        jsr bitadr16"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bitadr32:
+.if TEXT_EMITTER
+        .text "        jsr bitadr32"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_setbitgo:
+.if TEXT_EMITTER
+        .text "        jsr setbitgo"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_clrbitgo:
+.if TEXT_EMITTER
+        .text "        jsr clrbitgo"
+        .byte 13, 0
 .else
         .byte 0
 .fi

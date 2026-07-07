@@ -20,6 +20,8 @@ matches the compiled output.
 - [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
       verified 2026-07-06, interpreted run pending. Note: CURSOR
       ON/OFF/style unsupported compiled -- positioning only.)
+- [ ] bits.bas         (SETBIT/CLRBIT incl flat 28-bit form; compiled
+      run verified 2026-07-07)
 - [ ] sprsav.bas       (SPRSAV string/sprite round trip; compiled run
       verified 2026-07-07. Note: assumes sprite pointers at
       screen+$3F8 -- confirm against the interpreted run.)

@@ -3193,6 +3193,107 @@ fgosub:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
 
+; SETBIT/CLRBIT: addresses <= $ffff go through the BANK setting
+; (>= 128 = CPU view), addresses >= $10000 are flat 28-bit
+bitadr16:
+        lda exprlo
+        sta bit_addr
+        lda exprhi
+        sta bit_addr+1
+        lda #0
+        sta bit_addr+2
+        sta bit_addr+3
+        rts
+
+bitadr32:
+        jsr fq32
+        lda exprlo
+        sta bit_addr
+        lda exprhi
+        sta bit_addr+1
+        lda exprb2
+        sta bit_addr+2
+        lda exprb3
+        sta bit_addr+3
+        rts
+
+; C set: far path staged in varptr; C clear: CPU path in rtptr
+bitprep:
+        lda exprlo              ; bit number -> mask
+        and #7
+        tax
+        lda bittab,x
+        sta bit_mask
+        lda bit_addr+2
+        ora bit_addr+3
+        bne _bp_flat
+        lda cur_bank
+        bmi _bp_cpu
+        lda bit_addr
+        sta varptr
+        lda bit_addr+1
+        sta varptr+1
+        lda cur_bank
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        sec
+        rts
+_bp_flat:
+        lda bit_addr
+        sta varptr
+        lda bit_addr+1
+        sta varptr+1
+        lda bit_addr+2
+        sta varptr+2
+        lda bit_addr+3
+        sta varptr+3
+        sec
+        rts
+_bp_cpu:
+        lda bit_addr
+        sta rtptr
+        lda bit_addr+1
+        sta rtptr+1
+        clc
+        rts
+
+setbitgo:
+        jsr bitprep
+        bcc _sb_cpu
+        ldz #0
+        lda [varptr],z
+        ora bit_mask
+        sta [varptr],z
+        jmp scrrestore
+_sb_cpu:
+        ldy #0
+        lda (rtptr),y
+        ora bit_mask
+        sta (rtptr),y
+        rts
+
+clrbitgo:
+        jsr bitprep
+        lda bit_mask
+        eor #$ff
+        sta bit_mask
+        bcc _cb_cpu
+        ldz #0
+        lda [varptr],z
+        and bit_mask
+        sta [varptr],z
+        jmp scrrestore
+_cb_cpu:
+        ldy #0
+        lda (rtptr),y
+        and bit_mask
+        sta (rtptr),y
+        rts
+
+bittab:
+        .byte 1, 2, 4, 8, 16, 32, 64, 128
+
 ; SPRSAV: 64-byte C64-style sprite shapes staged through sprsavbuf.
 ; Sprite data is found through the live pointers at screen+1016 (the
 ; screen base comes from SCRNPTR, VIC bank 0 assumed).
@@ -4768,6 +4869,8 @@ dmalist:      .fill 18, 0
 cur_bank:     .byte 128
 boot_addr:    .byte 0,0
 sprs_len:     .byte 0
+bit_addr:     .byte 0,0,0,0
+bit_mask:     .byte 0
 sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0
 sys_x:        .byte 0
