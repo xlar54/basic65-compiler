@@ -244,7 +244,7 @@ Legend:
 | $FE $35 | DMODE | ❌ | graphics queued |
 | $FE $36 | DPAT | ❌ | graphics queued |
 | $FE $37 | FORMAT | ✅ | HEADER alias (same ROM routine, same compile path) |
-| $FE $38 | GENLOCK | ❌ | |
+| $FE $38 | GENLOCK | ✖ | C65 genlock hardware never existed on the MEGA65; no book reference page, dead token |
 | $FE $39 | FOREGROUND | ✅ | 0–15; ≥16 raises ILLEGAL QUANTITY (matches ROM V920413, despite book saying 0–31) |
 | $FE $3B | BACKGROUND | ✅ | 0–255 |
 | $FE $3C | BORDER | ✅ | 0–255 |
