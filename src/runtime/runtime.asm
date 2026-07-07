@@ -3082,7 +3082,11 @@ strcopygo:
         ldz #0
         lda [varptr],z
         sta strlen
+        ldy #1                  ; src1 holds a live heap string: let a
+        sty gcregmask           ; mid-alloc GC relocate it with us
         jsr stralloc
+        ldy #0
+        sty gcregmask
         bcs strcopydone
         ldz #0
         lda strlen
@@ -3129,7 +3133,11 @@ concatstr:
         bcc concatlenok
         jmp outofstring
 concatlenok:
+        ldy #3                  ; both sources are live heap strings
+        sty gcregmask
         jsr stralloc
+        ldy #0
+        sty gcregmask
         bcs concatdone
         ldz #0
         lda strlen
@@ -3607,7 +3615,11 @@ strsubuseavail:
         lda strlen2
         sta strlen
 strsuballoc:
+        ldy #1                  ; src1 = the substring source
+        sty gcregmask
         jsr stralloc
+        ldy #0
+        sty gcregmask
         bcs strsubdone
         ldz #0
         lda strlen
@@ -3880,15 +3892,65 @@ outofstring:
 ; String garbage collector
 ;=======================================================================================
 
+; The GC compacts live strings to the top of the bank-1 heap by walking
+; the root regions (slots holding heap pointers). Two hazards handled
+; here: (1) string ops hold source pointers in bank-0 registers across
+; stralloc, so a GC fired mid-operation must relocate those too -- they
+; are stashed as a synthetic first root region at bank-1 $1ff8; (2) the
+; same heap string may be referenced by several slots, so every move is
+; recorded in an old->new map (bank 4, from $0000) and later references
+; reuse the mapped address instead of copying stale bytes.
 strgc:
         lda #<strheaptop
         sta strdstlo
         lda #>strheaptop
         sta strdsthi
-        lda rtstrroots
-        sta rtptr
-        lda rtstrroots+1
-        sta rtptr+1
+        lda #0
+        sta gcmapcnt
+        sta gcmapcnt+1
+        lda #$f8                ; stash the source-string registers as
+        sta varptr              ; walkable roots -- but only when the
+        lda #$1f                ; interrupted routine flagged them live
+        sta varptr+1            ; (gcregmask), else they hold plain
+        jsr setstrptrbank       ; numbers; zeros make the walker skip
+        lda #0
+        ldz #0
+        sta [varptr],z
+        ldz #1
+        sta [varptr],z
+        ldz #2
+        sta [varptr],z
+        ldz #3
+        sta [varptr],z
+        lda gcregmask
+        and #1
+        beq +
+        ldz #0
+        lda strsrc1lo
+        sta [varptr],z
+        inz
+        lda strsrc1hi
+        sta [varptr],z
++       lda gcregmask
+        and #2
+        beq +
+        ldz #2
+        lda strsrc2lo
+        sta [varptr],z
+        inz
+        lda strsrc2hi
+        sta [varptr],z
++       lda #0                  ; phase 0: the synthetic register region
+        sta gcphase
+        lda #$f8
+        sta gcslotlo
+        lda #$1f
+        sta gcslothi
+        lda #4
+        sta gcbyteslo
+        lda #0
+        sta gcbyteshi
+        jmp strgcslot
 strgcroot:
         ldy #0
         lda (rtptr),y
@@ -3919,7 +3981,21 @@ strgcslot:
         lda gcoldlo
         ora gcoldhi
         beq strgcslotnext
-        lda gcoldlo
+        jsr strgcmapfind        ; moved already? reuse its new address
+        bcc +
+        lda gcslotlo
+        sta varptr
+        lda gcslothi
+        sta varptr+1
+        jsr setstrptrbank
+        ldz #0
+        lda gcnewlo
+        sta [varptr],z
+        ldz #1
+        lda gcnewhi
+        sta [varptr],z
+        jmp strgcslotnext
++       lda gcoldlo
         sta strsrc1lo
         lda gcoldhi
         sta strsrc1hi
@@ -3981,6 +4057,7 @@ strgcupdateroot:
         ldz #1
         lda strdsthi
         sta [varptr],z
+        jsr strgcmapadd
 strgcslotnext:
         clc
         lda gcslotlo
@@ -3998,7 +4075,16 @@ strgcslotnext:
         sta gcbyteshi
         jmp strgcslot
 strgcnextroot:
-        clc
+        lda gcphase
+        bne +
+        lda #1                  ; register region done: walk the table
+        sta gcphase
+        lda rtstrroots
+        sta rtptr
+        lda rtstrroots+1
+        sta rtptr+1
+        jmp strgcroot
++       clc
         lda rtptr
         adc #4
         sta rtptr
@@ -4011,7 +4097,111 @@ strgcdone:
         sta strheaplo
         lda strdsthi
         sta strheaphi
+        lda #$f8                ; hand the relocated pointers back to
+        sta varptr              ; the interrupted string operation
+        lda #$1f
+        sta varptr+1
+        jsr setstrptrbank
+        lda gcregmask
+        and #1
+        beq +
+        ldz #0
+        lda [varptr],z
+        sta strsrc1lo
+        inz
+        lda [varptr],z
+        sta strsrc1hi
++       lda gcregmask
+        and #2
+        beq +
+        ldz #2
+        lda [varptr],z
+        sta strsrc2lo
+        inz
+        lda [varptr],z
+        sta strsrc2hi
++       rts
+
+; relocation map in bank 4 from $0000: 4-byte (old, new) entries.
+; find: C set + gcnewlo/hi on a hit. add: append gcold -> strdst.
+strgcmapfind:
+        lda #0
+        sta varptr
+        sta varptr+1
+        lda #$04
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        lda gcmapcnt
+        sta gcmapi
+        lda gcmapcnt+1
+        sta gcmapi+1
+_gcmf_loop:
+        lda gcmapi
+        ora gcmapi+1
+        beq _gcmf_miss
+        ldz #0
+        lda [varptr],z
+        cmp gcoldlo
+        bne _gcmf_next
+        ldz #1
+        lda [varptr],z
+        cmp gcoldhi
+        bne _gcmf_next
+        ldz #2
+        lda [varptr],z
+        sta gcnewlo
+        ldz #3
+        lda [varptr],z
+        sta gcnewhi
+        sec
         rts
+_gcmf_next:
+        clc
+        lda varptr
+        adc #4
+        sta varptr
+        lda varptr+1
+        adc #0
+        sta varptr+1
+        lda gcmapi
+        bne +
+        dec gcmapi+1
++       dec gcmapi
+        jmp _gcmf_loop
+_gcmf_miss:
+        clc
+        rts
+
+strgcmapadd:
+        lda gcmapcnt            ; entry address = count * 4
+        sta varptr
+        lda gcmapcnt+1
+        sta varptr+1
+        asl varptr
+        rol varptr+1
+        asl varptr
+        rol varptr+1
+        lda #$04
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        ldz #0
+        lda gcoldlo
+        sta [varptr],z
+        inz
+        lda gcoldhi
+        sta [varptr],z
+        inz
+        lda strdstlo
+        sta [varptr],z
+        inz
+        lda strdsthi
+        sta [varptr],z
+        inc gcmapcnt
+        bne +
+        inc gcmapcnt+1
++       rts
 strgcloadroot:
         lda gcslotlo
         sta varptr
@@ -4061,6 +4251,12 @@ cur_c:        .byte 0
 cur_r:        .byte 0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
+gcphase:      .byte 0
+gcregmask:    .byte 0
+gcmapcnt:     .byte 0,0
+gcmapi:       .byte 0,0
+gcnewlo:      .byte 0
+gcnewhi:      .byte 0
 scr_off:      .byte 0,0
 ch_off:       .byte 0,0
 ch_k:         .byte 0
