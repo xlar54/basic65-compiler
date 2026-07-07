@@ -55,6 +55,19 @@ foreach ($item in $Path) {
                 continue
             }
 
+            # VSYNC: newer ROM token petcat does not know at all
+            if ($i + 4 -lt $lineEnd -and $b -eq 0x56 -and
+                $bytes[$i+1] -eq 0x53 -and $bytes[$i+2] -eq 0x59 -and
+                $bytes[$i+3] -eq 0x4e -and $bytes[$i+4] -eq 0x43) {
+                $bytes[$i] = 0x20
+                $bytes[$i+1] = 0x20
+                $bytes[$i+2] = 0x20
+                $bytes[$i+3] = 0xfe
+                $bytes[$i+4] = 0x54
+                $changed++
+                $i += 4
+                continue
+            }
             # DECBIN: petcat emits the DEC token + literal BIN
             if ($i + 3 -lt $lineEnd -and $b -eq 0xd1 -and
                 $bytes[$i+1] -eq 0x42 -and $bytes[$i+2] -eq 0x49 -and $bytes[$i+3] -eq 0x4e) {

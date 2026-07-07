@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 36 | 1 (OFF) | 33 |
+| $FE-prefixed statements | 71 | 39 | 1 (OFF) | 31 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -192,14 +192,14 @@ Legend:
 
 | Bytes | Token | Status | Notes |
 |---|---|---|---|
-| $FE $02 | BANK | ❌ | |
+| $FE $02 | BANK | ⚠️ | banks 0-127 = far 28-bit PEEK/POKE/WPEEK/WPOKE; >=128 = CPU view (default). LOAD/SAVE/SYS/WAIT stay CPU-view |
 | $FE $03 | FILTER | ✅ | timbre parity verified 2026-07-06 |
 | $FE $04 | PLAY | ✅ | M (modulation) / P (portamento) string directives parsed-ignored |
 | $FE $05 | TEMPO | ✅ | |
 | $FE $06 | MOVSPR | ✅ | angle#speed + TO interpolation, ROM-calibrated speed; ROM leaks motion across RUNs, we halt at exit (deliberate) |
 | $FE $07 | SPRITE | ✅ | |
 | $FE $08 | SPRCOLOR | ✅ | |
-| $FE $09 | RREG | ❌ | |
+| $FE $09 | RREG | ✅ | A,X,Y,Z,S captured after every SYS |
 | $FE $0A | ENVELOPE | ✅ | |
 | $FE $0B | SLEEP | ✅ | frame-granular, rounds to nearest, min 1 frame |
 | $FE $0C | CATALOG | ✖ | direct-mode |
@@ -217,7 +217,7 @@ Legend:
 | $FE $18 | BEGIN | ✅ | |
 | $FE $19 | BEND | ✅ | |
 | $FE $1A | WINDOW | ⚠️ | left,top,right,bottom[,clear] via editor ESC T/B; CHR$(19)×2 resets like the ROM. No range validation (ROM raises ILLEGAL QUANTITY on bad coords) |
-| $FE $1B | BOOT | ❌ | |
+| $FE $1B | BOOT | ❌ | queued: filename chain-load form |
 | $FE $1C | FREAD# | ❌ | |
 | $FE $1D | WPOKE | ✅ | MEGA65 reassignment (petcat's table still says SPRDEF here); fixer rewrites |
 | $FE $1E | FWRITE# | ❌ | |
@@ -262,8 +262,10 @@ Legend:
 | $FE $48 | FGOSUB | ✅ | computed call, same table |
 | $FE $4B | CHDIR | ✅ | MEGA65 addition; petcat gap |
 
-Unlisted second bytes ($FE $20, $22, $3A, $49, $4A, $4C+) are unassigned
-in the ROM as far as we know.
+| $FE $54 | VSYNC | ✅ | waits for the 9-bit raster line; newer ROM token, petcat gap, fixer rewrites |
+
+Unlisted second bytes ($FE $20, $22, $3A, $49, $4A, $4C+) are mostly
+unassigned; VSYNC at $54 shows newer ROMs do extend the range.
 
 ## Reserved-variable keywords (not tokens — recognized by name)
 

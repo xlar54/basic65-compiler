@@ -125,6 +125,8 @@ _rtinit_vecs:
         sta varptr+2
         lda #$00
         sta varptr+3
+        lda #128
+        sta cur_bank
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff BEFORE
         ; fltinit: large programs keep their literal text above $8000, and
         ; reading it through the ROMs hands valflt garbage (zero or
@@ -3191,6 +3193,147 @@ fgosub:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
 
+; VSYNC raster: busy-wait until the 9-bit VIC raster matches
+vsync:
+        lda $d012
+        cmp exprlo
+        bne vsync
+        lda $d011
+        asl a
+        lda #0
+        rol a
+        cmp exprhi
+        bne vsync
+        rts
+
+; BANK n: banks >= 128 keep the CPU view (the compiled default);
+; 0-127 switch the PEEK/POKE family to far 28-bit access
+bankset:
+        lda exprlo
+        sta cur_bank
+        rts
+
+; bank-aware PEEK/POKE helpers (used only when the program says BANK);
+; they borrow varptr and restore its bank-1 invariant afterwards
+pokebk:
+        lda cur_bank
+        bmi _pokebk_cpu
+        jsr bankptr
+        lda exprlo
+        ldz #0
+        sta [varptr],z
+        jmp scrrestore
+_pokebk_cpu:
+        lda exprlo
+        ldy #0
+        sta (rtptr),y
+        rts
+
+wpokebk:
+        lda cur_bank
+        bmi _wpokebk_cpu
+        jsr bankptr
+        lda exprlo
+        ldz #0
+        sta [varptr],z
+        lda exprhi
+        inz
+        sta [varptr],z
+        jmp scrrestore
+_wpokebk_cpu:
+        lda exprlo
+        ldy #0
+        sta (rtptr),y
+        iny
+        lda exprhi
+        sta (rtptr),y
+        rts
+
+peekbk:
+        lda cur_bank
+        bmi _peekbk_cpu
+        lda exprlo
+        sta rtptr
+        lda exprhi
+        sta rtptr+1
+        jsr bankptr
+        ldz #0
+        lda [varptr],z
+        sta exprlo
+        lda #0
+        sta exprhi
+        jmp scrrestore
+_peekbk_cpu:
+        lda exprlo
+        sta rtptr
+        lda exprhi
+        sta rtptr+1
+        ldy #0
+        lda (rtptr),y
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
+wpeekbk:
+        lda cur_bank
+        bmi _wpeekbk_cpu
+        lda exprlo
+        sta rtptr
+        lda exprhi
+        sta rtptr+1
+        jsr bankptr
+        ldz #0
+        lda [varptr],z
+        sta exprlo
+        inz
+        lda [varptr],z
+        sta exprhi
+        jmp scrrestore
+_wpeekbk_cpu:
+        lda exprlo
+        sta rtptr
+        lda exprhi
+        sta rtptr+1
+        ldy #0
+        lda (rtptr),y
+        sta exprlo
+        iny
+        lda (rtptr),y
+        sta exprhi
+        rts
+
+bankptr:
+        lda rtptr
+        sta varptr
+        lda rtptr+1
+        sta varptr+1
+        lda cur_bank
+        sta varptr+2
+        lda #0
+        sta varptr+3
+        rts
+
+; SYS register capture for RREG (Z is a real register on the 45GS02)
+sysregsave:
+        php
+        sta sys_a
+        stx sys_x
+        sty sys_y
+        stz sys_z
+        pla
+        sta sys_sr
+        rts
+
+; RREG reader: A = register index into the capture block
+rregn:
+        tax
+        lda sys_a,x
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
 ; pi constant for the $ff token (classic CBM packed value)
 cpival:
         .byte $82, $49, $0f, $da, $a2
@@ -4519,6 +4662,12 @@ dma_i:        .byte 0
 dma_tmp:      .byte 0
 dma_args:     .fill 28, 0
 dmalist:      .fill 18, 0
+cur_bank:     .byte 128
+sys_a:        .byte 0
+sys_x:        .byte 0
+sys_y:        .byte 0
+sys_z:        .byte 0
+sys_sr:       .byte 0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
 gcphase:      .byte 0

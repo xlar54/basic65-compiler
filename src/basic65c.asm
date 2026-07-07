@@ -194,7 +194,11 @@ DATA_TYPE_STRING        = 1
 STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
+.if TEXT_EMITTER
+SYM_MAX                 = 104   ; checked build: squeezed under $c000
+.else
 SYM_MAX                 = 128
+.fi
 VAR_KIND_SCALAR         = 0
 VAR_KIND_ARRAY1         = 1
 VAR_TYPE_INT            = 1
@@ -258,6 +262,7 @@ main:
         sta fio_used
         sta math_used
         sta fgoto_used
+        sta bank_used
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -1347,6 +1352,11 @@ _scan_vars_extended:
         beq _scan_ext_fg
         cmp #$48
         beq _scan_ext_fg
+        cmp #$02                ; BANK gates far peek/poke emission
+        bne +
+        ldx #1
+        stx bank_used
++
         bra _scan_ext_skip
 _scan_ext_col:
         ldx #1
@@ -2708,9 +2718,8 @@ _compile_array_assign_flt:
         .word out_jsr_float16
 _compile_array_assign_fac:
         jsr emit_restore_arrayptr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fstorevar
-        rts
 
 
 compile_assignment_bad:
@@ -4219,9 +4228,8 @@ emit_load_lhs_const:
         lda fold_lhs_hi
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_lhshi
-        rts
 
 ; exponentiation binds tighter than * and / and is left-associative;
 ; both operands promote to float, the exponent is truncated by fpowi
@@ -5325,9 +5333,8 @@ compile_trap:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcc _compile_trap_arm
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_trapoff
-        rts
 
 _compile_trap_arm:
         jsr line_parse_number
@@ -5344,9 +5351,8 @@ _compile_trap_arm:
         .word out_lda_label_hi_imm
         jsr out_label_from_number
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_traphi
-        rts
 
 ; dispatch the $FE second byte for music/sprite statements; carry set
 ; hands anything else back to the legacy handler (WPOKE, BEGIN, BEND)
@@ -5378,7 +5384,7 @@ _cef_tab:
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
-        .byte $1f, $21
+        .byte $1f, $21, $02, $09, $54
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5391,6 +5397,7 @@ _cef_jtab:
         .word compile_cursor, compile_rcursor, compile_window
         .word compile_diskstmt, compile_fgoto, compile_fgosub
         .word compile_dma, compile_edma
+        .word compile_bank, compile_rreg, compile_vsync
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6092,6 +6099,45 @@ _cursor_go:
 _cursor_bad:
         jmp compile_env_bad
 
+; BANK n / VSYNC raster: one expression, one runtime call
+compile_bank:
+        jsr compile_expression
+        bcs +
+        jsr emit_tmpl_done
+        .word out_jsr_bankset
++       jmp compile_env_bad
+compile_vsync:
+        jsr compile_expression
+        bcs +
+        jsr emit_tmpl_done
+        .word out_jsr_vsync
++       jmp compile_env_bad
+
+; RREG a[,x[,y[,z[,s]]]]: store the captured post-SYS registers
+compile_rreg:
+        lda #0
+        sta cdma_i
+_crr_loop:
+        jsr compile_input_target_numeric
+        bcs _crr_bad
+        lda cdma_i
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_jsr_rregn
+        jsr emit_store_var
+        inc cdma_i
+        lda cdma_i
+        cmp #5
+        bcs _crr_done
+        jsr parse_opt_comma
+        bcs _crr_done
+        bra _crr_loop
+_crr_done:
+        clc
+        rts
+_crr_bad:
+        jmp compile_env_bad
+
 ; DMA / EDMA: stage up to seven arguments (16-bit results zero-extend,
 ; float results convert to 32-bit for 28-bit addresses), then trigger
 compile_dma:
@@ -6708,9 +6754,8 @@ compile_print_hash:
         jsr line_get
 _compile_print_hash_items:
         jsr compile_print
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fiodone
-        rts
 
 _compile_print_hash_bad:
         lda #<msg_error_bad_open
@@ -6735,9 +6780,8 @@ compile_input_hash:
         jsr _compile_input_hash_targets
         lda #0
         sta io_from_file
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fiodone
-        rts
 
 _compile_input_hash_targets:
         jsr compile_input_target
@@ -6922,9 +6966,8 @@ compile_get:
         jsr _compile_get_loop_entry
         lda #0
         sta io_from_file
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fiodone
-        rts
 
 _compile_get_hash_bad:
         lda #<msg_error_bad_get
@@ -7340,6 +7383,8 @@ compile_sys:
         .word out_jsr_abs
         jsr out_hex_word_number
         jsr out_cr
+        jsr emit_tmpl
+        .word out_jsr_sysregsave
         jsr line_skip_to_stmt_end
         rts
 
@@ -8972,9 +9017,8 @@ _emit_header_text:
         .word out_header_pre
         lda prog_base_hi
         jsr out_hex_byte
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_header_post
-        rts
 
 _emit_generated_header_bin:
         ; program header at progbase: start, varheapend, datastart, dataend,
@@ -9024,9 +9068,8 @@ emit_generated_tail:
         jsr emit_line_number_tab
         jsr emit_flt_table
         jsr emit_for_storage
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_size_guard
-        rts
 
 emit_flt_table:
         ldx backend_mode
@@ -9521,9 +9564,8 @@ emit_line_track:
         lda line_no_hi
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_curline_1
-        rts
 
 out_label_from_number:
         ldx backend_mode
@@ -9642,15 +9684,13 @@ emit_chout_imm:
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_chout
-        rts
 
 emit_print_string_current:
         jsr emit_set_rtptr_string_current
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_printstr
-        rts
 
 emit_set_rtptr_string_current:
         jsr emit_tmpl
@@ -9663,9 +9703,8 @@ emit_set_rtptr_string_current:
         .word out_lda_label_hi_imm
         jsr out_string_ref
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_rtptr_1
-        rts
 
 emit_load_string_ref_to_expr:
         jsr emit_tmpl
@@ -9678,9 +9717,8 @@ emit_load_string_ref_to_expr:
         .word out_lda_label_hi_imm
         jsr out_string_ref
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_exprhi
-        rts
 
 emit_string_literal_to_heap_expr:
         jsr emit_tmpl
@@ -9695,67 +9733,56 @@ emit_string_literal_to_heap_expr:
         jsr out_cr
         jsr emit_tmpl
         .word out_sta_rtptr_1
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strfromlit
-        rts
 
 emit_print_string_var_current:
         jsr emit_load_var
         ; FALLTHROUGH
 
 emit_print_string_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_printheapstr
-        rts
 
 emit_copy_string_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strcopyexpr
-        rts
 
 emit_concat_strings:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_concatstr
-        rts
 
 emit_string_len_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strlenexpr
-        rts
 
 emit_string_from_int:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strfromint
-        rts
 
 emit_val_string_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_valstr
-        rts
 
 emit_string_temp_mark:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strmark
-        rts
 
 emit_string_temp_release:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strrelease
-        rts
 
 emit_string_left:
         jsr emit_set_strarg1_one
         bra emit_string_mid
 
 emit_string_right:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strright
-        rts
 
 emit_string_mid:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_strsub
-        rts
 
 emit_string_mid_tail:
         lda #$FF
@@ -9778,9 +9805,8 @@ emit_set_strarg1_one:
         lda #0
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_strarg1hi
-        rts
 
 emit_save_expr_to_strarg1:
         jsr emit_tmpl
@@ -9789,26 +9815,22 @@ emit_save_expr_to_strarg1:
         .word out_sta_strarg1lo
         jsr emit_tmpl
         .word out_lda_exprhi
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_strarg1hi
-        rts
 
 emit_print_comma:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_printcomma
-        rts
 
 emit_print_uint_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_printuint
-        rts
 
 emit_print_char_expr:
         jsr emit_tmpl
         .word out_lda_exprlo
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_chout
-        rts
 
 emit_load_number:
         jsr emit_tmpl
@@ -9824,9 +9846,8 @@ emit_load_number:
         lda number_hi
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_exprhi
-        rts
 
 ; integer-semantics load: float variables convert through qint, so FOR,
 ; READ, INPUT, and GET keep their 16-bit machinery
@@ -9836,16 +9857,14 @@ emit_load_var:
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
         beq _emit_load_var_float
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_loadintvar
-        rts
 
 _emit_load_var_float:
         jsr emit_tmpl
         .word out_jsr_floadvar
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_qint
-        rts
 
 ; typed load for expression factors: float variables land in FAC
 emit_load_var_typed:
@@ -9854,9 +9873,8 @@ emit_load_var_typed:
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
         beq _emit_load_var_typed_f
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_loadintvar
-        rts
 
 _emit_load_var_typed_f:
         jsr emit_tmpl
@@ -9881,9 +9899,8 @@ emit_store_var:
 _emit_store_var_float:
         jsr emit_tmpl
         .word out_jsr_float16
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fstorevar
-        rts
 
 ; float-source store (assignment right side already in FAC)
 emit_store_var_fac:
@@ -9892,72 +9909,59 @@ emit_store_var_fac:
         lda assign_var_data_hi
         sta current_var_data_hi
         jsr emit_set_varptr_current
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fstorevar
-        rts
 
 emit_load_ptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_loadintvar
-        rts
 
 emit_store_ptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_storeintvar
-        rts
 
 emit_read_int:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_readint
-        rts
 
 emit_read_string:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_readstr
-        rts
 
 emit_input_line:
         lda io_from_file
         bne _emit_input_line_file
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_inputline
-        rts
 _emit_input_line_file:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fioreadline
-        rts
 
 emit_input_int:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_inputint
-        rts
 
 emit_input_string:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_inputstr
-        rts
 
 emit_get_key:
         lda io_from_file
         bne _emit_get_key_file
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_getkey
-        rts
 _emit_get_key_file:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fiogetbyte
-        rts
 
 emit_get_string:
         lda io_from_file
         bne _emit_get_string_file
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_getstr
-        rts
 _emit_get_string_file:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_fiogetstr
-        rts
 
 emit_restore_data_line:
         jsr emit_tmpl
@@ -9970,19 +9974,16 @@ emit_restore_data_line:
         .word out_lda_label_hi_imm
         jsr out_data_line_ref
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_dataptrhi
-        rts
 
 emit_save_arrayptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_save_arrayptr
-        rts
 
 emit_restore_arrayptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_restore_arrayptr
-        rts
 
 emit_array_bounds_check:
         jsr alloc_array_ok_label
@@ -10041,9 +10042,8 @@ emit_set_varptr_current:
         lda current_var_data_hi
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_varptr_1
-        rts
 
 emit_set_arrayptr_current:
         ldx array_sym_index
@@ -10072,19 +10072,16 @@ _emit_set_arrayptr_add:
         lda current_var_data_hi
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_varptr_1
-        rts
 
 emit_push_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_push_expr
-        rts
 
 emit_move_expr_to_lhs:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_move_expr_to_lhs
-        rts
 
 ; Decide whether the upcoming right-hand operand is a single numeric literal
 ; or scalar numeric variable, so the caller can skip the push/pop around it
@@ -10172,29 +10169,24 @@ _probe_fail:
         rts
 
 emit_pop_lhs:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_pop_lhs
-        rts
 
 emit_add_lhs_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_add_lhs_expr
-        rts
 
 emit_sub_lhs_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sub_lhs_expr
-        rts
 
 emit_mul_lhs_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_jsr_mul16
-        rts
 
 emit_neg_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_neg_expr
-        rts
 
 emit_abs_expr:
         jsr alloc_if_tmp_label
@@ -10481,9 +10473,8 @@ emit_set_strarg1lo_imm:
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_strarg1lo
-        rts
 
 emit_set_strarg1hi_imm:
         sta byte_value
@@ -10492,9 +10483,8 @@ emit_set_strarg1hi_imm:
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_strarg1hi
-        rts
 
 emit_empty_string_compare:
         lda #VAR_KIND_SCALAR
@@ -10586,52 +10576,62 @@ emit_store_a_to_expr_bool:
         lda #0
         jsr out_hex_byte
         jsr out_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_exprhi
-        rts
 
 emit_bool_and_lhs_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_and_lhs_expr
-        rts
 
 emit_bool_or_lhs_expr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_or_lhs_expr
-        rts
 
 emit_expr_to_rtptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_expr_to_rtptr
-        rts
 
 emit_save_rtptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_save_rtptr
-        rts
 
 emit_restore_rtptr:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_restore_rtptr
-        rts
 
 emit_poke_expr_to_rtptr:
-        jsr emit_tmpl
+        lda bank_used
+        beq +
+        jsr emit_tmpl_done
+        .word out_jsr_pokebk
++       jsr emit_tmpl
         .word out_poke_expr_to_rtptr
         rts
 
 emit_wpoke_expr_to_rtptr:
-        jsr emit_tmpl
+        lda bank_used
+        beq +
+        jsr emit_tmpl_done
+        .word out_jsr_wpokebk
++       jsr emit_tmpl
         .word out_wpoke_expr_to_rtptr
         rts
 
 emit_peek_expr:
-        jsr emit_tmpl
+        lda bank_used
+        beq +
+        jsr emit_tmpl_done
+        .word out_jsr_peekbk
++       jsr emit_tmpl
         .word out_peek_expr
         rts
 
 emit_wpeek_expr:
-        jsr emit_tmpl
+        lda bank_used
+        beq +
+        jsr emit_tmpl_done
+        .word out_jsr_wpeekbk
++       jsr emit_tmpl
         .word out_wpeek_expr
         rts
 
@@ -10676,9 +10676,8 @@ emit_load_forend:
         .word out_lda_label
         jsr out_forend_ref
         jsr out_plus_one_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_exprhi
-        rts
 
 emit_load_forstep:
         jsr emit_tmpl
@@ -10691,9 +10690,8 @@ emit_load_forstep:
         .word out_lda_label
         jsr out_forstep_ref
         jsr out_plus_one_cr
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_sta_exprhi
-        rts
 
 emit_for_initial_check:
         jsr emit_tmpl
@@ -10804,9 +10802,8 @@ alloc_if_tmp_label:
 emit_lhs_truth_test:
         jsr emit_tmpl
         .word out_lda_lhslo
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_ora_lhshi
-        rts
 
 emit_do_pretest_while:
         jsr alloc_if_tmp_label
@@ -11046,14 +11043,12 @@ emit_if_signed_prefix_lhs_positive_true:
         rts
 
 emit_cmp_lhshi_exprhi:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_cmp_lhshi_exprhi
-        rts
 
 emit_cmp_lhslo_exprlo:
-        jsr emit_tmpl
+        jsr emit_tmpl_done
         .word out_cmp_lhslo_exprlo
-        rts
 
 emit_branch_if_true:
         jsr out_zstr
@@ -13452,6 +13447,62 @@ out_lineref_sep:
 .else
         .byte 0
 .fi
+out_jsr_vsync:
+.if TEXT_EMITTER
+        .text "        jsr vsync"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_bankset:
+.if TEXT_EMITTER
+        .text "        jsr bankset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_pokebk:
+.if TEXT_EMITTER
+        .text "        jsr pokebk"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_wpokebk:
+.if TEXT_EMITTER
+        .text "        jsr wpokebk"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_peekbk:
+.if TEXT_EMITTER
+        .text "        jsr peekbk"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_wpeekbk:
+.if TEXT_EMITTER
+        .text "        jsr wpeekbk"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_sysregsave:
+.if TEXT_EMITTER
+        .text "        jsr sysregsave"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rregn:
+.if TEXT_EMITTER
+        .text "        jsr rregn"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_dmarst:
 .if TEXT_EMITTER
         .text "        jsr dmarst"
@@ -15124,6 +15175,8 @@ fio_used:
 math_used:
         .byte 0
 fgoto_used:
+        .byte 0
+bank_used:
         .byte 0
 cdma_i:
         .byte 0
