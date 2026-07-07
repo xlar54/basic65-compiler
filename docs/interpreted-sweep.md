@@ -20,6 +20,9 @@ matches the compiled output.
 - [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
       verified 2026-07-06, interpreted run pending. Note: CURSOR
       ON/OFF/style unsupported compiled -- positioning only.)
+- [ ] key.bas          (KEY n,string table rewrite + CHR$ factor;
+      compiled run verified 2026-07-07. Caveat: bare KEY/ON/OFF/
+      LOAD/SAVE unsupported compiled.)
 - [ ] window.bas       (WINDOW + T@& readback; compiled run verified
       2026-07-06, interpreted run pending. Caveat: compiled does no
       coordinate validation, ROM raises ILLEGAL QUANTITY.)

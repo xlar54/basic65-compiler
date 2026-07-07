@@ -145,6 +145,7 @@ TOK_LOOP                = $EC
 TOK_EXIT                = $ED
 TOK_UNTIL               = $FC
 TOK_WHILE               = $FD
+TOK_KEY                 = $F9
 TOK_EXT_CE              = $CE
 TOK_EXT_FE              = $FE
 TOK_CE_WPEEK            = $10
@@ -2016,7 +2017,7 @@ _stab:
         .byte TOK_CLR, TOK_IF, TOK_PRINT_HASH, TOK_OPEN, TOK_CLOSE
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
-        .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0
+        .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2030,6 +2031,7 @@ _stmt_jtab:
         .word compile_sound, compile_vol, compile_wait, compile_diskcmd
         .word compile_diskcmd, compile_diskcmd, compile_diskcmd
         .word compile_diskcmd, compile_attr_fg, compile_e0
+        .word compile_key
 
 _stmt_return:
         lda #<out_rts
@@ -2314,6 +2316,8 @@ _string_factor_var:
         beq _string_factor_ce
         cmp #TOK_STR_STR
         beq _string_factor_str
+        cmp #TOK_CHR_STR
+        beq _string_factor_chr
         cmp #TOK_HEX_STR
         beq _string_factor_hex
         cmp #TOK_ERR_STR
@@ -2398,6 +2402,13 @@ _string_factor_fail:
 _string_factor_str:
         jsr compile_str_string_function
         rts
+
+_string_factor_chr:
+        jsr parse_paren_expr
+        bcs _string_factor_fail
+        lda #<out_jsr_chrstrf
+        ldy #>out_jsr_chrstrf
+        jmp out_zstr_ok
 
 _string_factor_ce:
         jsr line_at_end         ; the CE byte is already consumed
@@ -4685,11 +4696,7 @@ _factor_int_done:
 
 _factor_peek:
         jsr line_get
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         jsr emit_peek_expr
         clc
@@ -4699,11 +4706,7 @@ _factor_peek:
 ; generator (interpreted RND(0)/RND(-x) semantics are not modeled)
 _factor_rnd:
         jsr line_get
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_rndf
         ldy #>out_jsr_rndf
@@ -4753,11 +4756,7 @@ _factor_asc:
 
 _factor_pos:
         jsr line_get
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_posf
         ldy #>out_jsr_posf
@@ -4834,22 +4833,14 @@ _factor_ext_ce:
         beq _factor_decbin
         bra _factor_fail
 +
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_bumpf
         ldy #>out_jsr_bumpf
         jmp out_zstr_ok
 
 _factor_wpeek:
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         jsr emit_wpeek_expr
         clc
@@ -4961,11 +4952,7 @@ _factor_one_fail:
         rts
 
 _factor_rplay:
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_rplayf
         ldy #>out_jsr_rplayf
@@ -5035,11 +5022,7 @@ _factor_ffn_fail:
 
 _factor_usr:
         jsr line_get
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_usrf
         ldy #>out_jsr_usrf
@@ -5047,11 +5030,7 @@ _factor_usr:
 
 _factor_fre:
         jsr line_get
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_fref
         ldy #>out_jsr_fref
@@ -5077,11 +5056,7 @@ _factor_scrarr_emit:
 
 _factor_joy:
         jsr line_get            ; consume the JOY token
-        jsr parse_open_paren
-        bcs _factor_fail
-        jsr compile_expression
-        bcs _factor_fail
-        jsr parse_close_paren
+        jsr parse_paren_expr
         bcs _factor_fail
         lda #<out_jsr_joyf
         ldy #>out_jsr_joyf
@@ -5851,6 +5826,15 @@ compile_cmd_go:
         ldy #>out_jsr_cmdgo
         jmp out_zstr_ok
 
+; shared "( expression )" parse; C set on any failure
+parse_paren_expr:
+        jsr parse_open_paren
+        bcs +
+        jsr compile_expression
+        bcs +
+        jmp parse_close_paren
++       rts
+
 ; shared tail: emit a template and return success
 out_zstr_ok:
         jsr out_zstr
@@ -6141,6 +6125,26 @@ _cursor_go:
         ldy #>out_jsr_curgo
         jmp out_zstr_ok
 _cursor_bad:
+        jmp compile_env_bad
+
+; KEY number, string (the ON/OFF/LOAD/SAVE and bare forms are not
+; supported -- they only matter interactively)
+compile_key:
+        jsr compile_expression
+        bcs _ckey_bad
+        lda #<out_jsr_keysetn
+        ldy #>out_jsr_keysetn
+        jsr out_zstr
+        jsr parse_comma
+        bcs _ckey_bad
+        jsr emit_string_temp_mark
+        jsr compile_string_expression
+        bcs _ckey_bad
+        lda #<out_jsr_keysetgo
+        ldy #>out_jsr_keysetgo
+        jsr out_zstr
+        jmp emit_string_temp_release
+_ckey_bad:
         jmp compile_env_bad
 
 ; WINDOW left, top, right, bottom [, clear]
@@ -13550,6 +13554,27 @@ out_jsr_curcolf:
 out_jsr_currowf:
 .if TEXT_EMITTER
         .text "        jsr currowf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_chrstrf:
+.if TEXT_EMITTER
+        .text "        jsr chrstrf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_keysetn:
+.if TEXT_EMITTER
+        .text "        jsr keysetn"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_keysetgo:
+.if TEXT_EMITTER
+        .text "        jsr keysetgo"
         .byte 13, 0
 .else
         .byte 0

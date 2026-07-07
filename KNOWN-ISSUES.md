@@ -51,3 +51,11 @@ race the emulated writes.
 **Workaround:** manual chain — `build.bat basic\X.bas`, boot xemu
 with `-prg target\bootstrap.prg -dumpscreen`, extract OUT.PRG with
 c1541, write it back as AUTOBOOT.C65, boot again with `-dumpscreen`.
+
+## 4. ~~CHR$ unusable outside PRINT~~ (FIXED 2026-07-07)
+
+CHR$ was only handled as a PRINT item; assignments and concatenation
+(`k$="dir"+chr$(13)`) failed with the generic BAD-expression error.
+No fixture had ever exercised it. Fixed by adding the CHR$ string
+factor (chrstrf shares GET's one-byte-string tail); covered by
+basic/key.bas.

@@ -2952,6 +2952,10 @@ getstr:
         sta exprlo
         sta exprhi
         rts
+; CHR$(n): a one-byte heap string (shares the GET tail)
+chrstrf:
+        lda exprlo
+        sta digit
 getstrgot:
         lda #1
         sta strlen
@@ -4251,6 +4255,14 @@ cur_c:        .byte 0
 cur_r:        .byte 0
 win_i:        .byte 0
 win_a:        .fill 5, 0
+key_n:        .byte 0
+key_new:      .byte 0
+key_old:      .byte 0
+key_off:      .byte 0
+key_tail:     .byte 0
+key_srci:     .byte 0
+key_dsti:     .byte 0
+key_byte:     .byte 0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
 gcphase:      .byte 0
@@ -5301,6 +5313,139 @@ wingo:
         lda #$93                ; clear flag: clear inside the window
         jsr kernalchrout
 +       rts
+
+; KEY n,s$: rewrite the editor's function-key table in place.
+; Probe-verified layout: 16 length bytes at $1000 (F1..), string data
+; packed at $1010, 240 bytes capacity. keysetn stages the key number,
+; keysetgo repacks (shift tail, copy new text, update length).
+keysetn:
+        ldx exprlo
+        dex
+        cpx #16
+        bcc +
+        lda #14                 ; ILLEGAL QUANTITY
+        jmp rterror
++       stx key_n
+        rts
+
+keysetgo:
+        lda #0
+        sta key_new
+        lda exprlo
+        ora exprhi
+        beq +
+        jsr setstrptrexpr
+        ldz #0
+        lda [varptr],z
+        sta key_new
++       ldx #0                  ; offset of slot n = sum of lengths 0..n-1
+        lda #0
+_ks_off:
+        cpx key_n
+        beq _ks_have_off
+        clc
+        adc $1000,x
+        inx
+        bra _ks_off
+_ks_have_off:
+        sta key_off
+        ldx key_n
+        lda $1000,x
+        sta key_old
+        lda #0                  ; tail = sum of lengths after slot n
+        ldx key_n
+        inx
+_ks_tail:
+        cpx #16
+        beq _ks_have_tail
+        clc
+        adc $1000,x
+        inx
+        bra _ks_tail
+_ks_have_tail:
+        sta key_tail
+        clc                     ; capacity: off + new + tail <= 240
+        lda key_off
+        adc key_new
+        bcs _ks_err
+        adc key_tail
+        bcs _ks_err
+        cmp #241
+        bcs _ks_err
+        clc
+        lda key_off
+        adc key_old
+        sta key_srci            ; tail currently starts here
+        clc
+        lda key_off
+        adc key_new
+        sta key_dsti            ; and moves here
+        lda key_new
+        cmp key_old
+        beq _ks_copy
+        bcc _ks_shrink
+        ldx key_tail            ; growing: move the tail upward from
+_ks_grow:                       ; its high end so bytes never collide
+        cpx #0
+        beq _ks_copy
+        dex
+        txa
+        clc
+        adc key_srci
+        tay
+        lda $1010,y
+        sta key_byte
+        txa
+        clc
+        adc key_dsti
+        tay
+        lda key_byte
+        sta $1010,y
+        bra _ks_grow
+_ks_shrink:
+        ldx #0                  ; shrinking: move it downward forwards
+_ks_shr:
+        cpx key_tail
+        beq _ks_copy
+        txa
+        clc
+        adc key_srci
+        tay
+        lda $1010,y
+        sta key_byte
+        txa
+        clc
+        adc key_dsti
+        tay
+        lda key_byte
+        sta $1010,y
+        inx
+        bra _ks_shr
+_ks_copy:
+        lda key_new
+        beq _ks_len
+        ldz #1
+        ldx #0
+_ks_cpy:
+        cpx key_new
+        beq _ks_len
+        txa
+        clc
+        adc key_off
+        tay
+        lda [varptr],z
+        sta $1010,y
+        inz
+        inx
+        bra _ks_cpy
+_ks_len:
+        ldx key_n
+        lda key_new
+        sta $1000,x
+        rts
+_ks_err:
+        lda #14
+        jmp rterror
 
 ; RCURSOR colvar, rowvar readers (zero-based, like the ROM)
 curcolf:

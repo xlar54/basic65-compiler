@@ -27,7 +27,7 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 68 | 7 | 50 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 69 | 7 | 49 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
 | $FE-prefixed statements | 70 | 31 | 1 (OFF) | 38 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
@@ -108,7 +108,7 @@ Legend:
 | $C4 | STR$ | ✅ | e-notation print threshold differs for small floats |
 | $C5 | VAL | ✅ | |
 | $C6 | ASC | ✅ | |
-| $C7 | CHR$ | ✅ | |
+| $C7 | CHR$ | ✅ | factor support (assignments/concat) added 2026-07-07; was PRINT-item only before |
 | $C8 | LEFT$ | ✅ | |
 | $C9 | RIGHT$ | ✅ | |
 | $CA | MID$ | ✅ | |
@@ -158,7 +158,7 @@ Legend:
 | $F6 | BACKUP | ❌ | |
 | $F7 | DELETE | ✖ | editor (deletes program lines) |
 | $F8 | RENUMBER | ✖ | editor |
-| $F9 | KEY | ❌ | |
+| $F9 | KEY | ⚠️ | KEY number,string only (rewrites the $1000/$1010 editor table, probe-verified); bare/ON/OFF/LOAD/SAVE rejected |
 | $FA | MONITOR | ✖ | direct-mode |
 | $FB | USING | ❌ | PRINT USING queued |
 | $FC | UNTIL | 🔧 | inside DO/LOOP |
