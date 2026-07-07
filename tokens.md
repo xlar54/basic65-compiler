@@ -27,9 +27,9 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 69 | 7 | 49 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 31 | 1 (OFF) | 38 |
+| $FE-prefixed statements | 70 | 32 | 1 (OFF) | 37 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -164,7 +164,7 @@ Legend:
 | $FC | UNTIL | 🔧 | inside DO/LOOP |
 | $FD | WHILE | 🔧 | inside DO/LOOP |
 | $FE | — | prefix | extended statements, see below |
-| $FF | π (pi) | ❌ | use 3.14159265 or ATN(1)*4 |
+| $FF | π (pi) | ✅ | classic CBM packed value, full float precision |
 
 ## $CE-prefixed extended functions
 
@@ -251,7 +251,7 @@ Legend:
 | $FE $3D | HIGHLIGHT | ❌ | |
 | $FE $3E | MOUSE | ✅ | MOUSE ON/OFF; position pair rejected (ROM rejects it too) |
 | $FE $3F | RMOUSE | ✅ | 1351 IRQ driver with built-in pointer sprite |
-| $FE $40 | DISK | ❌ | |
+| $FE $40 | DISK | ⚠️ | DISK cmd$ (raw DOS command) and bare DISK (prints fresh status); ,U unit unsupported |
 | $FE $41 | CURSOR | ⚠️ | positioning only: CURSOR [col][,row] via KERNAL PLOT; ON/OFF/style forms rejected; no range validation (ROM raises ILLEGAL QUANTITY) |
 | $FE $42 | RCURSOR | ✅ | RCURSOR colvar,rowvar (zero-based) |
 | $FE $43 | LOADIFF | ❌ | |

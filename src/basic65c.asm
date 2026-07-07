@@ -1340,6 +1340,8 @@ _scan_vars_extended:
         beq _scan_ext_fio
         cmp #$37                ; FORMAT (HEADER alias)
         beq _scan_ext_fio
+        cmp #$40                ; DISK
+        beq _scan_ext_fio
         bra _scan_ext_skip
 _scan_ext_col:
         ldx #1
@@ -1956,9 +1958,8 @@ _compile_line_loop:
         bcs _compile_line_done
         lda col_used            ; COLLISION dispatches between statements
         beq +
-        lda #<out_jsr_colcheck
-        ldy #>out_jsr_colcheck
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_colcheck
 +
         jsr line_get
         cmp #TOK_ELSE           ; ELSE returns out of the line loop, so
@@ -2039,9 +2040,8 @@ _stmt_return:
         jmp out_zstr
 
 _stmt_end:
-        lda #<out_jmp_rtexit
-        ldy #>out_jmp_rtexit
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_rtexit
         jmp line_skip_to_end
 
 _stmt_data:
@@ -2197,9 +2197,8 @@ _compile_assignment_int:
 _compile_assignment_float:
         lda expr_type
         bne _compile_assignment_fac
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _compile_assignment_fac:
         jsr emit_store_var_fac
         rts
@@ -2705,14 +2704,12 @@ _compile_array_assign_int:
 _compile_array_assign_flt:
         lda expr_type
         bne _compile_array_assign_fac
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _compile_array_assign_fac:
         jsr emit_restore_arrayptr
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fstorevar
         rts
 
 
@@ -2841,14 +2838,12 @@ _compile_next_emit:
         jsr emit_add_lhs_expr
         jsr emit_store_var
 
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forstep_ref
         jsr out_plus_one_cr
-        lda #<out_bmi_label
-        ldy #>out_bmi_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bmi_label
         jsr out_forneg_ref
         jsr out_cr
 
@@ -2859,12 +2854,10 @@ _compile_next_emit:
         jsr emit_load_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        lda #<out_jsr_cmple
-        ldy #>out_jsr_cmple
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmple
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_forcont_ref
         jsr out_cr
         jsr emit_jmp_fordone
@@ -2877,12 +2870,10 @@ _compile_next_emit:
         jsr emit_load_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        lda #<out_jsr_cmpge
-        ldy #>out_jsr_cmpge
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmpge
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_forcont_ref
         jsr out_cr
         jsr emit_jmp_fordone
@@ -3292,9 +3283,8 @@ compile_condition_boolean:
         bcs +
         lda expr_type
         beq +
-        lda #<out_jsr_ftruth
-        ldy #>out_jsr_ftruth
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_ftruth
         lda #0
         sta expr_type
         clc
@@ -3331,9 +3321,8 @@ _cond_xor_take:
         bcs _cond_or_fail
         jsr emit_qint_if_float
         jsr emit_pop_lhs
-        lda #<out_xor_lhs_expr
-        ldy #>out_xor_lhs_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_xor_lhs_expr
         lda #0
         sta const_state
         sta expr_type
@@ -4228,24 +4217,20 @@ _fold_mul_skip:
 
 ; load the folded left operand straight into lhslo/lhshi (no stack traffic)
 emit_load_lhs_const:
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda fold_lhs_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_lhslo
-        ldy #>out_sta_lhslo
-        jsr out_zstr
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_lhslo
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda fold_lhs_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_lhshi
-        ldy #>out_sta_lhshi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_lhshi
         rts
 
 ; exponentiation binds tighter than * and / and is left-associative;
@@ -4271,28 +4256,23 @@ _pfactor_pow:
         jsr materialize_const
         lda expr_type
         bne _pfactor_base_f
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _pfactor_base_f:
-        lda #<out_jsr_fpush
-        ldy #>out_jsr_fpush
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fpush
         jsr compile_factor
         bcs _pfactor_fail
         jsr materialize_const
         lda expr_type
         bne _pfactor_exp_f
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _pfactor_exp_f:
-        lda #<out_jsr_fpoparg
-        ldy #>out_jsr_fpoparg
-        jsr out_zstr
-        lda #<out_jsr_fpowi
-        ldy #>out_jsr_fpowi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fpoparg
+        jsr emit_tmpl
+        .word out_jsr_fpowi
         lda #1
         sta expr_type
         bra _pfactor_loop
@@ -4339,6 +4319,8 @@ _factor_not_number:
         beq _factor_peek
         cmp #TOK_RND
         beq _factor_rnd
+        cmp #$ff                ; pi
+        beq _factor_pi
         cmp #TOK_SQR
         beq _factor_sqr
         cmp #TOK_ASC
@@ -4375,6 +4357,15 @@ _factor_fail:
         sec
         rts
 
+_factor_pi:
+        jsr line_get            ; consume the pi token
+        jsr emit_tmpl
+        .word out_jsr_pif
+        lda #1
+        sta expr_type
+        clc
+        rts
+
 _factor_number:
         lda line_idx
         sta flt_saved_idx
@@ -4399,9 +4390,8 @@ _factor_float_literal:
         jsr flt_slot_for_string
         bcs _factor_number_fail
         jsr emit_set_varptr_current
-        lda #<out_jsr_floadvar
-        ldy #>out_jsr_floadvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_floadvar
         lda #1
         sta expr_type
         clc
@@ -4437,9 +4427,8 @@ _factor_scalar_variable:
         lda var_type
         cmp #VAR_TYPE_FLOAT
         bne _factor_scalar_plain
-        lda #<out_jsr_rdti      ; TI reads the jiffy clock
-        ldy #>out_jsr_rdti
-        jsr out_zstr
+        jsr emit_tmpl      ; TI reads the jiffy clock
+        .word out_jsr_rdti
         lda #1
         sta expr_type
         clc
@@ -4528,9 +4517,8 @@ _factor_array_variable:
         rts
 
 _factor_array_float:
-        lda #<out_jsr_floadvar
-        ldy #>out_jsr_floadvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_floadvar
         lda #1
         sta expr_type
         clc
@@ -4687,9 +4675,8 @@ _factor_int:
         bcs _factor_fail
         lda expr_type
         beq _factor_int_done
-        lda #<out_jsr_fintf
-        ldy #>out_jsr_fintf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fintf
 _factor_int_done:
         clc
         rts
@@ -4708,9 +4695,8 @@ _factor_rnd:
         jsr line_get
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_rndf
-        ldy #>out_jsr_rndf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_rndf
         lda #1
         sta expr_type
         clc
@@ -4726,13 +4712,11 @@ _factor_sqr:
         bcs _factor_fail
         lda expr_type
         bne _factor_sqr_f
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _factor_sqr_f:
-        lda #<out_jsr_sqrf
-        ldy #>out_jsr_sqrf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sqrf
         lda #1
         sta expr_type
         clc
@@ -4747,9 +4731,8 @@ _factor_asc:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
-        lda #<out_jsr_ascstr
-        ldy #>out_jsr_ascstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_ascstr
         jsr emit_string_temp_release
         clc
         rts
@@ -4771,9 +4754,8 @@ _factor_dec:
         bcs _factor_dec_fail
         jsr parse_close_paren
         bcs _factor_dec_fail
-        lda #<out_jsr_decstr
-        ldy #>out_jsr_decstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_decstr
         jsr emit_string_temp_release
         clc
         rts
@@ -4797,9 +4779,8 @@ _factor_instr:
         jsr parse_close_paren
         bcs _factor_dec_fail
         jsr emit_pop_lhs
-        lda #<out_jsr_instrf
-        ldy #>out_jsr_instrf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_instrf
         jsr emit_string_temp_release
         clc
         rts
@@ -4856,9 +4837,8 @@ _factor_mod:
         bcs _factor_fail
         jsr compile_expression
         bcs _factor_fail
-        lda #<out_jsr_modseta
-        ldy #>out_jsr_modseta
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_modseta
         jsr parse_comma
         bcs _factor_fail
         jsr compile_expression
@@ -4874,9 +4854,8 @@ _factor_rsppos:
         bcs _factor_fail
         jsr compile_expression
         bcs _factor_fail
-        lda #<out_jsr_rspset
-        ldy #>out_jsr_rspset
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_rspset
         jsr parse_comma
         bcs _factor_fail
         jsr compile_expression
@@ -4892,9 +4871,8 @@ _factor_rsprite:
         bcs _factor_fail
         jsr compile_expression
         bcs _factor_fail
-        lda #<out_jsr_rspset
-        ldy #>out_jsr_rspset
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_rspset
         jsr parse_comma
         bcs _factor_fail
         jsr compile_expression
@@ -4913,9 +4891,8 @@ _factor_decbin:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
-        lda #<out_jsr_decbinf
-        ldy #>out_jsr_decbinf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_decbinf
         jsr emit_string_temp_release
         clc
         rts
@@ -5003,9 +4980,8 @@ _factor_ffn_paren:
         bcs _factor_ffn_fail
         lda expr_type
         bne _factor_ffn_flt
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _factor_ffn_flt:
         ply
         pla
@@ -5032,9 +5008,8 @@ _factor_fre:
         jsr line_get
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_fref
-        ldy #>out_jsr_fref
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fref
         lda #1
         sta expr_type           ; FRE exceeds signed 16 bits: float
         clc
@@ -5231,15 +5206,13 @@ _print_numeric_expression:
         bcs _print_expression_bad
         lda expr_type
         bne _print_numeric_float
-        lda #<out_jsr_printuint
-        ldy #>out_jsr_printuint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printuint
         bra _print_string_var_done
 
 _print_numeric_float:
-        lda #<out_jsr_printflt
-        ldy #>out_jsr_printflt
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printflt
 
 _print_string_var_done:
         lda #0
@@ -5282,9 +5255,8 @@ _print_tab:
         jsr line_get
         cmp #')'
         bne _print_expression_bad
-        lda #<out_jsr_tabto
-        ldy #>out_jsr_tabto
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_tabto
         lda #0
         sta print_suppress_cr
         jmp _print_loop
@@ -5297,9 +5269,8 @@ _print_spc:
         jsr line_get
         cmp #')'
         bne _print_expression_bad
-        lda #<out_jsr_spcn
-        ldy #>out_jsr_spcn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_spcn
         lda #0
         sta print_suppress_cr
         jmp _print_loop
@@ -5379,9 +5350,8 @@ compile_trap:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcc _compile_trap_arm
-        lda #<out_jsr_trapoff
-        ldy #>out_jsr_trapoff
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_trapoff
         rts
 
 _compile_trap_arm:
@@ -5389,22 +5359,18 @@ _compile_trap_arm:
         bcs compile_trap_bad
         jsr line_number_exists
         bcs compile_trap_bad
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_label_from_number
         jsr out_cr
-        lda #<out_sta_traplo
-        ldy #>out_sta_traplo
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_traplo
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_label_from_number
         jsr out_cr
-        lda #<out_sta_traphi
-        ldy #>out_sta_traphi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_traphi
         rts
 
 ; dispatch the $FE second byte for music/sprite statements; carry set
@@ -5436,7 +5402,7 @@ _cef_tab:
         .byte $03, $04, $05, $0a, $0b, $3e, $3f, $0d
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
-        .byte $1d, $18, $19, $41, $42, $1a
+        .byte $1d, $18, $19, $41, $42, $1a, $40
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5447,6 +5413,7 @@ _cef_jtab:
         .word compile_sprite, compile_sprcolor, compile_concat, _compile_ext_format
         .word compile_wpoke, compile_begin, compile_bend
         .word compile_cursor, compile_rcursor, compile_window
+        .word compile_diskstmt
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -5490,18 +5457,15 @@ _compile_play_loop:
         jsr emit_string_temp_mark
         jsr compile_string_expression
         bcs _compile_play_bad
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda play_track_no
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_playarg
-        ldy #>out_sta_playarg
-        jsr out_zstr
-        lda #<out_jsr_playtrk
-        ldy #>out_jsr_playtrk
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_playarg
+        jsr emit_tmpl
+        .word out_jsr_playtrk
         jsr emit_string_temp_release
         jsr parse_opt_comma
         bcs _compile_play_done
@@ -5522,9 +5486,8 @@ _compile_play_done:
 compile_filter:
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_fltsetn
-        ldy #>out_jsr_fltsetn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fltsetn
         ldx #0
 _compile_flt_loop:
         phx
@@ -5586,17 +5549,15 @@ compile_e0:
         bne _ce0_bad
         jsr compile_expression
         bcs _ce0_bad
-        lda #<out_jsr_chsetidx
-        ldy #>out_jsr_chsetidx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_chsetidx
 _ce0_bytes:
         jsr parse_opt_comma
         bcs _ce0_done
         jsr compile_expression
         bcs _ce0_bad
-        lda #<out_jsr_chputb
-        ldy #>out_jsr_chputb
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_chputb
         bra _ce0_bytes
 _ce0_done:
         clc
@@ -5645,16 +5606,14 @@ compile_scrarr_index:
         bcs _csi_bad
         jsr compile_expression
         bcs _csi_bad
-        lda #<out_jsr_tcsetc
-        ldy #>out_jsr_tcsetc
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_tcsetc
         jsr parse_comma
         bcs _csi_bad
         jsr compile_expression
         bcs _csi_bad
-        lda #<out_jsr_tcsetr
-        ldy #>out_jsr_tcsetr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_tcsetr
         jmp parse_close_paren
 _csi_bad:
         sec
@@ -5691,31 +5650,26 @@ _css_bad:
 compile_collision:
         jsr compile_expression
         bcs _compile_col_bad
-        lda #<out_jsr_colsett
-        ldy #>out_jsr_colsett
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_colsett
         jsr parse_opt_comma
         bcs _compile_col_off
         jsr line_parse_number
         bcs _compile_col_bad
         jsr line_number_exists
         bcs _compile_col_bad
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_label_from_number
         jsr out_cr
-        lda #<out_sta_coltmp
-        ldy #>out_sta_coltmp
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_coltmp
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_label_from_number
         jsr out_cr
-        lda #<out_sta_coltmp1
-        ldy #>out_sta_coltmp1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_coltmp1
         lda #<out_jsr_colarm
         ldy #>out_jsr_colarm
         jmp out_zstr_ok
@@ -5765,9 +5719,8 @@ cmd2entry:
         jsr emit_string_temp_mark
         jsr compile_string_expression
         bcs compilecmd2bad
-        lda #<out_jsr_cmdstash
-        ldy #>out_jsr_cmdstash
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdstash
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs compilecmd2bad
@@ -5779,15 +5732,12 @@ cmd2entry:
         bcs compilecmd2bad
         pla
         jsr emit_lda_imm
-        lda #<out_jsr_cmdpre
-        ldy #>out_jsr_cmdpre
-        jsr out_zstr
-        lda #<out_jsr_cmdstr
-        ldy #>out_jsr_cmdstr
-        jsr out_zstr
-        lda #<out_jsr_cmdeq
-        ldy #>out_jsr_cmdeq
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdpre
+        jsr emit_tmpl
+        .word out_jsr_cmdstr
+        jsr emit_tmpl
+        .word out_jsr_cmdeq
         lda cmd2_tail
         ldy cmd2_tail+1
         jsr out_zstr
@@ -5806,25 +5756,64 @@ compile_cmdname:
         bcs compilecmd2bad
         pla
         jsr emit_lda_imm
-        lda #<out_jsr_cmdpre
-        ldy #>out_jsr_cmdpre
-        jsr out_zstr
-        lda #<out_jsr_cmdstr
-        ldy #>out_jsr_cmdstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdpre
+        jsr emit_tmpl
+        .word out_jsr_cmdstr
         jsr emit_string_temp_release
         bra compile_cmd_go
 
 ; prefix only (COLLECT, DCLEAR)
 compile_cmdbare:
         jsr emit_lda_imm
-        lda #<out_jsr_cmdpre
-        ldy #>out_jsr_cmdpre
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdpre
 compile_cmd_go:
         lda #<out_jsr_cmdgo
         ldy #>out_jsr_cmdgo
         jmp out_zstr_ok
+
+; emit the template whose address follows the jsr as an inline .word
+; (2 bytes saved per call site; the far-pointer zp is borrowed briefly)
+emit_tmpl:
+        pla
+        sta et_ret
+        pla
+        sta et_ret+1
+        lda source_ptr
+        pha
+        lda source_ptr+1
+        pha
+        lda et_ret
+        sta source_ptr
+        lda et_ret+1
+        sta source_ptr+1
+        ldy #1
+        lda (source_ptr),y
+        sta et_tmpl
+        iny
+        lda (source_ptr),y
+        sta et_tmpl+1
+        pla
+        sta source_ptr+1
+        pla
+        sta source_ptr
+        clc
+        lda et_ret
+        adc #2
+        tax
+        lda et_ret+1
+        adc #0
+        pha
+        phx
+        lda et_tmpl
+        ldy et_tmpl+1
+        jmp out_zstr
+
+et_ret:
+        .byte 0,0
+et_tmpl:
+        .byte 0,0
 
 ; shared "( expression )" parse; C set on any failure
 parse_paren_expr:
@@ -5844,9 +5833,8 @@ out_zstr_ok:
 ; emit "lda #$XX" from A
 emit_lda_imm:
         pha
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         pla
         jsr out_hex_byte
         jmp out_cr
@@ -5893,9 +5881,8 @@ compile_dopen_head:
         bne _cdh_bad
         jsr compile_expression
         bcs _cdh_bad
-        lda #<out_jsr_fiosetlf
-        ldy #>out_jsr_fiosetlf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetlf
         jsr parse_comma
         bcs _cdh_bad
         jsr emit_string_temp_mark
@@ -5903,12 +5890,10 @@ compile_dopen_head:
         bcs _cdh_bad
         lda #7
         jsr emit_lda_imm
-        lda #<out_jsr_cmdpre
-        ldy #>out_jsr_cmdpre
-        jsr out_zstr
-        lda #<out_jsr_cmdstr
-        ldy #>out_jsr_cmdstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdpre
+        jsr emit_tmpl
+        .word out_jsr_cmdstr
         jsr emit_string_temp_release
         clc
         rts
@@ -5925,9 +5910,8 @@ compile_dclose:
         bne _compile_dclose_bad
         jsr compile_expression
         bcs _compile_dclose_bad
-        lda #<out_jsr_fiosetlf
-        ldy #>out_jsr_fiosetlf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetlf
         lda #<out_jsr_dclosech
         ldy #>out_jsr_dclosech
         jmp out_zstr_ok
@@ -5940,9 +5924,8 @@ compile_bload:
         bcs compilebloadbad
         jsr compile_pexpr
         bcs compilebloadbad
-        lda #<out_jsr_bladdr
-        ldy #>out_jsr_bladdr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_bladdr
         lda #<out_jsr_bloadgo
         ldy #>out_jsr_bloadgo
         jmp out_zstr_ok
@@ -5955,9 +5938,8 @@ compile_bsave:
         bcs compilebloadbad
         jsr compile_pexpr
         bcs compilebloadbad
-        lda #<out_jsr_bladdr
-        ldy #>out_jsr_bladdr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_bladdr
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs compilebloadbad
@@ -5966,9 +5948,8 @@ compile_bsave:
         bne compilebloadbad
         jsr compile_pexpr_nocomma
         bcs compilebloadbad
-        lda #<out_jsr_blend
-        ldy #>out_jsr_blend
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_blend
         lda #<out_jsr_bsavego
         ldy #>out_jsr_bsavego
         jmp out_zstr_ok
@@ -5980,12 +5961,10 @@ compile_bname:
         bcs _cbn_bad
         lda #7
         jsr emit_lda_imm
-        lda #<out_jsr_cmdpre
-        ldy #>out_jsr_cmdpre
-        jsr out_zstr
-        lda #<out_jsr_cmdstr
-        ldy #>out_jsr_cmdstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmdpre
+        jsr emit_tmpl
+        .word out_jsr_cmdstr
         jsr emit_string_temp_release
         clc
         rts
@@ -6032,30 +6011,26 @@ _compile_mouse_on:
         bcs _compile_mouse_go
         jsr compile_expression
         bcs _compile_mouse_bad
-        lda #<out_jsr_mousetp
-        ldy #>out_jsr_mousetp
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_mousetp
         jsr parse_opt_comma
         bcs _compile_mouse_go
         jsr compile_expression
         bcs _compile_mouse_bad
-        lda #<out_jsr_mousets
-        ldy #>out_jsr_mousets
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_mousets
         jsr parse_opt_comma
         bcs _compile_mouse_go
         jsr compile_expression
         bcs _compile_mouse_bad
-        lda #<out_jsr_mousetx
-        ldy #>out_jsr_mousetx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_mousetx
         jsr parse_comma
         bcs _compile_mouse_bad
         jsr compile_expression
         bcs _compile_mouse_bad
-        lda #<out_jsr_mousety
-        ldy #>out_jsr_mousety
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_mousety
 _compile_mouse_go:
         lda #<out_jsr_mouseon
         ldy #>out_jsr_mouseon
@@ -6065,30 +6040,26 @@ _compile_mouse_bad:
 
 ; RMOUSE xvar, yvar, btnvar: snapshot then store into three numerics
 compile_rmouse:
-        lda #<out_jsr_rmousef
-        ldy #>out_jsr_rmousef
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_rmousef
         jsr compile_input_target_numeric
         bcs _compile_rmouse_bad
-        lda #<out_ld_mourx
-        ldy #>out_ld_mourx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_ld_mourx
         jsr emit_store_var
         jsr parse_comma
         bcs _compile_rmouse_bad
         jsr compile_input_target_numeric
         bcs _compile_rmouse_bad
-        lda #<out_ld_moury
-        ldy #>out_ld_moury
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_ld_moury
         jsr emit_store_var
         jsr parse_comma
         bcs _compile_rmouse_bad
         jsr compile_input_target_numeric
         bcs _compile_rmouse_bad
-        lda #<out_ld_mourb
-        ldy #>out_ld_mourb
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_ld_mourb
         jsr emit_store_var
         clc
         rts
@@ -6098,9 +6069,8 @@ _compile_rmouse_bad:
 ; CURSOR [col][,row]: position only -- the ROM's ON/OFF/style forms are
 ; not supported (they error). Omitted arguments keep the current value.
 compile_cursor:
-        lda #<out_jsr_curinit
-        ldy #>out_jsr_curinit
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_curinit
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _cursor_go
@@ -6109,17 +6079,15 @@ compile_cursor:
         beq _cursor_row
         jsr compile_expression
         bcs _cursor_bad
-        lda #<out_jsr_cursetc
-        ldy #>out_jsr_cursetc
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cursetc
 _cursor_row:
         jsr parse_opt_comma
         bcs _cursor_go
         jsr compile_expression
         bcs _cursor_bad
-        lda #<out_jsr_cursetr
-        ldy #>out_jsr_cursetr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cursetr
 _cursor_go:
         lda #<out_jsr_curgo
         ldy #>out_jsr_curgo
@@ -6127,39 +6095,48 @@ _cursor_go:
 _cursor_bad:
         jmp compile_env_bad
 
+; DISK command$ sends a raw DOS command (empty prefix slot); bare
+; DISK reads and prints the drive status. ,U units unsupported.
+compile_diskstmt:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cdisk_bare
+        lda #7                  ; raw string, no DOS prefix
+        jmp compile_cmdname
+_cdisk_bare:
+        lda #<out_jsr_dskst
+        ldy #>out_jsr_dskst
+        jmp out_zstr_ok
+
 ; KEY number, string (the ON/OFF/LOAD/SAVE and bare forms are not
 ; supported -- they only matter interactively)
 compile_key:
         jsr compile_expression
         bcs _ckey_bad
-        lda #<out_jsr_keysetn
-        ldy #>out_jsr_keysetn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_keysetn
         jsr parse_comma
         bcs _ckey_bad
         jsr emit_string_temp_mark
         jsr compile_string_expression
         bcs _ckey_bad
-        lda #<out_jsr_keysetgo
-        ldy #>out_jsr_keysetgo
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_keysetgo
         jmp emit_string_temp_release
 _ckey_bad:
         jmp compile_env_bad
 
 ; WINDOW left, top, right, bottom [, clear]
 compile_window:
-        lda #<out_jsr_winrst
-        ldy #>out_jsr_winrst
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_winrst
         ldx #0
 _cw_loop:
         phx
         jsr compile_expression
         bcs _cw_badx
-        lda #<out_jsr_winarg
-        ldy #>out_jsr_winarg
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_winarg
         plx
         inx
         cpx #4
@@ -6189,17 +6166,15 @@ _cw_bad:
 compile_rcursor:
         jsr compile_input_target_numeric
         bcs _rcursor_bad
-        lda #<out_jsr_curcolf
-        ldy #>out_jsr_curcolf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_curcolf
         jsr emit_store_var
         jsr parse_comma
         bcs _rcursor_bad
         jsr compile_input_target_numeric
         bcs _rcursor_bad
-        lda #<out_jsr_currowf
-        ldy #>out_jsr_currowf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_currowf
         jsr emit_store_var
         clc
         rts
@@ -6242,9 +6217,8 @@ compile_sleep:
         bcs compile_env_bad
         lda expr_type
         bne _compile_sleep_f
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
 _compile_sleep_f:
         lda #<out_jsr_sleepf
         ldy #>out_jsr_sleepf
@@ -6254,23 +6228,20 @@ _compile_sleep_f:
 compile_wait:
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_waitseta
-        ldy #>out_jsr_waitseta
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_waitseta
         jsr parse_comma
         bcs compile_env_bad
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_waitsetm
-        ldy #>out_jsr_waitsetm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_waitsetm
         jsr parse_opt_comma
         bcs _compile_wait_go
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_waitsetx
-        ldy #>out_jsr_waitsetx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_waitsetx
 _compile_wait_go:
         lda #<out_jsr_waitgo
         ldy #>out_jsr_waitgo
@@ -6288,9 +6259,8 @@ compile_tempo:
 compile_envelope:
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_envsetn
-        ldy #>out_jsr_envsetn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_envsetn
         ldx #0
 _compile_env_loop:
         phx
@@ -6333,9 +6303,8 @@ envsetterhi:
 compile_movspr:
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsetn
-        ldy #>out_jsr_sprsetn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetn
         jsr parse_comma
         bcs compile_sprite_bad
         jsr line_skip_spaces
@@ -6354,9 +6323,8 @@ compile_movspr:
         jsr line_peek
         cmp #'#'
         beq _movspr_angle
-        lda #<out_jsr_sprsetx
-        ldy #>out_jsr_sprsetx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetx
         bra _movspr_y
 _movspr_relx:
         cmp #TOK_PLUS           ; the + is the relative marker, not a
@@ -6364,9 +6332,8 @@ _movspr_relx:
         jsr line_get
 +       jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsetxr
-        ldy #>out_jsr_sprsetxr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetxr
 _movspr_y:
         jsr parse_comma
         bcs compile_sprite_bad
@@ -6387,13 +6354,11 @@ _movspr_rely:
         jsr line_get
 +       jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsetyr
-        ldy #>out_jsr_sprsetyr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetyr
 _movspr_place:
-        lda #<out_jsr_movsprgo
-        ldy #>out_jsr_movsprgo
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_movsprgo
         ; optional: TO endx, endy, speed
         jsr line_skip_spaces
         jsr line_at_end_or_colon
@@ -6404,30 +6369,26 @@ _movspr_place:
         jsr line_get
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsettx
-        ldy #>out_jsr_sprsettx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsettx
         jsr parse_comma
         bcs compile_sprite_bad
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsetty
-        ldy #>out_jsr_sprsetty
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetty
         jsr parse_comma
         bcs compile_sprite_bad
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprgoto
-        ldy #>out_jsr_sprgoto
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprgoto
 _movspr_done:
         clc
         rts
 _movspr_angle:
-        lda #<out_jsr_sprsetx   ; the angle stages through spr_x
-        ldy #>out_jsr_sprsetx
-        jsr out_zstr
+        jsr emit_tmpl   ; the angle stages through spr_x
+        .word out_jsr_sprsetx
         jsr line_get            ; consume #
         jsr compile_expression
         bcs compile_sprite_bad
@@ -6444,9 +6405,8 @@ compile_sprite_bad:
 compile_sprcolor:
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprmc1
-        ldy #>out_jsr_sprmc1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprmc1
         jsr parse_comma
         bcs compile_sprite_bad
         jsr compile_expression
@@ -6460,50 +6420,43 @@ compile_sprcolor:
 compile_sprite:
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprsetn
-        ldy #>out_jsr_sprsetn
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetn
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_1
-        lda #<out_jsr_sprswitch
-        ldy #>out_jsr_sprswitch
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprswitch
 _compile_sprite_1:
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_2
-        lda #<out_jsr_sprsetfg
-        ldy #>out_jsr_sprsetfg
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetfg
 _compile_sprite_2:
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_3
-        lda #<out_jsr_sprsetprio
-        ldy #>out_jsr_sprsetprio
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetprio
 _compile_sprite_3:
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_4
-        lda #<out_jsr_sprsetexpx
-        ldy #>out_jsr_sprsetexpx
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetexpx
 _compile_sprite_4:
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_5
-        lda #<out_jsr_sprsetexpy
-        ldy #>out_jsr_sprsetexpy
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetexpy
 _compile_sprite_5:
         jsr sprite_slot
         bcs _compile_sprite_done
         bne _compile_sprite_done
-        lda #<out_jsr_sprsetmode
-        ldy #>out_jsr_sprsetmode
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sprsetmode
 _compile_sprite_done:
         clc
         rts
@@ -6541,58 +6494,50 @@ _sprite_slot_bad:
 compile_sound:
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetv
-        ldy #>out_jsr_sndsetv
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetv
         jsr parse_comma
         bcs compile_sound_bad
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetf
-        ldy #>out_jsr_sndsetf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetf
         jsr parse_comma
         bcs compile_sound_bad
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetd
-        ldy #>out_jsr_sndsetd
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetd
         jsr parse_opt_comma
         bcs _compile_sound_go
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetdr
-        ldy #>out_jsr_sndsetdr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetdr
         jsr parse_opt_comma
         bcs _compile_sound_go
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetm
-        ldy #>out_jsr_sndsetm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetm
         jsr parse_opt_comma
         bcs _compile_sound_go
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsets
-        ldy #>out_jsr_sndsets
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsets
         jsr parse_opt_comma
         bcs _compile_sound_go
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetw
-        ldy #>out_jsr_sndsetw
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetw
         jsr parse_opt_comma
         bcs _compile_sound_go
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_sndsetp
-        ldy #>out_jsr_sndsetp
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_sndsetp
 _compile_sound_go:
         lda #<out_jsr_sndgo
         ldy #>out_jsr_sndgo
@@ -6625,50 +6570,42 @@ compile_resume:
         bcs compile_trap_bad
         jsr line_number_exists
         bcs compile_trap_bad
-        lda #<out_jsr_trapresume
-        ldy #>out_jsr_trapresume
-        jsr out_zstr
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_trapresume
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_label_from_number
         jsr out_cr
         rts
 
 compile_open:
-        lda #<out_jsr_fiodefaults
-        ldy #>out_jsr_fiodefaults
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiodefaults
         jsr compile_expression
         bcs _compile_open_bad
-        lda #<out_jsr_fiosetlf
-        ldy #>out_jsr_fiosetlf
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetlf
         jsr parse_opt_comma
         bcs _compile_open_done
         jsr compile_expression
         bcs _compile_open_bad
-        lda #<out_jsr_fiosetdev
-        ldy #>out_jsr_fiosetdev
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetdev
         jsr parse_opt_comma
         bcs _compile_open_done
         jsr compile_expression
         bcs _compile_open_bad
-        lda #<out_jsr_fiosetsa
-        ldy #>out_jsr_fiosetsa
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetsa
         jsr parse_opt_comma
         bcs _compile_open_done
         jsr emit_string_temp_mark
         jsr compile_string_expression
         bcs _compile_open_bad
-        lda #<out_jsr_fiosetname
-        ldy #>out_jsr_fiosetname
-        jsr out_zstr
-        lda #<out_jsr_fopen
-        ldy #>out_jsr_fopen
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiosetname
+        jsr emit_tmpl
+        .word out_jsr_fopen
         jsr emit_string_temp_release
         clc
         rts
@@ -6714,9 +6651,8 @@ _compile_close_bad:
 compile_print_hash:
         jsr compile_expression
         bcs _compile_print_hash_bad
-        lda #<out_jsr_fiochkout
-        ldy #>out_jsr_fiochkout
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiochkout
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _compile_print_hash_items
@@ -6726,9 +6662,8 @@ compile_print_hash:
         jsr line_get
 _compile_print_hash_items:
         jsr compile_print
-        lda #<out_jsr_fiodone
-        ldy #>out_jsr_fiodone
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiodone
         rts
 
 _compile_print_hash_bad:
@@ -6740,9 +6675,8 @@ _compile_print_hash_bad:
 compile_input_hash:
         jsr compile_expression
         bcs _compile_input_hash_bad
-        lda #<out_jsr_fiochkin
-        ldy #>out_jsr_fiochkin
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiochkin
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _compile_input_hash_bad
@@ -6755,9 +6689,8 @@ compile_input_hash:
         jsr _compile_input_hash_targets
         lda #0
         sta io_from_file
-        lda #<out_jsr_fiodone
-        ldy #>out_jsr_fiodone
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiodone
         rts
 
 _compile_input_hash_targets:
@@ -6910,9 +6843,8 @@ _compile_input_array_store:
         rts
 
 _compile_input_array_flt:
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
         jsr emit_restore_arrayptr
         lda #<out_jsr_fstorevar
         ldy #>out_jsr_fstorevar
@@ -6932,9 +6864,8 @@ compile_get:
         jsr line_get
         jsr compile_expression
         bcs _compile_get_hash_bad
-        lda #<out_jsr_fiochkin
-        ldy #>out_jsr_fiochkin
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiochkin
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _compile_get_hash_bad
@@ -6946,9 +6877,8 @@ compile_get:
         jsr _compile_get_loop_entry
         lda #0
         sta io_from_file
-        lda #<out_jsr_fiodone
-        ldy #>out_jsr_fiodone
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiodone
         rts
 
 _compile_get_hash_bad:
@@ -7062,9 +6992,8 @@ _compile_get_array_store:
         rts
 
 _compile_get_array_flt:
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
         jsr emit_restore_arrayptr
         lda #<out_jsr_fstorevar
         ldy #>out_jsr_fstorevar
@@ -7190,9 +7119,8 @@ _try_print_num_var_scalar:
 
 _try_print_num_var_float:
         jsr emit_set_varptr_current
-        lda #<out_jsr_floadvar
-        ldy #>out_jsr_floadvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_floadvar
         lda #<out_jsr_printflt
         ldy #>out_jsr_printflt
         jmp out_zstr_ok
@@ -7227,9 +7155,8 @@ compile_goto:
         bcs _goto_bad
         jsr line_number_exists
         bcs _goto_bad
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_label_from_number
         jsr out_cr
         jsr line_skip_to_stmt_end
@@ -7246,9 +7173,8 @@ compile_gosub:
         bcs _gosub_bad
         jsr line_number_exists
         bcs _gosub_bad
-        lda #<out_jsr_label
-        ldy #>out_jsr_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_label
         jsr out_label_from_number
         jsr out_cr
         jsr line_skip_to_stmt_end
@@ -7367,9 +7293,8 @@ _on_return:
 compile_sys:
         jsr line_parse_number
         bcs _sys_bad
-        lda #<out_jsr_abs
-        ldy #>out_jsr_abs
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_abs
         jsr out_hex_word_number
         jsr out_cr
         jsr line_skip_to_stmt_end
@@ -7495,13 +7420,11 @@ _compile_read_array:
         bra _compile_read_after_target
 
 _compile_read_array_flt:
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
         jsr emit_restore_arrayptr
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fstorevar
 
 _compile_read_after_target:
         jsr line_skip_spaces
@@ -7538,9 +7461,8 @@ compile_restore:
         rts
 
 _compile_restore_all:
-        lda #<out_jsr_datainit
-        ldy #>out_jsr_datainit
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_datainit
         jsr line_skip_to_stmt_end
         rts
 
@@ -7551,9 +7473,8 @@ _compile_restore_bad:
         rts
 
 compile_rem:
-        lda #<out_rem
-        ldy #>out_rem
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_rem
 
 _rem_loop:
         jsr line_at_end
@@ -8992,29 +8913,24 @@ _pop_if_fail:
 emit_generated_header:
         ldx backend_mode
         bne _emit_generated_header_bin
-        lda #<out_rtlevel_pre
-        ldy #>out_rtlevel_pre
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_rtlevel_pre
         lda rt_level
         jsr out_hex_byte
         jsr out_cr
 _emit_header_text:
-        lda #<out_rtpb_pre
-        ldy #>out_rtpb_pre
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_rtpb_pre
         lda prog_base_hi
         jsr out_hex_byte
-        lda #<out_rtpb_post
-        ldy #>out_rtpb_post
-        jsr out_zstr
-        lda #<out_header_pre
-        ldy #>out_header_pre
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_rtpb_post
+        jsr emit_tmpl
+        .word out_header_pre
         lda prog_base_hi
         jsr out_hex_byte
-        lda #<out_header_post
-        ldy #>out_header_post
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_header_post
         rts
 
 _emit_generated_header_bin:
@@ -9052,18 +8968,16 @@ _emit_header_vectors:
         jmp bin_write_byte
 
 emit_generated_tail:
-        lda #<out_tail
-        ldy #>out_tail
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_tail
         jsr emit_varheapend
         jsr emit_string_pool
         jsr emit_data_table
         jsr emit_string_roots
         jsr emit_flt_table
         jsr emit_for_storage
-        lda #<out_size_guard
-        ldy #>out_size_guard
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_size_guard
         rts
 
 emit_flt_table:
@@ -9074,9 +8988,8 @@ emit_flt_table:
         lda bin_pc+1
         sta fltinit_addr+1
 _emit_flt_text:
-        lda #<out_fltinit_label
-        ldy #>out_fltinit_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_fltinit_label
         lda #0
         sta root_emit_idx
 _emit_flt_loop:
@@ -9090,14 +9003,12 @@ _emit_flt_loop:
         sta number_hi
         lda flt_lit_sid,x
         sta current_string_id
-        lda #<out_word_hex_prefix
-        ldy #>out_word_hex_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_word_hex_prefix
         jsr out_hex_word_number
         jsr out_cr
-        lda #<out_data_word_prefix
-        ldy #>out_data_word_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_word_prefix
         jsr out_string_ref
         jsr out_cr
         inc root_emit_idx
@@ -9106,14 +9017,12 @@ _emit_flt_term:
         lda #0
         sta number_lo
         sta number_hi
-        lda #<out_word_hex_prefix
-        ldy #>out_word_hex_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_word_hex_prefix
         jsr out_hex_word_number
         jsr out_cr
-        lda #<out_word_hex_prefix
-        ldy #>out_word_hex_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_word_hex_prefix
         jsr out_hex_word_number
         jsr out_cr
         jsr out_cr
@@ -9145,9 +9054,8 @@ emit_for_storage:
         lda bin_pc+1
         sta for_storage_addr+1
 _emit_for_storage_text:
-        lda #<out_for_storage_header
-        ldy #>out_for_storage_header
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_for_storage_header
         lda #0
         sta for_storage_idx
 
@@ -9157,13 +9065,11 @@ _emit_for_storage_loop:
         bcs _emit_for_storage_done
         sta current_for_id
         jsr out_forend_ref
-        lda #<out_for_word_storage
-        ldy #>out_for_word_storage
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_for_word_storage
         jsr out_forstep_ref
-        lda #<out_for_word_storage
-        ldy #>out_for_word_storage
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_for_word_storage
         inc for_storage_idx
         bra _emit_for_storage_loop
 
@@ -9189,9 +9095,8 @@ _emit_data_table_loop:
         cmp data_count
         bcs _emit_data_table_done
         jsr emit_data_labels_for_current_index
-        lda #<out_data_byte_prefix
-        ldy #>out_data_byte_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_prefix
         ldx data_emit_idx
         lda data_table_type,x
         jsr out_hex_byte
@@ -9200,15 +9105,13 @@ _emit_data_table_loop:
         cmp #DATA_TYPE_STRING
         beq _emit_data_string_record
 
-        lda #<out_data_byte_sep
-        ldy #>out_data_byte_sep
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_sep
         ldx data_emit_idx
         lda data_table_lo,x
         jsr out_hex_byte
-        lda #<out_data_byte_sep
-        ldy #>out_data_byte_sep
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_sep
         ldx data_emit_idx
         lda data_table_hi,x
         jsr out_hex_byte
@@ -9218,9 +9121,8 @@ _emit_data_table_loop:
 
 _emit_data_string_record:
         jsr out_cr
-        lda #<out_data_word_prefix
-        ldy #>out_data_word_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_word_prefix
         ldx data_emit_idx
         lda data_table_lo,x
         sta current_string_id
@@ -9341,24 +9243,20 @@ load_root_array_dims:
         rts
 
 emit_string_root_record:
-        lda #<out_data_byte_prefix
-        ldy #>out_data_byte_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_prefix
         lda number_lo
         jsr out_hex_byte
-        lda #<out_data_byte_sep
-        ldy #>out_data_byte_sep
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_sep
         lda number_hi
         jsr out_hex_byte
-        lda #<out_data_byte_sep
-        ldy #>out_data_byte_sep
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_sep
         lda work2_lo
         jsr out_hex_byte
-        lda #<out_data_byte_sep
-        ldy #>out_data_byte_sep
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_sep
         lda work2_hi
         jsr out_hex_byte
         jsr out_cr
@@ -9387,9 +9285,8 @@ _emit_string_pool_loop:
 _emit_string_byte_loop:
         jsr string_pool_read_byte
         sta byte_value
-        lda #<out_data_byte_prefix
-        ldy #>out_data_byte_prefix
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_data_byte_prefix
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
@@ -9467,18 +9364,15 @@ emit_line_track:
         lda line_no_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_curline
-        ldy #>out_sta_curline
-        jsr out_zstr
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_curline
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda line_no_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_curline_1
-        ldy #>out_sta_curline_1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_curline_1
         rts
 
 out_label_from_number:
@@ -9593,82 +9487,66 @@ _out_string_ref_text:
 
 emit_chout_imm:
         sta byte_value
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_jsr_chout
-        ldy #>out_jsr_chout
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_chout
         rts
 
 emit_print_string_current:
         jsr emit_set_rtptr_string_current
-        lda #<out_jsr_printstr
-        ldy #>out_jsr_printstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printstr
         rts
 
 emit_set_rtptr_string_current:
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_rtptr
-        ldy #>out_sta_rtptr
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_rtptr
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_rtptr_1
-        ldy #>out_sta_rtptr_1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_rtptr_1
         rts
 
 emit_load_string_ref_to_expr:
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_exprlo
-        ldy #>out_sta_exprlo
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprlo
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_exprhi
-        ldy #>out_sta_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprhi
         rts
 
 emit_string_literal_to_heap_expr:
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_rtptr
-        ldy #>out_sta_rtptr
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_rtptr
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_string_ref
         jsr out_cr
-        lda #<out_sta_rtptr_1
-        ldy #>out_sta_rtptr_1
-        jsr out_zstr
-        lda #<out_jsr_strfromlit
-        ldy #>out_jsr_strfromlit
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_rtptr_1
+        jsr emit_tmpl
+        .word out_jsr_strfromlit
         rts
 
 emit_print_string_var_current:
@@ -9676,51 +9554,43 @@ emit_print_string_var_current:
         ; FALLTHROUGH
 
 emit_print_string_expr:
-        lda #<out_jsr_printheapstr
-        ldy #>out_jsr_printheapstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printheapstr
         rts
 
 emit_copy_string_expr:
-        lda #<out_jsr_strcopyexpr
-        ldy #>out_jsr_strcopyexpr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strcopyexpr
         rts
 
 emit_concat_strings:
-        lda #<out_jsr_concatstr
-        ldy #>out_jsr_concatstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_concatstr
         rts
 
 emit_string_len_expr:
-        lda #<out_jsr_strlenexpr
-        ldy #>out_jsr_strlenexpr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strlenexpr
         rts
 
 emit_string_from_int:
-        lda #<out_jsr_strfromint
-        ldy #>out_jsr_strfromint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strfromint
         rts
 
 emit_val_string_expr:
-        lda #<out_jsr_valstr
-        ldy #>out_jsr_valstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_valstr
         rts
 
 emit_string_temp_mark:
-        lda #<out_jsr_strmark
-        ldy #>out_jsr_strmark
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strmark
         rts
 
 emit_string_temp_release:
-        lda #<out_jsr_strrelease
-        ldy #>out_jsr_strrelease
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strrelease
         rts
 
 emit_string_left:
@@ -9728,15 +9598,13 @@ emit_string_left:
         bra emit_string_mid
 
 emit_string_right:
-        lda #<out_jsr_strright
-        ldy #>out_jsr_strright
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strright
         rts
 
 emit_string_mid:
-        lda #<out_jsr_strsub
-        ldy #>out_jsr_strsub
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_strsub
         rts
 
 emit_string_mid_tail:
@@ -9748,82 +9616,66 @@ emit_string_mid_tail:
         bra emit_string_mid
 
 emit_set_strarg1_one:
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda #1
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_strarg1lo
-        ldy #>out_sta_strarg1lo
-        jsr out_zstr
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_strarg1lo
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda #0
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_strarg1hi
-        ldy #>out_sta_strarg1hi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_strarg1hi
         rts
 
 emit_save_expr_to_strarg1:
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_sta_strarg1lo
-        ldy #>out_sta_strarg1lo
-        jsr out_zstr
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_sta_strarg1hi
-        ldy #>out_sta_strarg1hi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_sta_strarg1lo
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_sta_strarg1hi
         rts
 
 emit_print_comma:
-        lda #<out_jsr_printcomma
-        ldy #>out_jsr_printcomma
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printcomma
         rts
 
 emit_print_uint_expr:
-        lda #<out_jsr_printuint
-        ldy #>out_jsr_printuint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_printuint
         rts
 
 emit_print_char_expr:
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_jsr_chout
-        ldy #>out_jsr_chout
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_jsr_chout
         rts
 
 emit_load_number:
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda number_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_exprlo
-        ldy #>out_sta_exprlo
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprlo
 
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda number_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_exprhi
-        ldy #>out_sta_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprhi
         rts
 
 ; integer-semantics load: float variables convert through qint, so FOR,
@@ -9834,18 +9686,15 @@ emit_load_var:
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
         beq _emit_load_var_float
-        lda #<out_jsr_loadintvar
-        ldy #>out_jsr_loadintvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_loadintvar
         rts
 
 _emit_load_var_float:
-        lda #<out_jsr_floadvar
-        ldy #>out_jsr_floadvar
-        jsr out_zstr
-        lda #<out_jsr_qint
-        ldy #>out_jsr_qint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_floadvar
+        jsr emit_tmpl
+        .word out_jsr_qint
         rts
 
 ; typed load for expression factors: float variables land in FAC
@@ -9855,15 +9704,13 @@ emit_load_var_typed:
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
         beq _emit_load_var_typed_f
-        lda #<out_jsr_loadintvar
-        ldy #>out_jsr_loadintvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_loadintvar
         rts
 
 _emit_load_var_typed_f:
-        lda #<out_jsr_floadvar
-        ldy #>out_jsr_floadvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_floadvar
         lda #1
         sta expr_type
         rts
@@ -9882,12 +9729,10 @@ emit_store_var:
         rts
 
 _emit_store_var_float:
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jsr out_zstr
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_float16
+        jsr emit_tmpl
+        .word out_jsr_fstorevar
         rts
 
 ; float-source store (assignment right side already in FAC)
@@ -9897,189 +9742,157 @@ emit_store_var_fac:
         lda assign_var_data_hi
         sta current_var_data_hi
         jsr emit_set_varptr_current
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fstorevar
         rts
 
 emit_load_ptr:
-        lda #<out_jsr_loadintvar
-        ldy #>out_jsr_loadintvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_loadintvar
         rts
 
 emit_store_ptr:
-        lda #<out_jsr_storeintvar
-        ldy #>out_jsr_storeintvar
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_storeintvar
         rts
 
 emit_read_int:
-        lda #<out_jsr_readint
-        ldy #>out_jsr_readint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_readint
         rts
 
 emit_read_string:
-        lda #<out_jsr_readstr
-        ldy #>out_jsr_readstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_readstr
         rts
 
 emit_input_line:
         lda io_from_file
         bne _emit_input_line_file
-        lda #<out_jsr_inputline
-        ldy #>out_jsr_inputline
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_inputline
         rts
 _emit_input_line_file:
-        lda #<out_jsr_fioreadline
-        ldy #>out_jsr_fioreadline
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fioreadline
         rts
 
 emit_input_int:
-        lda #<out_jsr_inputint
-        ldy #>out_jsr_inputint
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_inputint
         rts
 
 emit_input_string:
-        lda #<out_jsr_inputstr
-        ldy #>out_jsr_inputstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_inputstr
         rts
 
 emit_get_key:
         lda io_from_file
         bne _emit_get_key_file
-        lda #<out_jsr_getkey
-        ldy #>out_jsr_getkey
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_getkey
         rts
 _emit_get_key_file:
-        lda #<out_jsr_fiogetbyte
-        ldy #>out_jsr_fiogetbyte
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiogetbyte
         rts
 
 emit_get_string:
         lda io_from_file
         bne _emit_get_string_file
-        lda #<out_jsr_getstr
-        ldy #>out_jsr_getstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_getstr
         rts
 _emit_get_string_file:
-        lda #<out_jsr_fiogetstr
-        ldy #>out_jsr_fiogetstr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_fiogetstr
         rts
 
 emit_restore_data_line:
-        lda #<out_lda_label_lo_imm
-        ldy #>out_lda_label_lo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label_lo_imm
         jsr out_data_line_ref
         jsr out_cr
-        lda #<out_sta_dataptrlo
-        ldy #>out_sta_dataptrlo
-        jsr out_zstr
-        lda #<out_lda_label_hi_imm
-        ldy #>out_lda_label_hi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_dataptrlo
+        jsr emit_tmpl
+        .word out_lda_label_hi_imm
         jsr out_data_line_ref
         jsr out_cr
-        lda #<out_sta_dataptrhi
-        ldy #>out_sta_dataptrhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_dataptrhi
         rts
 
 emit_save_arrayptr:
-        lda #<out_save_arrayptr
-        ldy #>out_save_arrayptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_save_arrayptr
         rts
 
 emit_restore_arrayptr:
-        lda #<out_restore_arrayptr
-        ldy #>out_restore_arrayptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_restore_arrayptr
         rts
 
 emit_array_bounds_check:
         jsr alloc_array_ok_label
-        lda #<out_array_check_start
-        ldy #>out_array_check_start
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_array_check_start
         jsr out_array_nonneg_ref
         jsr out_cr
-        lda #<out_jmp_arraybounds
-        ldy #>out_jmp_arraybounds
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_arraybounds
         jsr out_array_nonneg_ref
         jsr emit_label_suffix
-        lda #<out_cmp_exprhi_imm
-        ldy #>out_cmp_exprhi_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_cmp_exprhi_imm
         lda number_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_bcc_label
-        ldy #>out_bcc_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bcc_label
         jsr out_array_ok_ref
         jsr out_cr
-        lda #<out_beq_label
-        ldy #>out_beq_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_beq_label
         jsr out_array_hieq_ref
         jsr out_cr
-        lda #<out_jmp_arraybounds
-        ldy #>out_jmp_arraybounds
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_arraybounds
         jsr out_array_hieq_ref
         jsr emit_label_suffix
-        lda #<out_cmp_exprlo_imm
-        ldy #>out_cmp_exprlo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_cmp_exprlo_imm
         lda number_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_bcc_label
-        ldy #>out_bcc_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bcc_label
         jsr out_array_ok_ref
         jsr out_cr
-        lda #<out_jmp_arraybounds
-        ldy #>out_jmp_arraybounds
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_arraybounds
         jsr out_array_ok_ref
         bra emit_label_suffix
 
 ; varptr+2/+3 (bank/megabyte) are set once by rtinit and preserved by every
 ; runtime path, so per-access setup only writes the 16-bit bank-1 offset
 emit_set_varptr_current:
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda current_var_data_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_varptr
-        ldy #>out_sta_varptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_varptr
 
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda current_var_data_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_varptr_1
-        ldy #>out_sta_varptr_1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_varptr_1
         rts
 
 emit_set_arrayptr_current:
@@ -10087,49 +9900,40 @@ emit_set_arrayptr_current:
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
         beq _emit_set_arrayptr_f
-        lda #<out_array_index_shift
-        ldy #>out_array_index_shift
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_array_index_shift
         bra _emit_set_arrayptr_add
 _emit_set_arrayptr_f:
-        lda #<out_array_index_shift5
-        ldy #>out_array_index_shift5
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_array_index_shift5
 _emit_set_arrayptr_add:
-        lda #<out_adc_imm_hex
-        ldy #>out_adc_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_adc_imm_hex
         lda current_var_data_lo
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_varptr
-        ldy #>out_sta_varptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_varptr
 
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_adc_imm_hex
-        ldy #>out_adc_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_adc_imm_hex
         lda current_var_data_hi
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_varptr_1
-        ldy #>out_sta_varptr_1
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_varptr_1
         rts
 
 emit_push_expr:
-        lda #<out_push_expr
-        ldy #>out_push_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_push_expr
         rts
 
 emit_move_expr_to_lhs:
-        lda #<out_move_expr_to_lhs
-        ldy #>out_move_expr_to_lhs
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_move_expr_to_lhs
         rts
 
 ; Decide whether the upcoming right-hand operand is a single numeric literal
@@ -10218,40 +10022,34 @@ _probe_fail:
         rts
 
 emit_pop_lhs:
-        lda #<out_pop_lhs
-        ldy #>out_pop_lhs
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_pop_lhs
         rts
 
 emit_add_lhs_expr:
-        lda #<out_add_lhs_expr
-        ldy #>out_add_lhs_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_add_lhs_expr
         rts
 
 emit_sub_lhs_expr:
-        lda #<out_sub_lhs_expr
-        ldy #>out_sub_lhs_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sub_lhs_expr
         rts
 
 emit_mul_lhs_expr:
-        lda #<out_jsr_mul16
-        ldy #>out_jsr_mul16
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_mul16
         rts
 
 emit_neg_expr:
-        lda #<out_neg_expr
-        ldy #>out_neg_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_neg_expr
         rts
 
 emit_abs_expr:
         jsr alloc_if_tmp_label
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
         lda #<out_bpl_label
         ldy #>out_bpl_label
         jsr emit_branch_if_tmp
@@ -10268,22 +10066,18 @@ emit_sgn_expr:
         sta on_done_hi
         jsr alloc_on_label
 
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_ora_exprhi
-        ldy #>out_ora_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_ora_exprhi
         lda #<out_beq_label
         ldy #>out_beq_label
         jsr emit_branch_if_tmp
 
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_bmi_label
-        ldy #>out_bmi_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_bmi_label
         jsr out_onnext_ref
         jsr out_cr
 
@@ -10317,15 +10111,12 @@ emit_not_expr:
         lda on_label_hi
         sta on_done_hi
         jsr alloc_on_label
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_ora_exprhi
-        ldy #>out_ora_exprhi
-        jsr out_zstr
-        lda #<out_beq_label
-        ldy #>out_beq_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_ora_exprhi
+        jsr emit_tmpl
+        .word out_beq_label
         jsr out_onnext_ref
         jsr out_cr
         lda #0
@@ -10541,28 +10332,24 @@ emit_expr_to_lhs:
 
 emit_set_strarg1lo_imm:
         sta byte_value
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_strarg1lo
-        ldy #>out_sta_strarg1lo
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_strarg1lo
         rts
 
 emit_set_strarg1hi_imm:
         sta byte_value
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda byte_value
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_strarg1hi
-        ldy #>out_sta_strarg1hi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_strarg1hi
         rts
 
 emit_empty_string_compare:
@@ -10648,159 +10435,129 @@ _emit_empty_cmp_fail:
         rts
 
 emit_store_a_to_expr_bool:
-        lda #<out_sta_exprlo
-        ldy #>out_sta_exprlo
-        jsr out_zstr
-        lda #<out_lda_imm_hex
-        ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprlo
+        jsr emit_tmpl
+        .word out_lda_imm_hex
         lda #0
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_sta_exprhi
-        ldy #>out_sta_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprhi
         rts
 
 emit_bool_and_lhs_expr:
-        lda #<out_and_lhs_expr
-        ldy #>out_and_lhs_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_and_lhs_expr
         rts
 
 emit_bool_or_lhs_expr:
-        lda #<out_or_lhs_expr
-        ldy #>out_or_lhs_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_or_lhs_expr
         rts
 
 emit_expr_to_rtptr:
-        lda #<out_expr_to_rtptr
-        ldy #>out_expr_to_rtptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_expr_to_rtptr
         rts
 
 emit_save_rtptr:
-        lda #<out_save_rtptr
-        ldy #>out_save_rtptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_save_rtptr
         rts
 
 emit_restore_rtptr:
-        lda #<out_restore_rtptr
-        ldy #>out_restore_rtptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_restore_rtptr
         rts
 
 emit_poke_expr_to_rtptr:
-        lda #<out_poke_expr_to_rtptr
-        ldy #>out_poke_expr_to_rtptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_poke_expr_to_rtptr
         rts
 
 emit_wpoke_expr_to_rtptr:
-        lda #<out_wpoke_expr_to_rtptr
-        ldy #>out_wpoke_expr_to_rtptr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_wpoke_expr_to_rtptr
         rts
 
 emit_peek_expr:
-        lda #<out_peek_expr
-        ldy #>out_peek_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_peek_expr
         rts
 
 emit_wpeek_expr:
-        lda #<out_wpeek_expr
-        ldy #>out_wpeek_expr
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_wpeek_expr
         rts
 
 emit_store_expr_to_forend:
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_sta_label
-        ldy #>out_sta_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_sta_label
         jsr out_forend_ref
         jsr out_cr
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_sta_label
-        ldy #>out_sta_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_sta_label
         jsr out_forend_ref
         jsr out_plus_one_cr
         rts
 
 emit_store_expr_to_forstep:
-        lda #<out_lda_exprlo
-        ldy #>out_lda_exprlo
-        jsr out_zstr
-        lda #<out_sta_label
-        ldy #>out_sta_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprlo
+        jsr emit_tmpl
+        .word out_sta_label
         jsr out_forstep_ref
         jsr out_cr
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_sta_label
-        ldy #>out_sta_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_sta_label
         jsr out_forstep_ref
         jsr out_plus_one_cr
         rts
 
 emit_load_forend:
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forend_ref
         jsr out_cr
-        lda #<out_sta_exprlo
-        ldy #>out_sta_exprlo
-        jsr out_zstr
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprlo
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forend_ref
         jsr out_plus_one_cr
-        lda #<out_sta_exprhi
-        ldy #>out_sta_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprhi
         rts
 
 emit_load_forstep:
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forstep_ref
         jsr out_cr
-        lda #<out_sta_exprlo
-        ldy #>out_sta_exprlo
-        jsr out_zstr
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprlo
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forstep_ref
         jsr out_plus_one_cr
-        lda #<out_sta_exprhi
-        ldy #>out_sta_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sta_exprhi
         rts
 
 emit_for_initial_check:
-        lda #<out_lda_label
-        ldy #>out_lda_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_label
         jsr out_forstep_ref
         jsr out_plus_one_cr
-        lda #<out_bmi_label
-        ldy #>out_bmi_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bmi_label
         jsr out_forinitneg_ref
         jsr out_cr
 
@@ -10811,12 +10568,10 @@ emit_for_initial_check:
         jsr emit_load_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        lda #<out_jsr_cmple
-        ldy #>out_jsr_cmple
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmple
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_fortop_ref
         jsr out_cr
         jsr emit_jmp_fordone
@@ -10829,12 +10584,10 @@ emit_for_initial_check:
         jsr emit_load_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
-        lda #<out_jsr_cmpge
-        ldy #>out_jsr_cmpge
-        jsr out_zstr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_cmpge
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_fortop_ref
         jsr out_cr
         jsr emit_jmp_fordone
@@ -10861,17 +10614,15 @@ emit_fordone_label_def:
         bra emit_label_suffix
 
 emit_jmp_fortop:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_fortop_ref
         jsr out_cr
         rts
 
 emit_jmp_fordone:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_fordone_ref
         jsr out_cr
         rts
@@ -10885,17 +10636,15 @@ emit_do_done_label_def:
         bra emit_label_suffix
 
 emit_jmp_dotop:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_dotop_ref
         jsr out_cr
         rts
 
 emit_jmp_dodone:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_dodone_ref
         jsr out_cr
         rts
@@ -10909,12 +10658,10 @@ alloc_if_tmp_label:
         rts
 
 emit_lhs_truth_test:
-        lda #<out_lda_lhslo
-        ldy #>out_lda_lhslo
-        jsr out_zstr
-        lda #<out_ora_lhshi
-        ldy #>out_ora_lhshi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_lhslo
+        jsr emit_tmpl
+        .word out_ora_lhshi
         rts
 
 emit_do_pretest_while:
@@ -11114,12 +10861,10 @@ emit_if_cmp_ge:
         rts
 
 emit_if_truth:
-        lda #<out_lda_lhslo
-        ldy #>out_lda_lhslo
-        jsr out_zstr
-        lda #<out_ora_lhshi
-        ldy #>out_ora_lhshi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_lhslo
+        jsr emit_tmpl
+        .word out_ora_lhshi
         lda #<out_bne_label
         ldy #>out_bne_label
         jsr emit_branch_if_true
@@ -11127,15 +10872,13 @@ emit_if_truth:
         rts
 
 emit_if_signed_prefix_lhs_negative_true:
-        lda #<out_sign_xor_lhshi_exprhi
-        ldy #>out_sign_xor_lhshi_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sign_xor_lhshi_exprhi
         lda #<out_bpl_label
         ldy #>out_bpl_label
         jsr emit_branch_if_tmp
-        lda #<out_lda_lhshi
-        ldy #>out_lda_lhshi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_lhshi
         lda #<out_bmi_label
         ldy #>out_bmi_label
         jsr emit_branch_if_true
@@ -11144,15 +10887,13 @@ emit_if_signed_prefix_lhs_negative_true:
         rts
 
 emit_if_signed_prefix_lhs_positive_true:
-        lda #<out_sign_xor_lhshi_exprhi
-        ldy #>out_sign_xor_lhshi_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_sign_xor_lhshi_exprhi
         lda #<out_bpl_label
         ldy #>out_bpl_label
         jsr emit_branch_if_tmp
-        lda #<out_lda_lhshi
-        ldy #>out_lda_lhshi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_lhshi
         lda #<out_bmi_label
         ldy #>out_bmi_label
         jsr emit_branch_if_skip
@@ -11161,15 +10902,13 @@ emit_if_signed_prefix_lhs_positive_true:
         rts
 
 emit_cmp_lhshi_exprhi:
-        lda #<out_cmp_lhshi_exprhi
-        ldy #>out_cmp_lhshi_exprhi
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_cmp_lhshi_exprhi
         rts
 
 emit_cmp_lhslo_exprlo:
-        lda #<out_cmp_lhslo_exprlo
-        ldy #>out_cmp_lhslo_exprlo
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_cmp_lhslo_exprlo
         rts
 
 emit_branch_if_true:
@@ -11191,41 +10930,36 @@ emit_branch_if_tmp:
         rts
 
 emit_jmp_if_true:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_if_true_ref
         jsr out_cr
         rts
 
 emit_jmp_if_skip:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_if_skip_ref
         jsr out_cr
         rts
 
 emit_jmp_if_end:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_if_end_ref
         jsr out_cr
         rts
 
 emit_jmp_if_else:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_if_else_ref
         jsr out_cr
         rts
 
 emit_jmp_if_target:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         lda if_target_lo
         sta number_lo
         lda if_target_hi
@@ -11235,37 +10969,31 @@ emit_jmp_if_target:
         rts
 
 emit_on_compare:
-        lda #<out_lda_exprhi
-        ldy #>out_lda_exprhi
-        jsr out_zstr
-        lda #<out_cmp_imm_hex
-        ldy #>out_cmp_imm_hex
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_lda_exprhi
+        jsr emit_tmpl
+        .word out_cmp_imm_hex
         lda #0
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_onnext_ref
         jsr out_cr
-        lda #<out_cmp_exprlo_imm
-        ldy #>out_cmp_exprlo_imm
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_cmp_exprlo_imm
         lda on_target_index
         jsr out_hex_byte
         jsr out_cr
-        lda #<out_bne_label
-        ldy #>out_bne_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_bne_label
         jsr out_onnext_ref
         jsr out_cr
         rts
 
 emit_jmp_on_target:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         lda on_target_lo
         sta number_lo
         lda on_target_hi
@@ -11275,9 +11003,8 @@ emit_jmp_on_target:
         rts
 
 emit_jsr_on_target:
-        lda #<out_jsr_label
-        ldy #>out_jsr_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jsr_label
         lda on_target_lo
         sta number_lo
         lda on_target_hi
@@ -11287,9 +11014,8 @@ emit_jsr_on_target:
         rts
 
 emit_jmp_ondone:
-        lda #<out_jmp_label
-        ldy #>out_jmp_label
-        jsr out_zstr
+        jsr emit_tmpl
+        .word out_jmp_label
         jsr out_ondone_ref
         jsr out_cr
         rts
@@ -13554,6 +13280,20 @@ out_jsr_curcolf:
 out_jsr_currowf:
 .if TEXT_EMITTER
         .text "        jsr currowf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_pif:
+.if TEXT_EMITTER
+        .text "        jsr pif"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dskst:
+.if TEXT_EMITTER
+        .text "        jsr dskst"
         .byte 13, 0
 .else
         .byte 0

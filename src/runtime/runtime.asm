@@ -2952,6 +2952,14 @@ getstr:
         sta exprlo
         sta exprhi
         rts
+; pi constant for the $ff token (classic CBM packed value)
+cpival:
+        .byte $82, $49, $0f, $da, $a2
+pif:
+        lda #<cpival
+        ldy #>cpival
+        jmp fldc
+
 ; CHR$(n): a one-byte heap string (shares the GET tail)
 chrstrf:
         lda exprlo
@@ -5759,6 +5767,15 @@ rdds:
         lda #0
         sta exprhi
         rts
+
+; bare DISK: read the drive status fresh and print it
+dskst:
+        lda #0
+        sta ds_valid
+        jsr dsstrf
+        jsr printheapstr
+        lda #$0d
+        jmp printch
 
 ; DS$ string intercept: last cached status (reads once if never read)
 dsstrf:
