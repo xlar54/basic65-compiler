@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 34 | 1 (OFF) | 35 |
+| $FE-prefixed statements | 70 | 36 | 1 (OFF) | 33 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -221,8 +221,8 @@ Legend:
 | $FE $1C | FREAD# | ❌ | |
 | $FE $1D | WPOKE | ✅ | MEGA65 reassignment (petcat's table still says SPRDEF here); fixer rewrites |
 | $FE $1E | FWRITE# | ❌ | |
-| $FE $1F | DMA | ❌ | |
-| $FE $21 | EDMA | ❌ | |
+| $FE $1F | DMA | ✅ | legacy 1MB form, mapped onto the enhanced engine |
+| $FE $21 | EDMA | ⚠️ | copy/mix/swap/fill with 28-bit addresses (float args convert); hex literals stay 16-bit — write big addresses in decimal or expressions |
 | $FE $23 | MEM | ❌ | |
 | $FE $24 | OFF | 🔧 | argument keyword (MOUSE OFF) |
 | $FE $25 | FAST | ❌ | MEGA65 runs full speed compiled anyway |

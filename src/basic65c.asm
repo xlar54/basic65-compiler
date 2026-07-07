@@ -2044,9 +2044,8 @@ _stmt_jtab:
         .word compile_key
 
 _stmt_return:
-        lda #<out_rts
-        ldy #>out_rts
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_rts
 
 _stmt_end:
         jsr emit_tmpl
@@ -2076,13 +2075,11 @@ _stmt_clr:
         jsr line_get
         cmp #$49
         bne _stmt_clr_plain
-        lda #<out_jsr_clrti
-        ldy #>out_jsr_clrti
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_clrti
 _stmt_clr_plain:
-        lda #<out_jsr_rtclr
-        ldy #>out_jsr_rtclr
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_rtclr
 
 _compile_assignment_from_token:
         lda token_value
@@ -2357,9 +2354,8 @@ _string_factor_scalar_var:
         lda var_name_2
         cmp #$53
         bne _string_factor_nods
-        lda #<out_jsr_dsstrf
-        ldy #>out_jsr_dsstrf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_dsstrf
 _string_factor_nods:
         lda var_name_1
         cmp #$54                ; TI$ reads the RTC as "hh:mm:ss"
@@ -2367,9 +2363,8 @@ _string_factor_nods:
         lda var_name_2
         cmp #$49
         bne _string_factor_resolve
-        lda #<out_jsr_tistr
-        ldy #>out_jsr_tistr
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_tistr
 _string_factor_resolve:
         jsr resolve_existing_var
         bcs _string_factor_fail
@@ -2414,9 +2409,8 @@ _string_factor_str:
 _string_factor_chr:
         jsr parse_paren_expr
         bcs _string_factor_fail
-        lda #<out_jsr_chrstrf
-        ldy #>out_jsr_chrstrf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_chrstrf
 
 _string_factor_ce:
         jsr line_at_end         ; the CE byte is already consumed
@@ -2430,9 +2424,8 @@ _string_factor_ce:
         bcs _string_factor_fail
         jsr parse_close_paren
         bcs _string_factor_fail
-        lda #<out_jsr_strbinf
-        ldy #>out_jsr_strbinf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_strbinf
 
 _string_factor_err:
         jsr parse_open_paren
@@ -2441,9 +2434,8 @@ _string_factor_err:
         bcs _string_factor_fail
         jsr parse_close_paren
         bcs _string_factor_fail
-        lda #<out_jsr_errstrf
-        ldy #>out_jsr_errstrf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_errstrf
 
 _string_factor_hex:
         jsr parse_open_paren
@@ -2452,9 +2444,8 @@ _string_factor_hex:
         bcs _string_factor_fail
         jsr parse_close_paren
         bcs _string_factor_fail
-        lda #<out_jsr_hexstr
-        ldy #>out_jsr_hexstr
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_hexstr
 
 _string_factor_left:
         jsr compile_left_string_function
@@ -3761,9 +3752,8 @@ compile_expression:
 emit_qint_expr:
         lda #0
         sta expr_type
-        lda #<out_jsr_qint
-        ldy #>out_jsr_qint
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_qint
 
 emit_qint_if_float:
         lda expr_type
@@ -4002,54 +3992,45 @@ fold_restore_lhs:
 ; turned out to be float: pop the integer and promote it into ARG
 emit_pop_promote_lhs:
         jsr emit_pop_lhs
-        lda #<out_jsr_fpromotelhs
-        ldy #>out_jsr_fpromotelhs
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fpromotelhs
 
 ; right side is integer but a float operation is needed
 emit_float16_expr:
         lda #1
         sta expr_type
-        lda #<out_jsr_float16
-        ldy #>out_jsr_float16
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_float16
 
 emit_fpush_expr:
-        lda #<out_jsr_fpush
-        ldy #>out_jsr_fpush
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fpush
 
 emit_fpoparg_expr:
-        lda #<out_jsr_fpoparg
-        ldy #>out_jsr_fpoparg
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fpoparg
 
 ; promote the folded-constant left operand (already in lhslo/hi via
 ; emit_load_lhs_const) into ARG while the float right side sits in FAC
 emit_pop_promote_lhs_none:
-        lda #<out_jsr_fpromotelhs
-        ldy #>out_jsr_fpromotelhs
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fpromotelhs
 
 emit_fadd_op:
-        lda #<out_jsr_fadd
-        ldy #>out_jsr_fadd
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fadd
 
 emit_fsub_op:
-        lda #<out_jsr_fsub
-        ldy #>out_jsr_fsub
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fsub
 
 emit_fmul_op:
-        lda #<out_jsr_fmul
-        ldy #>out_jsr_fmul
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fmul
 
 emit_fdiv_op:
-        lda #<out_jsr_fdiv
-        ldy #>out_jsr_fdiv
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fdiv
 
 compile_term:
         jsr compile_pfactor
@@ -4452,9 +4433,8 @@ _factor_scalar_plain:
         lda var_type
         cmp #VAR_TYPE_FLOAT
         bne _factor_scalar_var2
-        lda #<out_jsr_rdst      ; ST reads the KERNAL status byte
-        ldy #>out_jsr_rdst
-        jmp out_zstr_ok
+        jsr emit_tmpl_done      ; ST reads the KERNAL status byte
+        .word out_jsr_rdst
 _factor_scalar_var2:
         lda var_name_1
         cmp #$44                ; letter D
@@ -4465,9 +4445,8 @@ _factor_scalar_var2:
         lda var_type
         cmp #VAR_TYPE_FLOAT
         bne _factor_scalar_var2e
-        lda #<out_jsr_rdds
-        ldy #>out_jsr_rdds
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rdds
 _factor_scalar_var2e:
         lda var_name_1
         cmp #$45                ; letter E
@@ -4488,14 +4467,12 @@ _factor_scalar_var3:
         rts
 
 _factor_er:
-        lda #<out_jsr_rder
-        ldy #>out_jsr_rder
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rder
 
 _factor_el:
-        lda #<out_jsr_rdel
-        ldy #>out_jsr_rdel
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rdel
 
 _factor_array_variable:
         lda #VAR_KIND_ARRAY1
@@ -4566,9 +4543,8 @@ _factor_unary_minus:
 _factor_minus_emit:
         lda expr_type
         beq _factor_minus_int
-        lda #<out_jsr_fneg
-        ldy #>out_jsr_fneg
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fneg
 _factor_minus_int:
         jsr emit_neg_expr
         clc
@@ -4648,9 +4624,8 @@ _factor_abs:
         bcs _factor_fail
         lda expr_type
         beq _factor_abs_int
-        lda #<out_jsr_fabsf
-        ldy #>out_jsr_fabsf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fabsf
 _factor_abs_int:
         jsr emit_abs_expr
         clc
@@ -4666,9 +4641,8 @@ _factor_sgn:
         bcs _factor_fail
         lda expr_type
         beq _factor_sgn_int
-        lda #<out_jsr_fsgnf
-        ldy #>out_jsr_fsgnf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fsgnf
 _factor_sgn_int:
         jsr emit_sgn_expr
         clc
@@ -4750,9 +4724,8 @@ _factor_pos:
         jsr line_get
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_posf
-        ldy #>out_jsr_posf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_posf
 
 _factor_dec:
         jsr line_get
@@ -4825,9 +4798,8 @@ _factor_ext_ce:
 +
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_bumpf
-        ldy #>out_jsr_bumpf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_bumpf
 
 _factor_wpeek:
         jsr parse_paren_expr
@@ -4854,9 +4826,8 @@ _factor_mod:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
-        lda #<out_jsr_modf
-        ldy #>out_jsr_modf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_modf
 
 _factor_rsppos:
         jsr parse_open_paren
@@ -4871,9 +4842,8 @@ _factor_rsppos:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
-        lda #<out_jsr_rspposf
-        ldy #>out_jsr_rspposf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rspposf
 
 _factor_rsprite:
         jsr parse_open_paren
@@ -4888,9 +4858,8 @@ _factor_rsprite:
         bcs _factor_fail
         jsr parse_close_paren
         bcs _factor_fail
-        lda #<out_jsr_rspritef
-        ldy #>out_jsr_rspritef
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rspritef
 
 _factor_decbin:
         jsr parse_open_paren
@@ -4940,9 +4909,8 @@ _factor_one_fail:
 _factor_rplay:
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_rplayf
-        ldy #>out_jsr_rplayf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_rplayf
 
 _factor_sin:
         lda #<out_jsr_sinf
@@ -5009,9 +4977,8 @@ _factor_usr:
         jsr line_get
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_usrf
-        ldy #>out_jsr_usrf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_usrf
 
 _factor_fre:
         jsr line_get
@@ -5042,9 +5009,8 @@ _factor_joy:
         jsr line_get            ; consume the JOY token
         jsr parse_paren_expr
         bcs _factor_fail
-        lda #<out_jsr_joyf
-        ldy #>out_jsr_joyf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_joyf
 
 compile_array_index:
         lda current_sym_index
@@ -5412,6 +5378,7 @@ _cef_tab:
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
+        .byte $1f, $21
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5423,6 +5390,7 @@ _cef_jtab:
         .word compile_wpoke, compile_begin, compile_bend
         .word compile_cursor, compile_rcursor, compile_window
         .word compile_diskstmt, compile_fgoto, compile_fgosub
+        .word compile_dma, compile_edma
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -5456,9 +5424,8 @@ compile_play:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcc _compile_playargs
-        lda #<out_jsr_playoff
-        ldy #>out_jsr_playoff
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_playoff
 _compile_playargs:
         lda #0
         sta play_track_no
@@ -5679,13 +5646,11 @@ compile_collision:
         jsr out_cr
         jsr emit_tmpl
         .word out_sta_coltmp1
-        lda #<out_jsr_colarm
-        ldy #>out_jsr_colarm
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_colarm
 _compile_col_off:
-        lda #<out_jsr_coloff
-        ldy #>out_jsr_coloff
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_coloff
 _compile_col_bad:
         jmp compile_env_bad
 
@@ -5778,9 +5743,8 @@ compile_cmdbare:
         jsr emit_tmpl
         .word out_jsr_cmdpre
 compile_cmd_go:
-        lda #<out_jsr_cmdgo
-        ldy #>out_jsr_cmdgo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_cmdgo
 
 ; emit the template whose address follows the jsr as an inline .word
 ; (2 bytes saved per call site; the far-pointer zp is borrowed briefly)
@@ -5823,6 +5787,37 @@ et_ret:
         .byte 0,0
 et_tmpl:
         .byte 0,0
+
+; terminal variant: emit the inline-word template, then return success
+; to the caller's caller (replaces lda/ldy/jmp out_zstr_ok tails)
+emit_tmpl_done:
+        pla
+        sta et_ret
+        pla
+        sta et_ret+1
+        lda source_ptr
+        pha
+        lda source_ptr+1
+        pha
+        lda et_ret
+        sta source_ptr
+        lda et_ret+1
+        sta source_ptr+1
+        ldy #1
+        lda (source_ptr),y
+        sta et_tmpl
+        iny
+        lda (source_ptr),y
+        sta et_tmpl+1
+        pla
+        sta source_ptr+1
+        pla
+        sta source_ptr
+        lda et_tmpl
+        ldy et_tmpl+1
+        jsr out_zstr
+        clc
+        rts
 
 ; shared "( expression )" parse; C set on any failure
 parse_paren_expr:
@@ -5867,9 +5862,8 @@ compile_dopen:
 compiledopenmode:
         pla
         jsr emit_lda_imm
-        lda #<out_jsr_dopmode
-        ldy #>out_jsr_dopmode
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_dopmode
 compiledopenbad:
         pla
         jmp compile_env_bad
@@ -5921,9 +5915,8 @@ compile_dclose:
         bcs _compile_dclose_bad
         jsr emit_tmpl
         .word out_jsr_fiosetlf
-        lda #<out_jsr_dclosech
-        ldy #>out_jsr_dclosech
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_dclosech
 _compile_dclose_bad:
         jmp compile_env_bad
 
@@ -5935,9 +5928,8 @@ compile_bload:
         bcs compilebloadbad
         jsr emit_tmpl
         .word out_jsr_bladdr
-        lda #<out_jsr_bloadgo
-        ldy #>out_jsr_bloadgo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_bloadgo
 compilebloadbad:
         jmp compile_env_bad
 
@@ -5959,9 +5951,8 @@ compile_bsave:
         bcs compilebloadbad
         jsr emit_tmpl
         .word out_jsr_blend
-        lda #<out_jsr_bsavego
-        ldy #>out_jsr_bsavego
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_bsavego
 
 ; name into cmdbuf with the empty prefix
 compile_bname:
@@ -6011,9 +6002,8 @@ compile_mouse:
         jsr line_get            ; OFF is $fe $24
         cmp #$24
         bne _compile_mouse_bad
-        lda #<out_jsr_mouseoff
-        ldy #>out_jsr_mouseoff
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_mouseoff
 _compile_mouse_on:
         jsr line_get
         jsr parse_opt_comma
@@ -6041,9 +6031,8 @@ _compile_mouse_on:
         jsr emit_tmpl
         .word out_jsr_mousety
 _compile_mouse_go:
-        lda #<out_jsr_mouseon
-        ldy #>out_jsr_mouseon
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_mouseon
 _compile_mouse_bad:
         jmp compile_env_bad
 
@@ -6098,10 +6087,51 @@ _cursor_row:
         jsr emit_tmpl
         .word out_jsr_cursetr
 _cursor_go:
-        lda #<out_jsr_curgo
-        ldy #>out_jsr_curgo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_curgo
 _cursor_bad:
+        jmp compile_env_bad
+
+; DMA / EDMA: stage up to seven arguments (16-bit results zero-extend,
+; float results convert to 32-bit for 28-bit addresses), then trigger
+compile_dma:
+        lda #<out_jsr_dmago
+        ldy #>out_jsr_dmago
+        bra cdmacommon
+compile_edma:
+        lda #<out_jsr_edmago
+        ldy #>out_jsr_edmago
+cdmacommon:
+        sta cdma_go
+        sty cdma_go+1
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        lda #0
+        sta cdma_i
+_cdma_loop:
+        jsr compile_expression
+        bcs _cdma_bad
+        lda expr_type
+        beq _cdma_a16
+        jsr emit_tmpl
+        .word out_jsr_dmaa32
+        bra _cdma_next
+_cdma_a16:
+        jsr emit_tmpl
+        .word out_jsr_dmaa16
+_cdma_next:
+        inc cdma_i
+        lda cdma_i
+        cmp #7
+        bcs _cdma_go
+        jsr parse_opt_comma
+        bcs _cdma_go
+        bra _cdma_loop
+_cdma_go:
+        lda cdma_go
+        ldy cdma_go+1
+        jmp out_zstr_ok
+_cdma_bad:
         jmp compile_env_bad
 
 ; FGOTO / FGOSUB expr: computed jumps via the emitted line table
@@ -6131,9 +6161,8 @@ compile_diskstmt:
         lda #7                  ; raw string, no DOS prefix
         jmp compile_cmdname
 _cdisk_bare:
-        lda #<out_jsr_dskst
-        ldy #>out_jsr_dskst
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_dskst
 
 ; KEY number, string (the ON/OFF/LOAD/SAVE and bare forms are not
 ; supported -- they only matter interactively)
@@ -6181,9 +6210,8 @@ _cw_comma:
         bcs _cw_bad
         bra _cw_loop
 _cw_go:
-        lda #<out_jsr_wingo
-        ldy #>out_jsr_wingo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_wingo
 _cw_badx:
         plx
 _cw_bad:
@@ -6247,9 +6275,8 @@ compile_sleep:
         jsr emit_tmpl
         .word out_jsr_float16
 _compile_sleep_f:
-        lda #<out_jsr_sleepf
-        ldy #>out_jsr_sleepf
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_sleepf
 
 ; WAIT address, andmask [, xormask]
 compile_wait:
@@ -6270,16 +6297,14 @@ compile_wait:
         jsr emit_tmpl
         .word out_jsr_waitsetx
 _compile_wait_go:
-        lda #<out_jsr_waitgo
-        ldy #>out_jsr_waitgo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_waitgo
 
 compile_tempo:
         jsr compile_expression
         bcs compile_env_bad
-        lda #<out_jsr_tempof
-        ldy #>out_jsr_tempof
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_tempof
 
 ; ENVELOPE n [, attack, decay, sustain, release, waveform, pw] --
 ; each optional argument patches the slot immediately
@@ -6419,9 +6444,8 @@ _movspr_angle:
         jsr line_get            ; consume #
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprgoang
-        ldy #>out_jsr_sprgoang
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_sprgoang
 
 compile_sprite_bad:
         lda #<msg_error_bad_sprite
@@ -6438,9 +6462,8 @@ compile_sprcolor:
         bcs compile_sprite_bad
         jsr compile_expression
         bcs compile_sprite_bad
-        lda #<out_jsr_sprmc2
-        ldy #>out_jsr_sprmc2
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_sprmc2
 
 ; SPRITE num [{, switch, colour, prio, expx, expy, mode}] -- empty slots
 ; (adjacent commas) leave that attribute unchanged, like the interpreter
@@ -6566,9 +6589,8 @@ compile_sound:
         jsr emit_tmpl
         .word out_jsr_sndsetp
 _compile_sound_go:
-        lda #<out_jsr_sndgo
-        ldy #>out_jsr_sndgo
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_sndgo
 
 compile_sound_bad:
         lda #<msg_error_bad_sound
@@ -6579,9 +6601,8 @@ compile_sound_bad:
 compile_vol:
         jsr compile_expression
         bcs compile_sound_bad
-        lda #<out_jsr_volsnd
-        ldy #>out_jsr_volsnd
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_volsnd
 
 compile_trap_bad:
         lda #<msg_error_bad_trap
@@ -6638,9 +6659,8 @@ compile_open:
         rts
 
 _compile_open_done:
-        lda #<out_jsr_fopen
-        ldy #>out_jsr_fopen
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fopen
 
 _compile_open_bad:
         lda #<msg_error_bad_open
@@ -6665,9 +6685,8 @@ parse_opt_comma_end:
 compile_close:
         jsr compile_expression
         bcs _compile_close_bad
-        lda #<out_jsr_fclose
-        ldy #>out_jsr_fclose
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fclose
 
 _compile_close_bad:
         lda #<msg_error_bad_open
@@ -6873,9 +6892,8 @@ _compile_input_array_flt:
         jsr emit_tmpl
         .word out_jsr_float16
         jsr emit_restore_arrayptr
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fstorevar
 
 _compile_input_target_bad:
         sec
@@ -7022,9 +7040,8 @@ _compile_get_array_flt:
         jsr emit_tmpl
         .word out_jsr_float16
         jsr emit_restore_arrayptr
-        lda #<out_jsr_fstorevar
-        ldy #>out_jsr_fstorevar
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_fstorevar
 
 _compile_get_target_bad:
         sec
@@ -7148,9 +7165,8 @@ _try_print_num_var_float:
         jsr emit_set_varptr_current
         jsr emit_tmpl
         .word out_jsr_floadvar
-        lda #<out_jsr_printflt
-        ldy #>out_jsr_printflt
-        jmp out_zstr_ok
+        jsr emit_tmpl_done
+        .word out_jsr_printflt
 
 _try_print_num_var_restore_fail:
         lda line_idx_save
@@ -10285,29 +10301,23 @@ emit_fcompare_bool:
         beq _emit_fbool_ge
         rts
 _emit_fbool_eq:
-        lda #<out_jsr_fcmpeqb
-        ldy #>out_jsr_fcmpeqb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpeqb
 _emit_fbool_ne:
-        lda #<out_jsr_fcmpneb
-        ldy #>out_jsr_fcmpneb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpneb
 _emit_fbool_lt:
-        lda #<out_jsr_fcmpltb
-        ldy #>out_jsr_fcmpltb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpltb
 _emit_fbool_le:
-        lda #<out_jsr_fcmpleb
-        ldy #>out_jsr_fcmpleb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpleb
 _emit_fbool_gt:
-        lda #<out_jsr_fcmpgtb
-        ldy #>out_jsr_fcmpgtb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpgtb
 _emit_fbool_ge:
-        lda #<out_jsr_fcmpgeb
-        ldy #>out_jsr_fcmpgeb
-        jmp out_zstr
+        jsr emit_tmpl_done
+        .word out_jsr_fcmpgeb
 
 emit_compare_expr_to_bool:
         lda cond_op
@@ -13442,6 +13452,41 @@ out_lineref_sep:
 .else
         .byte 0
 .fi
+out_jsr_dmarst:
+.if TEXT_EMITTER
+        .text "        jsr dmarst"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dmaa16:
+.if TEXT_EMITTER
+        .text "        jsr dmaa16"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dmaa32:
+.if TEXT_EMITTER
+        .text "        jsr dmaa32"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_dmago:
+.if TEXT_EMITTER
+        .text "        jsr dmago"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_edmago:
+.if TEXT_EMITTER
+        .text "        jsr edmago"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_fgoto:
 .if TEXT_EMITTER
         .text "        jsr fgoto"
@@ -15080,6 +15125,10 @@ math_used:
         .byte 0
 fgoto_used:
         .byte 0
+cdma_i:
+        .byte 0
+cdma_go:
+        .byte 0,0
 cmd2_tail:
         .byte 0,0
 scrarr_kind:

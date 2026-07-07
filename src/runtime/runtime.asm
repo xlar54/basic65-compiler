@@ -66,7 +66,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $6800            ; hard cap (sectioning fio/math out of core is the real fix)
+progbase     = $7000            ; standalone-assembly cap; generated programs compute rtpb
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -2952,6 +2952,181 @@ getstr:
         sta exprlo
         sta exprhi
         rts
+; FAC -> unsigned 32-bit in exprlo/exprhi/exprb2/exprb3 (DMA addresses)
+fq32:
+        lda #0
+        sta exprb2
+        sta exprb3
+        lda facexp
+        bne +
+        sta exprlo
+        sta exprhi
+        rts
++       lda #$a0                ; exponent $a0 = exact 32-bit integer
+        sec
+        sbc facexp
+        bcc _fq32_over
+        cmp #32
+        bcs _fq32_zero
+        tax
+        lda facm0
+        sta exprb3
+        lda facm1
+        sta exprb2
+        lda facm2
+        sta exprhi
+        lda facm3
+        sta exprlo
+        cpx #0
+        beq _fq32_done
+_fq32_shift:
+        lsr exprb3
+        ror exprb2
+        ror exprhi
+        ror exprlo
+        dex
+        bne _fq32_shift
+_fq32_done:
+        rts
+_fq32_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+_fq32_over:
+        lda #14                 ; ILLEGAL QUANTITY
+        jmp rterror
+
+; DMA/EDMA argument staging: 7 slots of 4 bytes (cmd, len, src, tgt,
+; sub, mod / old-form bank args); dmaa16 zero-extends an int result,
+; dmaa32 converts a float result
+dmarst:
+        lda #0
+        sta dma_i
+        rts
+
+dmaa16:
+        lda #0
+        sta exprb2
+        sta exprb3
+        bra dmastore
+dmaa32:
+        jsr fq32
+dmastore:
+        lda dma_i
+        cmp #7
+        bcs _dma_store_done
+        asl a
+        asl a
+        tax
+        lda exprlo
+        sta dma_args,x
+        lda exprhi
+        sta dma_args+1,x
+        lda exprb2
+        sta dma_args+2,x
+        lda exprb3
+        sta dma_args+3,x
+        inc dma_i
+_dma_store_done:
+        rts
+
+; old DMA form: cmd, len, srcaddr, srcbank, tgtaddr, tgtbank [, sub]
+; -> merge the bank args into 28-bit addresses and fall into edmago
+dmago:
+        lda dma_args+12         ; srcbank low byte -> src bits 16-23
+        sta dma_args+10
+        lda dma_args+13
+        sta dma_args+11
+        lda dma_args+16         ; tgt addr slot 4 -> slot 3
+        sta dma_args+12
+        lda dma_args+17
+        sta dma_args+13
+        lda dma_args+20         ; tgtbank -> tgt bits 16-23
+        sta dma_args+14
+        lda dma_args+21
+        sta dma_args+15
+        lda dma_args+24         ; sub -> slot 4, modulo = 0
+        sta dma_args+16
+        lda #0
+        sta dma_args+17
+        sta dma_args+20
+        sta dma_args+21
+        ; FALLTHROUGH
+
+; build and trigger an enhanced DMAgic job (F018B format with source
+; and target megabyte options); args: cmd, len, src28, tgt28, sub, mod
+edmago:
+        lda #$0b                ; select the 12-byte F018B job format
+        sta dmalist+0
+        lda #$80                ; source megabyte option
+        sta dmalist+1
+        lda dma_args+10         ; src bits 16-23
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        sta dma_tmp
+        lda dma_args+11         ; src bits 24-27
+        asl a
+        asl a
+        asl a
+        asl a
+        ora dma_tmp
+        sta dmalist+2
+        lda #$81                ; target megabyte option
+        sta dmalist+3
+        lda dma_args+14
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        sta dma_tmp
+        lda dma_args+15
+        asl a
+        asl a
+        asl a
+        asl a
+        ora dma_tmp
+        sta dmalist+4
+        lda #$00                ; end of options
+        sta dmalist+5
+        lda dma_args+0          ; command
+        and #$03
+        sta dmalist+6
+        lda dma_args+4          ; count
+        sta dmalist+7
+        lda dma_args+5
+        sta dmalist+8
+        lda dma_args+8          ; source addr low/high, bank-in-MB
+        sta dmalist+9
+        lda dma_args+9
+        sta dmalist+10
+        lda dma_args+10
+        and #$0f
+        sta dmalist+11
+        lda dma_args+12         ; target addr low/high, bank-in-MB
+        sta dmalist+12
+        lda dma_args+13
+        sta dmalist+13
+        lda dma_args+14
+        and #$0f
+        sta dmalist+14
+        lda dma_args+16         ; sub command -> command high byte
+        sta dmalist+15
+        lda dma_args+20         ; modulo
+        sta dmalist+16
+        lda dma_args+21
+        sta dmalist+17
+        lda #0                  ; list lives in bank 0, megabyte 0
+        sta $d702
+        sta $d704
+        lda #>dmalist
+        sta $d701
+        lda #<dmalist
+        sta $d705               ; enhanced-mode trigger
+        rts
+
 ; FGOTO/FGOSUB: resolve a computed line number via the emitted table
 ; (word count, then line#/address pairs); miss raises UNDEF'D STATEMENT
 fgres:
@@ -4338,6 +4513,12 @@ key_dsti:     .byte 0
 key_byte:     .byte 0
 fg_cnt:       .byte 0,0
 fg_addr:      .byte 0,0
+exprb2:       .byte 0
+exprb3:       .byte 0
+dma_i:        .byte 0
+dma_tmp:      .byte 0
+dma_args:     .fill 28, 0
+dmalist:      .fill 18, 0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
 gcphase:      .byte 0
