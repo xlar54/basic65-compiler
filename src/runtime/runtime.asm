@@ -106,7 +106,7 @@ _rtinit_vecs:
         lda (rtptr),y
         sta rtvheapend-2,y
         iny
-        cpy #12
+        cpy #14
         bne _rtinit_vecs
         jsr varinit
         jsr strinit
@@ -2952,6 +2952,70 @@ getstr:
         sta exprlo
         sta exprhi
         rts
+; FGOTO/FGOSUB: resolve a computed line number via the emitted table
+; (word count, then line#/address pairs); miss raises UNDEF'D STATEMENT
+fgres:
+        lda rtlinetab
+        sta rtptr
+        lda rtlinetab+1
+        sta rtptr+1
+        ldy #0
+        lda (rtptr),y
+        sta fg_cnt
+        iny
+        lda (rtptr),y
+        sta fg_cnt+1
+        clc
+        lda rtptr
+        adc #2
+        sta rtptr
+        bcc _fg_loop
+        inc rtptr+1
+_fg_loop:
+        lda fg_cnt
+        ora fg_cnt+1
+        beq _fg_err
+        ldy #0
+        lda (rtptr),y
+        cmp exprlo
+        bne _fg_next
+        ldy #1
+        lda (rtptr),y
+        cmp exprhi
+        bne _fg_next
+        ldy #2
+        lda (rtptr),y
+        sta fg_addr
+        ldy #3
+        lda (rtptr),y
+        sta fg_addr+1
+        rts
+_fg_next:
+        clc
+        lda rtptr
+        adc #4
+        sta rtptr
+        bcc +
+        inc rtptr+1
++       lda fg_cnt
+        bne +
+        dec fg_cnt+1
++       dec fg_cnt
+        jmp _fg_loop
+_fg_err:
+        lda #11                 ; UNDEF'D STATEMENT
+        jmp rterror
+
+fgoto:
+        jsr fgres
+        pla                     ; GOTO semantics: drop the return
+        pla
+        jmp (fg_addr)
+
+fgosub:
+        jsr fgres
+        jmp (fg_addr)           ; the target's RETURN rts's to our caller
+
 ; pi constant for the $ff token (classic CBM packed value)
 cpival:
         .byte $82, $49, $0f, $da, $a2
@@ -4254,6 +4318,7 @@ rtdatastart:  .byte 0,0
 rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
 rtfltinit:    .byte 0,0
+rtlinetab:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
@@ -4271,6 +4336,8 @@ key_tail:     .byte 0
 key_srci:     .byte 0
 key_dsti:     .byte 0
 key_byte:     .byte 0
+fg_cnt:       .byte 0,0
+fg_addr:      .byte 0,0
 inputzpsave:  .fill 8, 0
 edzpsave:     .fill 8, 0
 gcphase:      .byte 0

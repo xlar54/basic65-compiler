@@ -92,6 +92,7 @@ SPECIALS = {
     "out_rtpb_pre", "out_rtpb_post",
     "out_varheapend_def", "out_comment_load_addr",
     "out_plus_one_cr",
+    "out_linetab_label", "out_word_pre", "out_lineref_sep",
 }
 # emitted text that vanishes in binary (comments, labels whose addresses are
 # captured separately, and PC-side directives)

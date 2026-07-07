@@ -20,6 +20,8 @@ matches the compiled output.
 - [ ] cursor.bas       (CURSOR positioning + RCURSOR; compiled run
       verified 2026-07-06, interpreted run pending. Note: CURSOR
       ON/OFF/style unsupported compiled -- positioning only.)
+- [ ] fgoto.bas        (FGOTO/FGOSUB computed jumps; compiled run
+      verified 2026-07-07)
 - [ ] pidisk.bas       (pi constant + DISK command/status; compiled
       run verified 2026-07-07)
 - [ ] key.bas          (KEY n,string table rewrite + CHR$ factor;

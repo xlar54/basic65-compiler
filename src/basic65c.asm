@@ -257,6 +257,7 @@ main:
         sta col_used
         sta fio_used
         sta math_used
+        sta fgoto_used
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -1342,6 +1343,10 @@ _scan_vars_extended:
         beq _scan_ext_fio
         cmp #$40                ; DISK
         beq _scan_ext_fio
+        cmp #$47                ; FGOTO / FGOSUB need the line table
+        beq _scan_ext_fg
+        cmp #$48
+        beq _scan_ext_fg
         bra _scan_ext_skip
 _scan_ext_col:
         ldx #1
@@ -1350,6 +1355,10 @@ _scan_ext_col:
 _scan_ext_fio:
         ldx #1
         stx fio_used
+        bra _scan_ext_skip
+_scan_ext_fg:
+        ldx #1
+        stx fgoto_used
         bra _scan_ext_skip
 _scan_ext_ce:
         cmp #$08                ; LOG10
@@ -5402,7 +5411,7 @@ _cef_tab:
         .byte $03, $04, $05, $0a, $0b, $3e, $3f, $0d
         .byte $0e, $0f, $10, $11, $15, $2a, $4b, $17
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
-        .byte $1d, $18, $19, $41, $42, $1a, $40
+        .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5413,7 +5422,7 @@ _cef_jtab:
         .word compile_sprite, compile_sprcolor, compile_concat, _compile_ext_format
         .word compile_wpoke, compile_begin, compile_bend
         .word compile_cursor, compile_rcursor, compile_window
-        .word compile_diskstmt
+        .word compile_diskstmt, compile_fgoto, compile_fgosub
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6094,6 +6103,24 @@ _cursor_go:
         jmp out_zstr_ok
 _cursor_bad:
         jmp compile_env_bad
+
+; FGOTO / FGOSUB expr: computed jumps via the emitted line table
+compile_fgoto:
+        jsr compile_expression
+        bcs +
+        jsr emit_tmpl
+        .word out_jsr_fgoto
+        clc
+        rts
++       jmp compile_env_bad
+compile_fgosub:
+        jsr compile_expression
+        bcs +
+        jsr emit_tmpl
+        .word out_jsr_fgosub
+        clc
+        rts
++       jmp compile_env_bad
 
 ; DISK command$ sends a raw DOS command (empty prefix slot); bare
 ; DISK reads and prints the drive status. ,U units unsupported.
@@ -8938,11 +8965,11 @@ _emit_generated_header_bin:
         ; strroots, fltinit vectors (6 words); start label follows them
         cpx #BK_EMIT
         beq _emit_header_vectors
-        lda #12
+        lda #14
         jmp bin_add_pc
 
 _emit_header_vectors:
-        lda #$0c                ; start = progbase + $0c
+        lda #$0e                ; start = progbase + $0e
         jsr bin_write_byte
         lda prog_base_hi
         jsr bin_write_byte
@@ -8965,6 +8992,10 @@ _emit_header_vectors:
         lda fltinit_addr
         jsr bin_write_byte
         lda fltinit_addr+1
+        jsr bin_write_byte
+        lda linetab_addr
+        jsr bin_write_byte
+        lda linetab_addr+1
         jmp bin_write_byte
 
 emit_generated_tail:
@@ -8974,6 +9005,7 @@ emit_generated_tail:
         jsr emit_string_pool
         jsr emit_data_table
         jsr emit_string_roots
+        jsr emit_line_number_tab
         jsr emit_flt_table
         jsr emit_for_storage
         jsr emit_tmpl
@@ -9142,6 +9174,108 @@ _emit_data_table_done:
         ldy #>out_data_table_end
         jsr out_zstr
         rts
+
+; line-number -> address table for FGOTO/FGOSUB: "linetab:" then a
+; word count and count (line#, address) word pairs. Programs without
+; FGOTO/FGOSUB get just a zero count so the header vector always
+; resolves. Text rows reference l#### labels; the native path writes
+; the recorded line addresses directly.
+emit_line_number_tab:
+        ldx backend_mode
+        beq _elt_text
+        lda bin_pc              ; both native passes record the address
+        sta linetab_addr
+        lda bin_pc+1
+        sta linetab_addr+1
+        cpx #BK_EMIT
+        beq _elt_emit
+        lda #2                  ; sizing pass: count word...
+        jsr bin_add_pc
+        lda fgoto_used
+        beq _elt_done
+        ldx line_count          ; ...plus four bytes per line
+_elt_size_loop:
+        beq _elt_done
+        lda #4
+        jsr bin_add_pc
+        dex
+        bne _elt_size_loop
+_elt_done:
+        rts
+_elt_emit:
+        lda fgoto_used
+        bne +
+        lda #0
+        jsr bin_write_byte
+        lda #0
+        jmp bin_write_byte
++       lda line_count
+        jsr bin_write_byte
+        lda #0
+        jsr bin_write_byte
+        ldx #0
+_elt_emit_loop:
+        cpx line_count
+        bcs _elt_done
+        lda line_table_lo,x
+        jsr bin_write_byte
+        lda line_table_hi,x
+        jsr bin_write_byte
+        lda line_addr_lo,x
+        jsr bin_write_byte
+        lda line_addr_hi,x
+        jsr bin_write_byte
+        inx
+        bra _elt_emit_loop
+_elt_text:
+        jsr emit_tmpl
+        .word out_linetab_label
+        lda fgoto_used
+        bne +
+        jsr emit_tmpl
+        .word out_word_pre
+        lda #0
+        jsr out_hex_byte
+        lda #0                  ; out_hex_byte returns the nibble char
+        jsr out_hex_byte
+        jmp out_cr
++       jsr emit_tmpl
+        .word out_word_pre
+        lda #0
+        jsr out_hex_byte
+        lda line_count
+        jsr out_hex_byte
+        jsr out_cr
+        lda #0
+        sta elt_i
+_elt_text_loop:
+        ldx elt_i
+        cpx line_count
+        bcs _elt_text_done
+        jsr emit_tmpl
+        .word out_word_pre
+        ldx elt_i
+        lda line_table_hi,x
+        jsr out_hex_byte
+        ldx elt_i
+        lda line_table_lo,x
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_lineref_sep
+        ldx elt_i
+        lda line_table_hi,x
+        jsr out_hex_byte
+        ldx elt_i
+        lda line_table_lo,x
+        jsr out_hex_byte
+        jsr out_cr
+        inc elt_i
+        bra _elt_text_loop
+_elt_text_done:
+        rts
+
+elt_i:
+        .byte 0
 
 emit_string_roots:
         ldx backend_mode
@@ -11972,6 +12106,8 @@ out_header_post:
         .text "        .word strroots"
         .byte 13
         .text "        .word fltlits"
+        .byte 13
+        .text "        .word linetab"
         .byte 13, 13
         .text "start:"
         .byte 13
@@ -13280,6 +13416,42 @@ out_jsr_curcolf:
 out_jsr_currowf:
 .if TEXT_EMITTER
         .text "        jsr currowf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_linetab_label:
+.if TEXT_EMITTER
+        .text "linetab:"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_word_pre:
+.if TEXT_EMITTER
+        .text "        .word $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_lineref_sep:
+.if TEXT_EMITTER
+        .text ", l"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_fgoto:
+.if TEXT_EMITTER
+        .text "        jsr fgoto"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fgosub:
+.if TEXT_EMITTER
+        .text "        jsr fgosub"
         .byte 13, 0
 .else
         .byte 0
@@ -14906,6 +15078,8 @@ fio_used:
         .byte 0
 math_used:
         .byte 0
+fgoto_used:
+        .byte 0
 cmd2_tail:
         .byte 0,0
 scrarr_kind:
@@ -14996,6 +15170,8 @@ datastart_addr:
 dataend_addr:
         .word 0
 strroots_addr:
+        .word 0
+linetab_addr:
         .word 0
 line_addr_lo:
         .fill LINE_MAX, 0

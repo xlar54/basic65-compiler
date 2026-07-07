@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 70 | 32 | 1 (OFF) | 37 |
+| $FE-prefixed statements | 70 | 34 | 1 (OFF) | 35 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -258,8 +258,8 @@ Legend:
 | $FE $44 | SAVEIFF | ❌ | |
 | $FE $45 | EDIT | ✖ | editor |
 | $FE $46 | FONT | ❌ | |
-| $FE $47 | FGOTO | ❌ | |
-| $FE $48 | FGOSUB | ❌ | |
+| $FE $47 | FGOTO | ✅ | computed jump via emitted line table (header vector 7); miss raises UNDEF'D STATEMENT |
+| $FE $48 | FGOSUB | ✅ | computed call, same table |
 | $FE $4B | CHDIR | ✅ | MEGA65 addition; petcat gap |
 
 Unlisted second bytes ($FE $20, $22, $3A, $49, $4A, $4C+) are unassigned
