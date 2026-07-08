@@ -127,6 +127,7 @@ _rtinit_vecs:
         sta varptr+3
         lda #128
         sta cur_bank
+        jsr strtreset
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff BEFORE
         ; fltinit: large programs keep their literal text above $8000, and
         ; reading it through the ROMs hands valflt garbage (zero or
@@ -1639,6 +1640,9 @@ fio_rom_off:
 ;=======================================================================================
 
 rterror:
+        pha                     ; strtreset clobbers the error code
+        jsr strtreset
+        pla
         sta rt_er
         lda curline             ; latch the erroring line for EL
         sta rt_el
@@ -3193,6 +3197,53 @@ fgosub:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
 
+; GC-visible string temp stack: 20 two-byte slots in bank 1 at $1fd0.
+; Compiled code parks string intermediates here instead of the CPU
+; stack so a mid-expression garbage collection can relocate them (the
+; PHA-parked form was invisible to the root walk and produced stale
+; descriptors -- the long-standing corruption bug). Empty slots stay
+; zero so the walker skips them.
+strtpush:
+        lda strtsp
+        cmp #20
+        bcc +
+        lda #16                 ; OUT OF STRING
+        jmp rterror
++       asl a
+        tax
+        lda exprlo
+        sta strtslots,x
+        lda exprhi
+        sta strtslots+1,x
+        inc strtsp
+        rts
+
+strtpop:
+        dec strtsp
+        lda strtsp
+        asl a
+        tax
+        lda strtslots,x
+        sta lhslo
+        lda strtslots+1,x
+        sta lhshi
+        lda #0
+        sta strtslots,x
+        sta strtslots+1,x
+        rts
+
+; zero the whole temp stack (init, CLR, and error recovery -- an error
+; mid-expression must not leave dead descriptors pinning heap strings)
+strtreset:
+        lda #0
+        sta strtsp
+        ldx #43
+_strtr:
+        sta strtslots,x
+        dex
+        bpl _strtr
+        rts
+
 ; SETBIT/CLRBIT: addresses <= $ffff go through the BANK setting
 ; (>= 128 = CPU view), addresses >= $10000 are flat 28-bit
 bitadr16:
@@ -4496,7 +4547,7 @@ outofstring:
 ; stralloc, so a GC fired mid-operation must relocate those too -- they
 ; are stashed as a synthetic first root region at bank-1 $1ff8; (2) the
 ; same heap string may be referenced by several slots, so every move is
-; recorded in an old->new map (bank 4, from $0000) and later references
+; recorded in an old->new map (attic RAM, $8000000+) and later references
 ; reuse the mapped address instead of copying stale bytes.
 strgc:
         lda #<strheaptop
@@ -4506,45 +4557,32 @@ strgc:
         lda #0
         sta gcmapcnt
         sta gcmapcnt+1
-        lda #$f8                ; stash the source-string registers as
-        sta varptr              ; walkable roots -- but only when the
-        lda #$1f                ; interrupted routine flagged them live
-        sta varptr+1            ; (gcregmask), else they hold plain
-        jsr setstrptrbank       ; numbers; zeros make the walker skip
-        lda #0
-        ldz #0
-        sta [varptr],z
-        ldz #1
-        sta [varptr],z
-        ldz #2
-        sta [varptr],z
-        ldz #3
-        sta [varptr],z
+        lda #0                  ; stash the source-string registers as
+        sta strtslots+40        ; walkable roots -- but only when the
+        sta strtslots+41        ; interrupted routine flagged them live
+        sta strtslots+42        ; (gcregmask), else they hold plain
+        sta strtslots+43        ; numbers; zeros make the walker skip
         lda gcregmask
         and #1
         beq +
-        ldz #0
         lda strsrc1lo
-        sta [varptr],z
-        inz
+        sta strtslots+40
         lda strsrc1hi
-        sta [varptr],z
+        sta strtslots+41
 +       lda gcregmask
         and #2
         beq +
-        ldz #2
         lda strsrc2lo
-        sta [varptr],z
-        inz
+        sta strtslots+42
         lda strsrc2hi
-        sta [varptr],z
-+       lda #0                  ; phase 0: the synthetic register region
-        sta gcphase
-        lda #$f8
+        sta strtslots+43
++       lda #0                  ; phase 0: the synthetic region --
+        sta gcphase             ; string temp stack + register stash,
+        lda #<strtslots         ; plain runtime storage in bank 0
         sta gcslotlo
-        lda #$1f
+        lda #>strtslots
         sta gcslothi
-        lda #4
+        lda #44
         sta gcbyteslo
         lda #0
         sta gcbyteshi
@@ -4581,11 +4619,7 @@ strgcslot:
         beq strgcslotnext
         jsr strgcmapfind        ; moved already? reuse its new address
         bcc +
-        lda gcslotlo
-        sta varptr
-        lda gcslothi
-        sta varptr+1
-        jsr setstrptrbank
+        jsr strgcslotptr
         ldz #0
         lda gcnewlo
         sta [varptr],z
@@ -4644,11 +4678,7 @@ strgccopyfwdloop:
         inc stridx
         jmp strgccopyfwdloop
 strgcupdateroot:
-        lda gcslotlo
-        sta varptr
-        lda gcslothi
-        sta varptr+1
-        jsr setstrptrbank
+        jsr strgcslotptr
         ldz #0
         lda strdstlo
         sta [varptr],z
@@ -4695,28 +4725,19 @@ strgcdone:
         sta strheaplo
         lda strdsthi
         sta strheaphi
-        lda #$f8                ; hand the relocated pointers back to
-        sta varptr              ; the interrupted string operation
-        lda #$1f
-        sta varptr+1
-        jsr setstrptrbank
-        lda gcregmask
-        and #1
+        lda gcregmask           ; hand the relocated pointers back to
+        and #1                  ; the interrupted string operation
         beq +
-        ldz #0
-        lda [varptr],z
+        lda strtslots+40
         sta strsrc1lo
-        inz
-        lda [varptr],z
+        lda strtslots+41
         sta strsrc1hi
 +       lda gcregmask
         and #2
         beq +
-        ldz #2
-        lda [varptr],z
+        lda strtslots+42
         sta strsrc2lo
-        inz
-        lda [varptr],z
+        lda strtslots+43
         sta strsrc2hi
 +       rts
 
@@ -4726,9 +4747,9 @@ strgcmapfind:
         lda #0
         sta varptr
         sta varptr+1
-        lda #$04
+        lda #$00
         sta varptr+2
-        lda #0
+        lda #$08                ; relocation map lives in attic RAM
         sta varptr+3
         lda gcmapcnt
         sta gcmapi
@@ -4780,9 +4801,9 @@ strgcmapadd:
         rol varptr+1
         asl varptr
         rol varptr+1
-        lda #$04
+        lda #$00
         sta varptr+2
-        lda #0
+        lda #$08                ; relocation map lives in attic RAM
         sta varptr+3
         ldz #0
         lda gcoldlo
@@ -4801,11 +4822,7 @@ strgcmapadd:
         inc gcmapcnt+1
 +       rts
 strgcloadroot:
-        lda gcslotlo
-        sta varptr
-        lda gcslothi
-        sta varptr+1
-        jsr setstrptrbank
+        jsr strgcslotptr
         ldz #0
         lda [varptr],z
         sta gcoldlo
@@ -4813,6 +4830,20 @@ strgcloadroot:
         lda [varptr],z
         sta gcoldhi
         rts
+; varptr = the current root slot, in the right bank for the phase
+strgcslotptr:
+        lda gcslotlo
+        sta varptr
+        lda gcslothi
+        sta varptr+1
+        lda gcphase
+        bne +
+        lda #0                  ; the synthetic region is runtime
+        sta varptr+2            ; storage in bank 0
+        sta varptr+3
+        rts
++       jmp setstrptrbank
+
 strgcallocdst:
         sec
         lda strdstlo
@@ -4871,6 +4902,8 @@ boot_addr:    .byte 0,0
 sprs_len:     .byte 0
 bit_addr:     .byte 0,0,0,0
 bit_mask:     .byte 0
+strtsp:       .byte 0
+strtslots:    .fill 44, 0
 sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0
 sys_x:        .byte 0
@@ -6276,17 +6309,16 @@ _cmdstr_done:
         rts
 
 ; RENAME/COPY stash the first string's descriptor across the second
+; -- through the GC-visible temp stack, since evaluating the second
+; string can collect
 cmdstash:
-        lda exprlo
-        sta cmd_tmp
-        lda exprhi
-        sta cmd_tmp+1
-        rts
+        jmp strtpush
 
 cmdstashout:
-        lda cmd_tmp
+        jsr strtpop
+        lda lhslo
         sta exprlo
-        lda cmd_tmp+1
+        lda lhshi
         sta exprhi
         bra cmdstr
 

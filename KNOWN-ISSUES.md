@@ -4,30 +4,29 @@ Open defects, tracked with their investigation state. Documented
 divergences from the interpreter (by design or ROM quirk) live in
 [tokens.md](tokens.md) and docs/interpreted-sweep.md instead.
 
-## 1. String corruption after heavy GC churn in large programs
+## 1. String corruption after heavy GC churn (PARTIALLY FIXED)
 
-**Symptom:** compiled source.bas (and similar large programs) can
-print string variables containing recycled heap bytes after the GC
-stress tests; stray control bytes among them change the KERNAL text
-colour (screen text turns black/odd colours mid-run and stays that
-way at READY). The interpreter runs the same program clean.
+**Fixed 2026-07-07:** compiled code parked string descriptors on the
+CPU stack across nested string operations (concat, LEFT$/RIGHT$/MID$,
+INSTR, string compares, RENAME/COPY stashes) -- invisible to the GC
+root walk, so a mid-expression collection recycled them. All those
+sites now park in a GC-visible temp-slot block inside the runtime
+image, walked as the GC's synthetic first region. This was the source
+of the original random garbage/black-text symptom (verified: zero
+control bytes through the print path across the full suite).
 
-**Status (2026-07-06):** mechanism proven — a heap string printed via
-`printheapstr` holds stale content after compaction. Two real GC
-hazards were found and fixed along the way (commit 21454ab: register
-roots for sources held across stralloc, and an old→new relocation map
-for multiply-referenced strings), but the symptom persists, so a
-third defect remains. Prime suspect: the emitted STRROOTS table may
-omit some string variables in variable-heavy programs (unrooted slots
-are never updated by compaction), but a minimal mixed-DIM probe emits
-all roots correctly — the bug needs the full program context.
-`basic/strarrgc.bas` (arrays + INPUT + churn) passes and does NOT
-reproduce. Diagnostic tooling and next steps are recorded in the
-project memory (string-corruption-hunt).
-
-**Workaround:** none needed for small/medium programs; only observed
-with source.bas-scale variable counts plus thousands of string
-allocations.
+**Still open -- compaction ordering:** the copying GC visits strings
+in root-table order while the destination frontier descends from the
+heap top, so a string's destination can overwrite a NOT-YET-VISITED
+string's source. Rare with few live strings; guaranteed under
+source.bas-scale churn (test 11 prints array cells containing churn
+fragments). Fix design: stage the compaction in an attic mirror
+($800xxxx = final address) so pass 1 never touches the heap, then
+copy the packed block back; a first attempt corrupted memory via the
+EDMA writeback and was reverted -- verify EDMA-from-GC in isolation
+(or use a CPU copy-back loop) next session. The temp-slot machinery,
+attic relocation map, and bank-aware synthetic-region walker are all
+in place and committed.
 
 ## 2. Program-shape-dependent false "UNSUPPORTED TOKEN" at compile
 

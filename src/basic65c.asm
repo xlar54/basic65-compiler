@@ -199,7 +199,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 84    ; checked build: squeezed under $c000
+SYM_MAX                 = 76    ; checked build: squeezed under $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -2297,6 +2297,14 @@ _compile_string_array_assignment_value:
         jsr emit_store_ptr
         rts
 
+; string-context park/unpark: GC-visible temp stack, not the CPU stack
+emit_push_sexpr:
+        jsr emit_tmpl_done
+        .word out_jsr_strtpush
+emit_pop_slhs:
+        jsr emit_tmpl_done
+        .word out_jsr_strtpop
+
 compile_string_expression:
         jsr compile_string_factor
         bcc _string_expr_loop
@@ -2310,10 +2318,10 @@ _string_expr_loop:
         cmp #TOK_PLUS
         bne _string_expr_done
         jsr line_get
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr compile_string_factor
         bcs _string_expr_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_concat_strings
         bra _string_expr_loop
 
@@ -2558,14 +2566,14 @@ compile_left_string_function:
         bcs _compile_left_fail
         jsr compile_string_expression
         bcs _compile_left_fail
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr parse_comma
         bcs _compile_left_fail
         jsr compile_expression
         bcs _compile_left_fail
         jsr parse_close_paren
         bcs _compile_left_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_string_left
         clc
         rts
@@ -2579,14 +2587,14 @@ compile_right_string_function:
         bcs _compile_right_fail
         jsr compile_string_expression
         bcs _compile_right_fail
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr parse_comma
         bcs _compile_right_fail
         jsr compile_expression
         bcs _compile_right_fail
         jsr parse_close_paren
         bcs _compile_right_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_string_right
         clc
         rts
@@ -2600,7 +2608,7 @@ compile_mid_string_function:
         bcs _compile_mid_fail
         jsr compile_string_expression
         bcs _compile_mid_fail
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr parse_comma
         bcs _compile_mid_fail
         jsr compile_expression
@@ -2614,7 +2622,7 @@ compile_mid_string_function:
         beq _compile_mid_with_len
         cmp #')'
         bne _compile_mid_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_string_mid_tail
         clc
         rts
@@ -2624,7 +2632,7 @@ _compile_mid_with_len:
         bcs _compile_mid_fail
         jsr parse_close_paren
         bcs _compile_mid_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_string_mid
         clc
         rts
@@ -3499,10 +3507,10 @@ _cond_compare_string:
         bcs _cond_compare_fail
         jsr parse_if_compare_op
         bcs _cond_compare_fail
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr compile_string_expression
         bcs _cond_compare_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_string_compare_to_bool
         jsr emit_string_temp_release
         clc
@@ -4773,14 +4781,14 @@ _factor_instr:
         jsr emit_string_temp_mark
         jsr compile_string_expression
         bcs _factor_dec_fail
-        jsr emit_push_expr
+        jsr emit_push_sexpr
         jsr parse_comma
         bcs _factor_dec_fail
         jsr compile_string_expression
         bcs _factor_dec_fail
         jsr parse_close_paren
         bcs _factor_dec_fail
-        jsr emit_pop_lhs
+        jsr emit_pop_slhs
         jsr emit_tmpl
         .word out_jsr_instrf
         jsr emit_string_temp_release
@@ -9509,6 +9517,8 @@ _emit_string_roots_loop:
         bra _emit_string_roots_next
 
 _emit_string_root_scalar:
+        jsr emit_root_name_comment
+        ldx root_emit_idx
         lda sym_data_lo,x
         sta number_lo
         lda sym_data_hi,x
@@ -9521,6 +9531,7 @@ _emit_string_root_scalar:
         bra _emit_string_roots_next
 
 _emit_string_root_array:
+        jsr emit_root_name_comment
         jsr load_root_array_dims
         bcs _emit_string_roots_next
         jsr compute_array_element_count
@@ -9546,6 +9557,29 @@ _emit_string_roots_done:
         sta work2_hi
         jsr emit_string_root_record
         jsr out_cr
+        rts
+
+; text mode only: tag each root record with its variable's name so
+; the emitted table is self-describing (comments cost nothing binary)
+emit_root_name_comment:
+        ldx backend_mode
+        beq +
+        rts
++       lda #';'
+        jsr KERNAL_CHROUT
+        ldx root_emit_idx
+        lda sym_name_1,x
+        jsr KERNAL_CHROUT
+        ldx root_emit_idx
+        lda sym_name_2,x
+        beq +
+        jsr KERNAL_CHROUT
++       ldx root_emit_idx
+        lda sym_kind,x
+        beq +
+        lda #'('
+        jsr KERNAL_CHROUT
++       jsr out_cr
         rts
 
 load_root_array_dims:
@@ -13588,6 +13622,20 @@ out_lineref_sep:
 .if TEXT_EMITTER
         .text ", l"
         .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_strtpush:
+.if TEXT_EMITTER
+        .text "        jsr strtpush"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_strtpop:
+.if TEXT_EMITTER
+        .text "        jsr strtpop"
+        .byte 13, 0
 .else
         .byte 0
 .fi
