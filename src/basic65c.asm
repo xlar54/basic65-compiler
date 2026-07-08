@@ -4410,6 +4410,9 @@ _factor_not_number:
         cmp #$d0                ; RPEN
         bne +
         jmp _factor_rpen
++       cmp #$cd                ; RCOLOR
+        bne +
+        jmp _factor_rcolor
 +       jsr is_var_start
         bcc _factor_variable
 _factor_fail:
@@ -4983,6 +4986,12 @@ _factor_rpen:
         jsr line_get            ; consume the RPEN token
         lda #<out_jsr_rpenf
         ldy #>out_jsr_rpenf
+        bra _factor_one
+
+_factor_rcolor:
+        jsr line_get            ; consume the RCOLOR token
+        lda #<out_jsr_rcolorf
+        ldy #>out_jsr_rcolorf
         bra _factor_one
 
 ; PIXEL(x,y) reads a pixel through the blob (fn 8); note it stages
@@ -6499,6 +6508,31 @@ emit_gfxcall:
         jsr emit_tmpl_done
         .word out_jsr_gfxcall
 
+; shared arg-count validator for the fixed-shape graphics statements:
+; X = table index (min, max, blob fn per entry)
+cgfx_stmt:
+        stx cgfx_idx            ; compile_gfxargs clobbers X (the
+        jsr compile_gfxargs     ; recurring X-across-parse bug class)
+        bcs _cgs_bad
+        ldx cgfx_idx
+        lda cdma_i
+        cmp cgfx_tab,x
+        bcc _cgs_bad
+        cmp cgfx_tab+1,x
+        bcs _cgs_bad
+        lda cgfx_tab+2,x
+        jmp emit_gfxcall
+_cgs_bad:
+        jmp compile_env_bad
+cgfx_idx:
+        .byte 0
+cgfx_tab:
+        .byte 4, 5+1, 3         ; 0: BOX
+        .byte 3, 4+1, 4         ; 3: CIRCLE
+        .byte 4, 5+1, 5         ; 6: ELLIPSE
+        .byte 2, 4+1, 6         ; 9: PAINT
+        .byte 5, 9+1, 13        ; 12: POLYGON
+
 ; LINE x,y draws a pixel; each further pair extends the path with a
 ; segment from the previous point (gfxlnext shifts the staged end
 ; coordinates into the start slots between calls)
@@ -6579,61 +6613,22 @@ _cscn_text:
 _cscn_bad:
         jmp compile_env_bad
 
-; BOX x0,y0,x2,y2[,solid] -- the four-corner path form is unsupported
+; BOX x0,y0,x2,y2[,solid] (4-corner form unsupported), CIRCLE
+; xc,yc,r[,flags] (no arcs), ELLIPSE xc,yc,xr,yr[,flags] (no arcs),
+; PAINT x,y[,mode[,border]] (mode-0 semantics)
 compile_box:
-        jsr compile_gfxargs
-        bcs _cbox_bad
-        lda cdma_i
-        cmp #4
-        bcc _cbox_bad
-        cmp #5+1
-        bcs _cbox_bad
-        lda #3
-        jmp emit_gfxcall
-_cbox_bad:
-        jmp compile_env_bad
-
-; CIRCLE xc,yc,r[,flags] -- arcs (start/stop angles) unsupported
+        ldx #0
+        bra cgfx_stmt_go
 compile_circle:
-        jsr compile_gfxargs
-        bcs _ccir_bad
-        lda cdma_i
-        cmp #3
-        bcc _ccir_bad
-        cmp #4+1
-        bcs _ccir_bad
-        lda #4
-        jmp emit_gfxcall
-_ccir_bad:
-        jmp compile_env_bad
-
-; ELLIPSE xc,yc,xr,yr[,flags] -- arcs unsupported
+        ldx #3
+        bra cgfx_stmt_go
 compile_ellipse:
-        jsr compile_gfxargs
-        bcs _cell_bad
-        lda cdma_i
-        cmp #4
-        bcc _cell_bad
-        cmp #5+1
-        bcs _cell_bad
-        lda #5
-        jmp emit_gfxcall
-_cell_bad:
-        jmp compile_env_bad
-
-; PAINT x,y[,mode[,border]] -- only mode 0 semantics for now
+        ldx #6
+        bra cgfx_stmt_go
 compile_paint:
-        jsr compile_gfxargs
-        bcs _cpnt_bad
-        lda cdma_i
-        cmp #2
-        bcc _cpnt_bad
-        cmp #4+1
-        bcs _cpnt_bad
-        lda #6
-        jmp emit_gfxcall
-_cpnt_bad:
-        jmp compile_env_bad
+        ldx #9
+cgfx_stmt_go:
+        jmp cgfx_stmt
 
 ; PEN [pen,] colour -- resident: just stores the colour
 compile_pen:
@@ -6650,15 +6645,8 @@ _cpen_bad:
 
 ; POLYGON x,y,xrad,yrad,sides[,drawsides,subtend,angle,solid]
 compile_polygon:
-        jsr compile_gfxargs
-        bcs _cpol_bad
-        lda cdma_i
-        cmp #5
-        bcc _cpol_bad
-        lda #13
-        jmp emit_gfxcall
-_cpol_bad:
-        jmp compile_env_bad
+        ldx #12
+        jmp cgfx_stmt
 
 ; PALETTE screen,c,r,g,b or PALETTE COLOR c,r,g,b (RESTORE unsupported)
 compile_palette:
@@ -14024,6 +14012,13 @@ out_pixel_res:
         .text "        sta exprhi"
         .byte 13
         .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_rcolorf:
+.if TEXT_EMITTER
+        .text "        jsr rcolorf"
+        .byte 13, 0
 .else
         .byte 0
 .fi

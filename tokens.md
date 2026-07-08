@@ -27,7 +27,7 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 77 | 7 | 41 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 78 | 7 | 40 |
 | $CE-prefixed functions | 17 | 13 | — | 4 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
@@ -114,7 +114,7 @@ Legend:
 | $CA | MID$ | ✅ | |
 | $CB | GO | ✅ | GO TO |
 | $CC | RGRAPHIC | ❌ | graphics queued |
-| $CD | RCOLOR | ❌ | graphics queued |
+| $CD | RCOLOR | ✅ | sources 0-3: background, text, highlight, border |
 | $CE | — | prefix | extended functions, see below |
 | $CF | JOY | ✅ | |
 | $D0 | RPEN | ⚠️ | drawing pen (0) only; pens 1/2 read as 0 |

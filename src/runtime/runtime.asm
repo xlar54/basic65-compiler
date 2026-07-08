@@ -3294,6 +3294,31 @@ _gfxln_cp:
         sta dma_i
         rts
 
+; RCOLOR(source): 0 background, 1 text colour, 2 highlight, 3 border
+rcolorf:
+        lda exprlo
+        cmp #1
+        beq _rcol_text
+        cmp #2
+        beq _rcol_hl
+        cmp #3
+        beq _rcol_border
+        lda $d021
+        bra _rcol_done
+_rcol_text:
+        lda $f1
+        bra _rcol_done
+_rcol_hl:
+        lda $02d8
+        bra _rcol_done
+_rcol_border:
+        lda $d020
+_rcol_done:
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+
 ; RPEN(n): only the drawing pen exists here; other pens read as 0
 rpenf:
         lda exprlo
