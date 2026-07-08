@@ -59,13 +59,15 @@ No fixture had ever exercised it. Fixed by adding the CHR$ string
 factor (chrstrf shares GET's one-byte-string tail); covered by
 basic/key.bas.
 
-## 5. BANK far-PEEK reads the wrong memory for banks >= 4
+## 5. ~~BANK far PEEK/POKE never actually reached other banks~~ (FIXED 2026-07-08)
 
-Observed 2026-07-08 while bringing up banked graphics: with the GFX
-blob proven present at $50000 (xemu -dumpmem ground truth), `BANK 5 :
-PEEK(0)` returned 255,133,0,32 -- and `BANK 1`/`BANK 4` PEEKs of low
-addresses returned the same leading bytes, which look like CPU-visible
-zero-page, not the target bank. POKE/PEEK round-trip fixtures pass, so
-the write side may be broken symmetrically (round trips cancel out).
-Suspect peekbk/bankptr far-pointer setup. Verify with -dumpmem after a
-BANK 4 POKE to a fresh address.
+The scan pass's $FE-token chain opened with `cmp #$04 / bcc skip`,
+so BANK ($FE $02) never set bank_used and every PEEK/POKE compiled to
+the plain CPU-visible form -- round-trip fixtures passed because both
+directions used the same wrong addressing (a textbook byte-diff blind
+spot; peekbk/pokebk themselves were always correct). FILTER ($FE $03)
+was skipped by the same early-out and would have dropped the sound
+section from a FILTER-only program. Both checks now sit above the
+early-out. Verified with basic/bankpk.bas + xemu -dumpmem ground
+truth: BANK 4 POKE lands at $49000 physically, BANK 5 PEEK reads the
+GFX blob bytes; bankrreg.bas passes with genuine far access.
