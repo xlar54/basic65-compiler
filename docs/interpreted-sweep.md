@@ -75,9 +75,10 @@ matches the compiled output.
 - bad_data.bas -- negative compile fixture; interpreted it errors by
   design (OUT OF DATA).
 
-- [ ] gfxtest.bas      (GRAPHIC CLR/SCREEN/PEN/LINE/BOX/CIRCLE/ELLIPSE/
-      PAINT/PALETTE, ends with SCREEN CLOSE; compiled run verified
-      2026-07-08 incl. an FCM bitmap decode of the drawn pixels.
+- [ ] gfxtest.bas      (GRAPHIC CLR/SCREEN/PEN/LINE incl. polyline/
+      BOX/CIRCLE/ELLIPSE/PAINT/PALETTE/SCNCLR colour/PIXEL()/RPEN(),
+      ends with SCREEN CLOSE + printed PIXEL/RPEN assertions (4/6/3);
+      compiled run verified 2026-07-08 incl. an FCM bitmap decode.
       Caveats: 320x200x256 only; PAINT is mode-0 semantics; PALETTE
       redefinitions land in $D100 hardware registers.)
 - [ ] gfxmin.bas       (GRAPHIC CLR + PEN only -- the cheap blob-load

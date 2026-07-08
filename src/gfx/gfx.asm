@@ -80,6 +80,7 @@ PTR                     = $F7           ; the runtime's varptr slot
         .word g_plot            ; 9  single-pixel LINE
         .word g_open            ; 10 SCREEN w,h,d
         .word g_palette4        ; 11 PALETTE COLOR c,r,g,b
+        .word g_clear           ; 12 SCNCLR colour
 
 ; GRAPHIC CLR: reset the drawing context; the display is untouched
 ; until SCREEN opens it
@@ -104,6 +105,11 @@ g_open:
 
 g_close:
         jmp restore_default_screen
+
+; SCNCLR colour: fill the whole bitmap with one colour
+g_clear:
+        lda dma_args+0
+        jmp clear_bitmap
 
 g_line:
         lda dma_args+0
@@ -283,7 +289,7 @@ g_pixel:
         lda dma_args+4
         sta plot_y
         jsr get_pixel
-        sta gfx_res
+        sta gfxres
         rts
 
         .include "lib/fcm.asm"

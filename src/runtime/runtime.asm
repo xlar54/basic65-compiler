@@ -3256,7 +3256,7 @@ _gfxl_loop:
         jsr kernalclose
         jsr kernalclrchn
         jsr fio_rom_off
-        rts
+        jmp scrrestore          ; gfxload borrowed varptr for bank 5
 _gfxl_err:
         lda #15
         jsr kernalclose
@@ -3281,6 +3281,34 @@ _pen_one:
         sta gfx_pen
         rts
 
+; multi-pair LINE: the just-drawn segment's end becomes the next
+; segment's start; the next two staged args land in slots 2/3
+gfxlnext:
+        ldx #7
+_gfxln_cp:
+        lda dma_args+8,x
+        sta dma_args,x
+        dex
+        bpl _gfxln_cp
+        lda #2
+        sta dma_i
+        rts
+
+; RPEN(n): only the drawing pen exists here; other pens read as 0
+rpenf:
+        lda exprlo
+        bne _rpen_zero
+        lda gfx_pen
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+_rpen_zero:
+        lda #0
+        sta exprlo
+        sta exprhi
+        rts
+
 ; A = function index; arguments pre-staged in dma_args.
 ; The blob executes from real RAM at $8000-$bfff: DMA stashes whatever
 ; lives there (program code) to bank 5 $4000, copies the blob in from
@@ -3302,7 +3330,11 @@ gfxcall:
         jsr gfxcopy
         ldx #18                 ; program code $54000 -> $08000
         jsr gfxcopy
-        rts
+        ldz #0                  ; the blob uses Z freely; compiled code
+                                ; relies on the ambient Z=0 convention
+        jmp scrrestore          ; and the blob's PTR is varptr: put the
+                                ; bank-1 invariant back or every later
+                                ; variable store lands in pixel memory
 _gfx_go:
         jmp ($8000,x)
 
@@ -5053,7 +5085,7 @@ bit_mask:     .byte 0
 strtsp:       .byte 0
 gfx_fn:       .byte 0
 gfx_pen:      .byte 1
-gfx_res:      .byte 0
+gfxres:       .byte 0
 strtslots:    .fill 44, 0
 sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0

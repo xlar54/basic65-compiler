@@ -1,8 +1,10 @@
 10 print chr$(147);"gfx test"
 20 graphic clr
 30 screen 320,200,8
+35 scnclr 6
 40 pen 1
 50 line 10,10,309,189
+55 line 5,195,50,150,100,190,150,150
 60 box 20,20,120,80
 70 pen 5
 80 box 140,20,240,80,1
@@ -16,6 +18,10 @@
 160 palette color 3,15,8,0
 170 pen 3
 180 box 250,150,300,190,1
+185 p1=pixel(160,131):p2=pixel(2,2):r=rpen(0)
 190 for i=1 to 5000:next i
 200 screen close
 210 print "gfx done"
+220 print "pixel in paint (want 4):";p1
+230 print "pixel bg (want 6):";p2
+240 print "rpen (want 3):";r

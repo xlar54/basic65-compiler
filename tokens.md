@@ -27,8 +27,8 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 75 | 7 | 43 |
-| $CE-prefixed functions | 17 | 12 | — | 5 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 77 | 7 | 41 |
+| $CE-prefixed functions | 17 | 13 | — | 4 |
 | $FE-prefixed statements | 72 | 46 | 2 (OFF, BIT) | 24 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
@@ -117,7 +117,7 @@ Legend:
 | $CD | RCOLOR | ❌ | graphics queued |
 | $CE | — | prefix | extended functions, see below |
 | $CF | JOY | ✅ | |
-| $D0 | RPEN | ❌ | |
+| $D0 | RPEN | ⚠️ | drawing pen (0) only; pens 1/2 read as 0 |
 | $D1 | DEC | ✅ | no space allowed before "(" (ROM rule) |
 | $D2 | HEX$ | ✅ | |
 | $D3 | ERR$ | ✅ | |
@@ -138,10 +138,10 @@ Legend:
 | $E2 | CIRCLE | ⚠️ | fill flag works; arcs (start/stop angles) unsupported |
 | $E3 | PASTE | ❌ | |
 | $E4 | CUT | ❌ | |
-| $E5 | LINE | ⚠️ | 1 pair (pixel) or 2 pairs (segment); longer polylines unsupported |
+| $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path |
 | $E6 | MERGE | ✖ | editor |
 | $E7 | COLOR | ✅ | text colour, same handler as FOREGROUND |
-| $E8 | SCNCLR | ❌ | use PRINT CHR$(147) |
+| $E8 | SCNCLR | ✅ | bare = text clear; SCNCLR colour fills the graphics bitmap |
 | $E9 | XOR | ✅ | |
 | $EA | HELP | ✖ | direct-mode |
 | $EB | DO | ✅ | with WHILE/UNTIL clauses |
@@ -180,7 +180,7 @@ Legend:
 | $CE $09 | RWINDOW | ❌ | |
 | $CE $0A | POINTER | ❌ | |
 | $CE $0B | MOD | ✅ | |
-| $CE $0C | PIXEL | ❌ | graphics queued |
+| $CE $0C | PIXEL | ⚠️ | reads a pixel colour; stages through the DMA arg slots, so not usable inside a DMA statement argument list |
 | $CE $0D | RPALETTE | ❌ | |
 | $CE $0E | RSPEED | ❌ | |
 | $CE $0F | RPLAY | ✅ | |

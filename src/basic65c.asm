@@ -172,7 +172,7 @@ ASCII_LOWER_F           = $66
 LINE_BUF_MAX            = 240
 FILENAME_MAX            = 31
 .if TEXT_EMITTER
-LINE_MAX                = 224   ; checked build: squeezed under $c000
+LINE_MAX                = 216   ; checked build: squeezed under $c000
 .else
 LINE_MAX                = 240
 .fi
@@ -184,12 +184,12 @@ FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 .if TEXT_EMITTER
-DATA_MAX                = 64    ; checked build: squeezed under $c000
+DATA_MAX                = 40    ; checked build: squeezed under $c000
 .else
 DATA_MAX                = 128
 .fi
 .if TEXT_EMITTER
-DATA_LINE_MAX           = 12    ; checked build: squeezed under $c000
+DATA_LINE_MAX           = 8     ; checked build: squeezed under $c000
 .else
 DATA_LINE_MAX           = 64
 .fi
@@ -199,7 +199,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 61    ; checked build: squeezed under $c000
+SYM_MAX                 = 48    ; checked build: squeezed under $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -1258,7 +1258,13 @@ _scan_vars_no_fio:
         cmp #$e2
         beq _scan_vars_gfx
         cmp #$e5                ; LINE
+        beq _scan_vars_gfx
+        cmp #$e8                ; SCNCLR colour = graphics clear
         bne _scan_vars_no_gfx
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_vars_no_gfx   ; bare form: text clear, no blob
+        lda #$e8
 _scan_vars_gfx:
         ldx #1
         stx gfx_used
@@ -1405,7 +1411,12 @@ _scan_ext_fg:
         stx fgoto_used
         bra _scan_ext_skip
 _scan_ext_ce:
-        cmp #$08                ; LOG10
+        cmp #$0c                ; PIXEL reads through the blob
+        bne +
+        ldx #1
+        stx gfx_used
+        bra _scan_ext_skip
++       cmp #$08                ; LOG10
         bne +
         ldx #1
         stx math_used
@@ -2072,7 +2083,7 @@ _stab:
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
         .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY, $DE
-        .byte $DF, $E1, $E2, $E5
+        .byte $DF, $E1, $E2, $E5, $E8
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2088,6 +2099,7 @@ _stmt_jtab:
         .word compile_diskcmd, compile_attr_fg, compile_e0
         .word compile_key, compile_graphic
         .word compile_paint, compile_box, compile_circle, compile_gline
+        .word compile_scnclr
 
 _stmt_return:
         jsr emit_tmpl_done
@@ -4399,7 +4411,10 @@ _factor_not_number:
         beq _factor_log
         cmp #TOK_EXP_FN
         beq _factor_exp
-        jsr is_var_start
+        cmp #$d0                ; RPEN
+        bne +
+        jmp _factor_rpen
++       jsr is_var_start
         bcc _factor_variable
 _factor_fail:
         sec
@@ -4844,6 +4859,10 @@ _factor_ext_ce:
         beq _factor_pot
         cmp #$04                ; LPEN
         beq _factor_lpen
+        cmp #$0c                ; PIXEL
+        bne _factor_no_pixel
+        jmp _factor_pixel
+_factor_no_pixel:
         cmp #$05                ; RSPPOS
         beq _factor_rsppos
         cmp #$06                ; RSPRITE
@@ -4961,6 +4980,40 @@ _factor_one:
 _factor_one_fail:
         ply
         pla
+        sec
+        rts
+
+_factor_rpen:
+        jsr line_get            ; consume the RPEN token
+        lda #<out_jsr_rpenf
+        ldy #>out_jsr_rpenf
+        bra _factor_one
+
+; PIXEL(x,y) reads a pixel through the blob (fn 8); note it stages
+; through the DMA arg slots, so PIXEL inside a DMA statement's own
+; argument list is not supported
+_factor_pixel:
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        jsr parse_open_paren
+        bcs _fpix_fail
+        jsr cglcoord
+        bcs _fpix_fail
+        jsr parse_comma
+        bcs _fpix_fail
+        jsr cglcoord
+        bcs _fpix_fail
+        jsr parse_close_paren
+        bcs _fpix_fail
+        lda #8
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_jsr_gfxcall
+        lda #0
+        sta expr_type
+        jsr emit_tmpl_done
+        .word out_pixel_res
+_fpix_fail:
         sec
         rts
 
@@ -6449,22 +6502,84 @@ emit_gfxcall:
         jsr emit_tmpl_done
         .word out_jsr_gfxcall
 
-; LINE x,y draws a pixel; LINE x0,y0,x1,y1 a segment (longer paths
-; unsupported yet)
+; LINE x,y draws a pixel; each further pair extends the path with a
+; segment from the previous point (gfxlnext shifts the staged end
+; coordinates into the start slots between calls)
 compile_gline:
-        jsr compile_gfxargs
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        jsr cglcoord            ; x0
         bcs _cgl_bad
-        lda cdma_i
-        cmp #2
-        bne _cgl_seg
-        lda #9                  ; single pair: plot
-        jmp emit_gfxcall
+        jsr parse_comma
+        bcs _cgl_bad
+        jsr cglcoord            ; y0
+        bcs _cgl_bad
+        jsr parse_opt_comma
+        bcs _cgl_plot           ; one pair: a pixel
 _cgl_seg:
-        cmp #4
-        bne _cgl_bad
-        lda #2                  ; segment
+        jsr cglcoord            ; xn
+        bcs _cgl_bad
+        jsr parse_comma
+        bcs _cgl_bad
+        jsr cglcoord            ; yn
+        bcs _cgl_bad
+        lda #2                  ; draw the segment
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_jsr_gfxcall
+        jsr parse_opt_comma
+        bcs _cgl_done
+        jsr emit_tmpl           ; this end = next start
+        .word out_jsr_gfxlnext
+        bra _cgl_seg
+_cgl_done:
+        clc
+        rts
+_cgl_plot:
+        lda #9
         jmp emit_gfxcall
 _cgl_bad:
+        jmp compile_env_bad
+
+; stage one numeric expression into the next DMA arg slot (int or
+; float); shared by LINE and PIXEL()
+cglcoord:
+        jsr compile_expression
+        bcs _cglc_fail
+        lda expr_type
+        beq _cglc_a16
+        jsr emit_tmpl
+        .word out_jsr_dmaa32
+        clc
+        rts
+_cglc_a16:
+        jsr emit_tmpl
+        .word out_jsr_dmaa16
+        clc
+        rts
+_cglc_fail:
+        sec
+        rts
+
+; SCNCLR bare clears the text screen; SCNCLR colour fills the
+; graphics bitmap
+compile_scnclr:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cscn_text
+        jsr compile_gfxargs
+        bcs _cscn_bad
+        lda cdma_i
+        cmp #1
+        bne _cscn_bad
+        lda #12
+        jmp emit_gfxcall
+_cscn_text:
+        lda #$93
+        jsr emit_lda_imm
+        jsr emit_tmpl_done
+        .word out_jsr_chout
+_cscn_bad:
         jmp compile_env_bad
 
 ; BOX x0,y0,x2,y2[,solid] -- the four-corner path form is unsupported
@@ -13871,6 +13986,34 @@ out_lineref_sep:
 out_gfxflag_pre:
 .if TEXT_EMITTER
         .text "gfxflag = $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_gfxlnext:
+.if TEXT_EMITTER
+        .text "        jsr gfxlnext"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rpenf:
+.if TEXT_EMITTER
+        .text "        jsr rpenf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_pixel_res:
+.if TEXT_EMITTER
+        .text "        lda gfxres"
+        .byte 13
+        .text "        sta exprlo"
+        .byte 13
+        .text "        lda #0"
+        .byte 13
+        .text "        sta exprhi"
+        .byte 13
         .byte 0
 .else
         .byte 0
