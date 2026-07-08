@@ -172,7 +172,7 @@ ASCII_LOWER_F           = $66
 LINE_BUF_MAX            = 240
 FILENAME_MAX            = 31
 .if TEXT_EMITTER
-LINE_MAX                = 216   ; checked build: squeezed under $c000
+LINE_MAX                = 240   ; checked build: tables extend past $c000
 .else
 LINE_MAX                = 240
 .fi
@@ -184,12 +184,12 @@ FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 .if TEXT_EMITTER
-DATA_MAX                = 40    ; checked build: squeezed under $c000
+DATA_MAX                = 128   ; checked build: tables extend past $c000
 .else
 DATA_MAX                = 128
 .fi
 .if TEXT_EMITTER
-DATA_LINE_MAX           = 8     ; checked build: squeezed under $c000
+DATA_LINE_MAX           = 64    ; checked build: tables extend past $c000
 .else
 DATA_LINE_MAX           = 64
 .fi
@@ -199,7 +199,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 48    ; checked build: squeezed under $c000
+SYM_MAX                 = 96    ; checked build: tables extend past $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -245,6 +245,31 @@ VAR_DESC_VALUE_OFFSET   = 8
 main:
         cld
         cli
+        lda $d030               ; ROM state before anything else: the
+        sta d030_save           ; CC_ wrappers key off it
+        lda #0
+        sta cc_mode             ; 0 = ROMs stay as booted
+        ldx #0                  ; the $c000 table block is not
+        txa                     ; reliably loaded -- give the compiler
+_main_clr_hi:                   ; the zero-init state it expects
+        sta $c000,x
+        sta $c100,x
+        sta $c200,x
+        sta $c300,x
+        sta $c400,x
+        sta $c500,x
+        sta $c600,x
+        sta $c700,x
+        sta $c800,x
+        sta $c900,x
+        sta $ca00,x
+        sta $cb00,x
+        sta $cc00,x
+        sta $cd00,x
+        sta $ce00,x
+        sta $cf00,x
+        inx
+        bne _main_clr_hi
         jsr close_work_files
         lda #0
         sta compile_error
@@ -292,7 +317,12 @@ main:
         jsr screen_zstr
         rts
 
-+       lda #<msg_scanning_in
++       lda d030_save           ; the ROM shadow at $c000 hides the
+        and #%11000111          ; scratch tables (reads see ROM, writes
+        sta $d030               ; fall through) -- bank $8000/$a000/
+        lda #1                  ; $c000 out for the compile; keyboard
+        sta cc_mode             ; input is done. The CC_ wrappers put
+        lda #<msg_scanning_in   ; the ROMs back around KERNAL file ops
         ldy #>msg_scanning_in
         jsr screen_zstr
         jsr read_prg_header
@@ -314,11 +344,11 @@ main:
         jsr screen_zstr
         jsr open_output
         bcc +
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #<msg_open_out_fail
         ldy #>msg_open_out_fail
         jsr screen_zstr
-        rts
+        jmp _main_rom_in
 
 +       jsr select_output
         jsr emit_generated_header
@@ -332,19 +362,19 @@ main:
         lda compile_error
         bne _main_output_failed
 
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_OUT
-        jsr KERNAL_CLOSE
-        jsr KERNAL_CLRCHN
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
         jsr finalize_output
         bcc +
         lda #<msg_finalize_fail
         ldy #>msg_finalize_fail
         jsr screen_zstr
-        rts
+        jmp _main_rom_in
 
 +       lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 .fi
 
         lda #<msg_writing_prg
@@ -368,55 +398,143 @@ _main_done_ok:
         ldy #>msg_done
         jsr screen_zstr
 .fi
-        rts
+        jmp _main_rom_in
 
 _main_compile_failed:
         lda #<msg_compile_failed
         ldy #>msg_compile_failed
         jsr screen_zstr
+_main_rom_in:
+        lda #0
+        sta cc_mode
+        lda d030_save
+        sta $d030
         rts
 
+
 _main_output_failed:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_OUT
-        jsr KERNAL_CLOSE
+        jsr CC_CLOSE
         jsr scratch_output
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda #<msg_compile_failed
         ldy #>msg_compile_failed
         jsr screen_zstr
+        jmp _main_rom_in
+
+; KERNAL channel/file calls need the boot ROM set (the C65 DOS lives
+; there); table access needs it banked out. Each wrapper banks in,
+; calls, and returns to whatever the current mode wants, preserving
+; A and all flags (open/read status travel in carry and Z).
+cc_rom_in:
+        pha
+        lda d030_save
+        sta $d030
+        pla
+        rts
+cc_rom_out:
+        pha
+        lda cc_mode
+        beq _ccro_plain
+        lda d030_save
+        and #%11000111
+        sta $d030
+        pla
+        rts
+_ccro_plain:
+        lda d030_save
+        sta $d030
+        pla
+        rts
+
+CC_OPEN:
+        jsr cc_rom_in
+        jsr KERNAL_OPEN
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CLOSE:
+        jsr cc_rom_in
+        jsr KERNAL_CLOSE
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CHKIN:
+        jsr cc_rom_in
+        jsr KERNAL_CHKIN
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CHKOUT:
+        jsr cc_rom_in
+        jsr KERNAL_CHKOUT
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CLRCHN:
+        jsr cc_rom_in
+        jsr KERNAL_CLRCHN
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CHRIN:
+        jsr cc_rom_in
+        jsr KERNAL_CHRIN
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_CHROUT:
+        jsr cc_rom_in
+        jsr KERNAL_CHROUT
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_LOAD:
+        jsr cc_rom_in
+        jsr KERNAL_LOAD
+        php
+        jsr cc_rom_out
+        plp
         rts
 
 show_compile_line:
         ldx backend_mode
         beq +
         rts
-+       jsr KERNAL_CLRCHN
++       jsr CC_CLRCHN
         lda line_no_lo
         sta screen_num_lo
         lda line_no_hi
         sta screen_num_hi
         jsr screen_uint
         lda #'.'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda #'.'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         ldx #LFN_OUT
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         rts
 
 show_compile_start:
         ldx backend_mode
         beq +
         rts
-+       jsr KERNAL_CLRCHN
++       jsr CC_CLRCHN
         lda #<msg_compiling_start
         ldy #>msg_compiling_start
         jsr screen_zstr
         ldx #LFN_OUT
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         rts
 
 ; per-emission-pass label allocation state; the size pass and the text pass
@@ -538,12 +656,12 @@ _ebo_open_fail:
         rts
 
 close_binary_files:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_OUT
-        jsr KERNAL_CLOSE
+        jsr CC_CLOSE
         lda #LFN_RT
-        jsr KERNAL_CLOSE
-        jsr KERNAL_CLRCHN
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
         rts
 
 open_binary_output:
@@ -566,7 +684,7 @@ open_binary_output:
         ldy #>outb_name
         jsr KERNAL_SETNAM
 
-        jsr KERNAL_OPEN
+        jsr CC_OPEN
         bcs _open_binary_fail
         jsr KERNAL_READST
         bne _open_binary_fail
@@ -611,7 +729,7 @@ copy_runtime_image:
         ldy #>rt_name
         jsr KERNAL_SETNAM
 
-        jsr KERNAL_OPEN
+        jsr CC_OPEN
         bcs _copy_runtime_fail
         jsr KERNAL_READST
         bne _copy_runtime_fail
@@ -624,11 +742,11 @@ copy_runtime_image:
 
 _copy_runtime_chunk:
         ldx #LFN_RT
-        jsr KERNAL_CHKIN
+        jsr CC_CHKIN
         bcs _copy_runtime_fail
         ldy #0
 _copy_runtime_read:
-        jsr KERNAL_CHRIN
+        jsr CC_CHRIN
         sta line_buf,y
         iny
         jsr KERNAL_READST
@@ -638,9 +756,9 @@ _copy_runtime_read:
         bcc _copy_runtime_read
 _copy_runtime_read_done:
         sty rt_chunk_len
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         ldx #LFN_OUT
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         bcs _copy_runtime_fail
         ldy #0
 _copy_runtime_write:
@@ -700,13 +818,13 @@ report_size_pass:
         pla
         jsr out_hex_byte
         lda #' '
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda backend_error_ptr+1
         jsr out_hex_byte
         lda backend_error_ptr
         jsr out_hex_byte
         lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 +       lda #<msg_bin_size
         ldy #>msg_bin_size
@@ -716,7 +834,7 @@ report_size_pass:
         lda bin_pc
         jsr out_hex_byte
         lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 fatal_error_zstr:
@@ -725,7 +843,7 @@ fatal_error_zstr:
         lda #1
         sta compile_error
         inc error_count
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #<msg_error_line
         ldy #>msg_error_line
         jsr screen_zstr
@@ -770,7 +888,7 @@ screen_uint:
         lda screen_num_lo
         clc
         adc #'0'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 screen_digit:
@@ -812,14 +930,14 @@ _screen_digit_emit:
         lda #1
         sta screen_started
         lda screen_digit_value
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 
 _screen_digit_return:
         rts
 
 select_output:
         ldx #LFN_OUT
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         rts
 
 ;=======================================================================================
@@ -827,7 +945,7 @@ select_output:
 ;=======================================================================================
 
 prompt_source_name:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #<msg_source_prompt
         ldy #>msg_source_prompt
         jsr screen_zstr
@@ -836,7 +954,7 @@ prompt_source_name:
         ldx #0
 
 _prompt_source_loop:
-        jsr KERNAL_CHRIN
+        jsr CC_CHRIN
         cmp #13
         beq _prompt_source_done
         cpx #FILENAME_MAX
@@ -848,7 +966,7 @@ _prompt_source_loop:
 
 _prompt_source_done:
         lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda source_filename_len
         bne _prompt_source_terminate
         jsr use_default_source_name
@@ -875,7 +993,7 @@ _default_source_done:
         rts
 
 show_loading_source:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #<msg_loading_source_prefix
         ldy #>msg_loading_source_prefix
         jsr screen_zstr
@@ -883,7 +1001,7 @@ show_loading_source:
         ldy #>source_filename_buf
         jsr screen_zstr
         lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 load_source:
@@ -904,16 +1022,16 @@ load_source:
         lda #$40                         ; raw load to X/Y, PRG header included
         ldx #<SOURCE_BUF
         ldy #>SOURCE_BUF
-        jsr KERNAL_LOAD
+        jsr CC_LOAD
         bcs _load_source_fail
         stx source_end_lo
         sty source_end_hi
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         clc
         rts
 
 _load_source_fail:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         sec
         rts
 
@@ -935,13 +1053,13 @@ open_output:
         ldy #>output_name
         jsr KERNAL_SETNAM
 
-        jsr KERNAL_OPEN
+        jsr CC_OPEN
         bcs _open_output_fail
         jsr KERNAL_READST
         bne _open_output_fail
 
         ldx #LFN_OUT
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         bcs _open_output_fail
         jsr KERNAL_READST
         bne _open_output_fail
@@ -954,14 +1072,14 @@ _open_output_fail:
         rts
 
 close_work_files:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_OUT
-        jsr KERNAL_CLOSE
+        jsr CC_CLOSE
         lda #LFN_RT
-        jsr KERNAL_CLOSE
+        jsr CC_CLOSE
         lda #LFN_CMD
-        jsr KERNAL_CLOSE
-        jsr KERNAL_CLRCHN
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
         rts
 
 scratch_output:
@@ -991,7 +1109,7 @@ disk_command:
         sta str_ptr
         sty str_ptr+1
         stx byte_value
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_CMD
         ldx #DEVICE_DISK
         ldy #LFN_CMD
@@ -1006,17 +1124,17 @@ disk_command:
         ldy #0
         jsr KERNAL_SETNAM
 
-        jsr KERNAL_OPEN
+        jsr CC_OPEN
         bcs _disk_command_fail
         ldx #LFN_CMD
-        jsr KERNAL_CHKOUT
+        jsr CC_CHKOUT
         bcs _disk_command_fail
         ldy #0
 _disk_command_loop:
         cpy byte_value
         beq _disk_command_sent
         lda (str_ptr),y
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         iny
         bra _disk_command_loop
 
@@ -1032,10 +1150,10 @@ _disk_command_fail:
         sta disk_status
 
 _disk_command_done:
-        jsr KERNAL_CLRCHN
+        jsr CC_CLRCHN
         lda #LFN_CMD
-        jsr KERNAL_CLOSE
-        jsr KERNAL_CLRCHN
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
         lda disk_status
         beq _disk_command_ok
         sec
@@ -9919,19 +10037,19 @@ emit_root_name_comment:
         beq +
         rts
 +       lda #';'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         ldx root_emit_idx
         lda sym_name_1,x
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         ldx root_emit_idx
         lda sym_name_2,x
         beq +
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 +       ldx root_emit_idx
         lda sym_kind,x
         beq +
         lda #'('
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 +       jsr out_cr
         rts
 
@@ -10057,13 +10175,13 @@ emit_line_label:
         ldx backend_mode
         bne _emit_line_label_bin
         lda #'l'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda line_no_hi
         jsr out_hex_byte
         lda line_no_lo
         jsr out_hex_byte
         lda #':'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         jsr out_cr
         rts
 
@@ -12085,7 +12203,7 @@ out_hex_nibble:
 +       clc
         adc #'0'
 _out_hex_nibble_emit:
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 out_comment_char:
@@ -12102,26 +12220,26 @@ out_comment_char:
 _comment_hex:
         pha
         lda #'<'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         lda #'$'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         pla
         jsr out_hex_byte
         lda #'>'
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 _comment_done:
         rts
 _comment_space:
         lda #' '
 _comment_printable:
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 ; emit a single character of program text; silent outside text mode
 out_char:
         ldx backend_mode
         bne +
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
 +       rts
 
 out_cr:
@@ -12129,7 +12247,7 @@ out_cr:
         beq +
         jmp bin_finalize_pending
 +       lda #13
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         rts
 
 out_zstr:
@@ -12142,7 +12260,7 @@ out_zstr:
 _out_zstr_loop:
         lda (str_ptr),y
         beq _out_zstr_done
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         iny
         bne _out_zstr_loop
         inc str_ptr+1
@@ -12309,7 +12427,7 @@ _bin_fin_rel8:
 ; write one byte of the native program image and advance bin_pc; the binary
 ; output channel is selected while the emit pass runs
 bin_write_byte:
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         inc bin_pc
         bne +
         inc bin_pc+1
@@ -12399,7 +12517,7 @@ screen_zstr:
 _screen_zstr_loop:
         lda (str_ptr),y
         beq _screen_zstr_done
-        jsr KERNAL_CHROUT
+        jsr CC_CHROUT
         iny
         bne _screen_zstr_loop
         inc str_ptr+1
@@ -15868,6 +15986,10 @@ pool_save:
         .byte 0,0,0,0
 scan_ext_prefix:
         .byte 0
+d030_save:
+        .byte 0
+cc_mode:
+        .byte 0
 prog_base_hi:
         .byte 0
 rt_level:
@@ -15945,6 +16067,88 @@ strroots_addr:
         .word 0
 linetab_addr:
         .word 0
+; (scratch tables moved to the image tail -- see below)
+string_pool:
+
+;=======================================================================================
+; Binary backend label address tables, filled during the size pass and read
+; during the emit pass. Generated-label ids above LBL_ID_MAX set
+; backend_error (the text backend is unaffected).
+;=======================================================================================
+
+LBL_IF_IDS      = 384
+LBL_ON_IDS      = 128
+LBL_ARRAY_IDS   = 256
+.if TEXT_EMITTER
+LBL_FORDO_MAX   = 48            ; checked build: restored (tables live high)
+.else
+LBL_FORDO_MAX   = 48
+.fi
+
+; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
+; so a single table keyed by id covers all five kinds; same for onnext/ondone.
+; The three array labels of one bounds check share a single id, so they need
+; a table per kind.
+LBL_IF          = 0
+LBL_ON          = 1
+LBL_ARRAYOK     = 2
+LBL_ARRAYPOS    = 3
+LBL_ARRAYHIEQ   = 4
+LBL_FORTOP      = 5
+LBL_FORNEG      = 6
+LBL_FORINITNEG  = 7
+LBL_FORCONT     = 8
+LBL_FORDONE     = 9
+LBL_DOTOP       = 10
+LBL_DODONE      = 11
+
+; label tables live in bank 4 at LBLTAB_BASE; these are offsets
+LBLTAB_BASE     = $E000
+lbloff_if        = 0
+lbloff_on        = lbloff_if + LBL_IF_IDS * 2
+lbloff_arrayok   = lbloff_on + LBL_ON_IDS * 2
+lbloff_arraypos  = lbloff_arrayok + LBL_ARRAY_IDS * 2
+lbloff_arrayhieq = lbloff_arraypos + LBL_ARRAY_IDS * 2
+lbloff_fortop    = lbloff_arrayhieq + LBL_ARRAY_IDS * 2
+lbloff_forneg    = lbloff_fortop + LBL_FORDO_MAX * 2
+lbloff_forinitneg = lbloff_forneg + LBL_FORDO_MAX * 2
+lbloff_forcont   = lbloff_forinitneg + LBL_FORDO_MAX * 2
+lbloff_fordone   = lbloff_forcont + LBL_FORDO_MAX * 2
+lbloff_dotop     = lbloff_fordone + LBL_FORDO_MAX * 2
+lbloff_dodone    = lbloff_dotop + LBL_FORDO_MAX * 2
+
+lbladdr_base_lo:
+        .byte <(LBLTAB_BASE+lbloff_if), <(LBLTAB_BASE+lbloff_on)
+        .byte <(LBLTAB_BASE+lbloff_arrayok), <(LBLTAB_BASE+lbloff_arraypos), <(LBLTAB_BASE+lbloff_arrayhieq)
+        .byte <(LBLTAB_BASE+lbloff_fortop), <(LBLTAB_BASE+lbloff_forneg), <(LBLTAB_BASE+lbloff_forinitneg)
+        .byte <(LBLTAB_BASE+lbloff_forcont), <(LBLTAB_BASE+lbloff_fordone)
+        .byte <(LBLTAB_BASE+lbloff_dotop), <(LBLTAB_BASE+lbloff_dodone)
+lbladdr_base_hi:
+        .byte >(LBLTAB_BASE+lbloff_if), >(LBLTAB_BASE+lbloff_on)
+        .byte >(LBLTAB_BASE+lbloff_arrayok), >(LBLTAB_BASE+lbloff_arraypos), >(LBLTAB_BASE+lbloff_arrayhieq)
+        .byte >(LBLTAB_BASE+lbloff_fortop), >(LBLTAB_BASE+lbloff_forneg), >(LBLTAB_BASE+lbloff_forinitneg)
+        .byte >(LBLTAB_BASE+lbloff_forcont), >(LBLTAB_BASE+lbloff_fordone)
+        .byte >(LBLTAB_BASE+lbloff_dotop), >(LBLTAB_BASE+lbloff_dodone)
+
+string_addr_lo:  .fill STRING_MAX, 0
+string_addr_hi:  .fill STRING_MAX, 0
+data_line_addr_lo: .fill DATA_LINE_MAX, 0
+data_line_addr_hi: .fill DATA_LINE_MAX, 0
+
+;=======================================================================================
+; Derived binary template records (regenerated by tools\gen-bin-templates.py)
+;=======================================================================================
+
+        .include "gen/bin-templates.inc"
+
+; ---- scratch tables: pure zero-fill, placed at the image tail so in
+; the checked build they may spill past $c000 -- the chain-load does
+; not reliably deliver bytes up there (probe-proven: the native
+; templates died past $c000 while the compiler itself ran fine), but
+; these don't care: main clears $c000-$cfff at startup, and everything
+; below $c000 loads normally. All VALUED content (code, templates)
+; must stay below $c000.
+        .cerror * >= $c000, "loaded content (code/templates) must stay below $c000"
 line_addr_lo:
         .fill LINE_MAX, 0
 line_addr_hi:
@@ -16045,80 +16249,8 @@ data_line_index:
         .fill DATA_LINE_MAX, 0
 string_temp:
         .fill LINE_BUF_MAX + 1, 0
-string_pool:
 
-;=======================================================================================
-; Binary backend label address tables, filled during the size pass and read
-; during the emit pass. Generated-label ids above LBL_ID_MAX set
-; backend_error (the text backend is unaffected).
-;=======================================================================================
-
-LBL_IF_IDS      = 384
-LBL_ON_IDS      = 128
-LBL_ARRAY_IDS   = 256
-.if TEXT_EMITTER
-LBL_FORDO_MAX   = 32            ; checked build: squeezed under $c000
-.else
-LBL_FORDO_MAX   = 48
-.fi
-
-; iftrue/ifskip/ifend/ifelse/iftmp draw distinct ids from one shared counter,
-; so a single table keyed by id covers all five kinds; same for onnext/ondone.
-; The three array labels of one bounds check share a single id, so they need
-; a table per kind.
-LBL_IF          = 0
-LBL_ON          = 1
-LBL_ARRAYOK     = 2
-LBL_ARRAYPOS    = 3
-LBL_ARRAYHIEQ   = 4
-LBL_FORTOP      = 5
-LBL_FORNEG      = 6
-LBL_FORINITNEG  = 7
-LBL_FORCONT     = 8
-LBL_FORDONE     = 9
-LBL_DOTOP       = 10
-LBL_DODONE      = 11
-
-; label tables live in bank 4 at LBLTAB_BASE; these are offsets
-LBLTAB_BASE     = $E000
-lbloff_if        = 0
-lbloff_on        = lbloff_if + LBL_IF_IDS * 2
-lbloff_arrayok   = lbloff_on + LBL_ON_IDS * 2
-lbloff_arraypos  = lbloff_arrayok + LBL_ARRAY_IDS * 2
-lbloff_arrayhieq = lbloff_arraypos + LBL_ARRAY_IDS * 2
-lbloff_fortop    = lbloff_arrayhieq + LBL_ARRAY_IDS * 2
-lbloff_forneg    = lbloff_fortop + LBL_FORDO_MAX * 2
-lbloff_forinitneg = lbloff_forneg + LBL_FORDO_MAX * 2
-lbloff_forcont   = lbloff_forinitneg + LBL_FORDO_MAX * 2
-lbloff_fordone   = lbloff_forcont + LBL_FORDO_MAX * 2
-lbloff_dotop     = lbloff_fordone + LBL_FORDO_MAX * 2
-lbloff_dodone    = lbloff_dotop + LBL_FORDO_MAX * 2
-
-lbladdr_base_lo:
-        .byte <(LBLTAB_BASE+lbloff_if), <(LBLTAB_BASE+lbloff_on)
-        .byte <(LBLTAB_BASE+lbloff_arrayok), <(LBLTAB_BASE+lbloff_arraypos), <(LBLTAB_BASE+lbloff_arrayhieq)
-        .byte <(LBLTAB_BASE+lbloff_fortop), <(LBLTAB_BASE+lbloff_forneg), <(LBLTAB_BASE+lbloff_forinitneg)
-        .byte <(LBLTAB_BASE+lbloff_forcont), <(LBLTAB_BASE+lbloff_fordone)
-        .byte <(LBLTAB_BASE+lbloff_dotop), <(LBLTAB_BASE+lbloff_dodone)
-lbladdr_base_hi:
-        .byte >(LBLTAB_BASE+lbloff_if), >(LBLTAB_BASE+lbloff_on)
-        .byte >(LBLTAB_BASE+lbloff_arrayok), >(LBLTAB_BASE+lbloff_arraypos), >(LBLTAB_BASE+lbloff_arrayhieq)
-        .byte >(LBLTAB_BASE+lbloff_fortop), >(LBLTAB_BASE+lbloff_forneg), >(LBLTAB_BASE+lbloff_forinitneg)
-        .byte >(LBLTAB_BASE+lbloff_forcont), >(LBLTAB_BASE+lbloff_fordone)
-        .byte >(LBLTAB_BASE+lbloff_dotop), >(LBLTAB_BASE+lbloff_dodone)
-
-string_addr_lo:  .fill STRING_MAX, 0
-string_addr_hi:  .fill STRING_MAX, 0
-data_line_addr_lo: .fill DATA_LINE_MAX, 0
-data_line_addr_hi: .fill DATA_LINE_MAX, 0
-
-;=======================================================================================
-; Derived binary template records (regenerated by tools\gen-bin-templates.py)
-;=======================================================================================
-
-        .include "gen/bin-templates.inc"
-
-; The C65 BASIC ROM shadows $8000-$bfff only for generated programs (the
-; runtime banks it out); the resident compiler itself runs fine up to the
-; editor ROM at $c000.
-        .cerror * >= $c000, "resident compiler grew past $c000"
+; On the MEGA65 the $c000-$cfff block is unmapped RAM in the compiler's
+; execution context (the editor lives in the bank-3 ROM via MAPHI, not
+; a $c000 shadow); only the I/O space at $d000 is a hard limit.
+        .cerror * >= $d000, "resident compiler grew into i/o space"
