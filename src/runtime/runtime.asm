@@ -106,7 +106,7 @@ _rtinit_vecs:
         lda (rtptr),y
         sta rtvheapend-2,y
         iny
-        cpy #14
+        cpy #16
         bne _rtinit_vecs
         jsr varinit
         jsr strinit
@@ -138,6 +138,10 @@ _rtinit_vecs:
         and #%11000111
         sta $d030
         jsr fltinit             ; convert float literals (needs the above)
+        lda rtgfxflag           ; load the banked graphics blob (needs
+        beq +                   ; rtd030save captured: gfxload toggles
+        jsr gfxload             ; the ROMs around the KERNAL calls)
++
         lda $dc04               ; seed RND from the CIA timer
         sta rndseed
         eor #$b5
@@ -3009,6 +3013,11 @@ _fq32_over:
 dmarst:
         lda #0
         sta dma_i
+        ldx #27
+_dmarst_clr:
+        sta dma_args,x
+        dex
+        bpl _dmarst_clr
         rts
 
 dmaa16:
@@ -3196,6 +3205,144 @@ fgoto:
 fgosub:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
+
+; ---------------------------------------------------------------------------
+; Banked graphics: the GFX blob loads to bank 5 at init; each graphics
+; call DMA-swaps it into the $8000-$bfff window, dispatches through
+; its jump table, and swaps the program code back afterwards.
+; ---------------------------------------------------------------------------
+; The KERNAL banked LOAD does not reach bank 5, so the blob is read
+; byte-wise through the DOS data channel and far-stored to $50000.
+; One-time cost at init; trivial at 40MHz.
+gfxload:
+        jsr fio_rom_on
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda #7
+        ldx #<_gfx_name
+        ldy #>_gfx_name
+        jsr kernalsetnam
+        lda #15
+        ldx #8
+        ldy #2                  ; DOS data channel
+        jsr kernalsetlfs
+        jsr kernalopen
+        bcs _gfxl_err
+        ldx #15
+        jsr kernalchkin
+        bcs _gfxl_err
+        jsr kernalchrin         ; skip the 2-byte PRG load address
+        jsr kernalchrin
+        jsr kernalreadst        ; missing file: EOF/error on first reads
+        bne _gfxl_err
+        lda #0                  ; far pointer: bank 5 offset 0
+        sta varptr
+        sta varptr+1
+        sta varptr+3
+        lda #5
+        sta varptr+2
+        ldz #0
+_gfxl_loop:
+        jsr kernalchrin
+        sta [varptr],z
+        inc varptr
+        bne +
+        inc varptr+1
++       jsr kernalreadst
+        and #$40                ; EOF arrives with the last byte
+        beq _gfxl_loop
+        lda #15
+        jsr kernalclose
+        jsr kernalclrchn
+        jsr fio_rom_off
+        rts
+_gfxl_err:
+        lda #15
+        jsr kernalclose
+        jsr kernalclrchn
+        jsr fio_rom_off
+        lda #21                 ; missing GFX file: FILE NOT FOUND
+        jmp rterror
+_gfx_name:
+        .text "GFX,P,R"
+
+; PEN [pen,] colour -- the colour is the last staged argument; the pen
+; number (only pen 0 exists here) is ignored
+penset:
+        lda dma_i
+        cmp #2
+        bcc _pen_one
+        lda dma_args+4
+        sta gfx_pen
+        rts
+_pen_one:
+        lda dma_args+0
+        sta gfx_pen
+        rts
+
+; A = function index; arguments pre-staged in dma_args.
+; The blob executes from real RAM at $8000-$bfff: DMA stashes whatever
+; lives there (program code) to bank 5 $4000, copies the blob in from
+; bank 5 $0000, dispatches, then copies the blob back (it keeps state
+; like the screen mode inside itself) and restores the stash. No MAP:
+; the KERNAL, its interrupt vectors, and the IRQ engines stay exactly
+; where the hardware expects them, so interrupts keep running even
+; through a long PAINT. Four 16KB DMA copies cost ~1ms at 40MHz.
+gfxcall:
+        asl a
+        sta gfx_fn
+        ldx #0                  ; stash $08000 -> $54000
+        jsr gfxcopy
+        ldx #6                  ; blob $50000 -> $08000
+        jsr gfxcopy
+        ldx gfx_fn
+        jsr _gfx_go
+        ldx #12                 ; blob (and its state) -> $50000
+        jsr gfxcopy
+        ldx #18                 ; program code $54000 -> $08000
+        jsr gfxcopy
+        rts
+_gfx_go:
+        jmp ($8000,x)
+
+; one 16KB copy per entry: src lo/hi/bank, dst lo/hi/bank
+gfxcopytab:
+        .byte $00,$80,$00, $00,$40,$05
+        .byte $00,$00,$05, $00,$80,$00
+        .byte $00,$80,$00, $00,$00,$05
+        .byte $00,$40,$05, $00,$80,$00
+
+gfxcopy:
+        ldy #0
+_gfxc_patch:
+        lda gfxcopytab,x
+        sta gfxdmasrc,y
+        inx
+        iny
+        cpy #6
+        bne _gfxc_patch
+        lda #0                  ; list in bank 0, megabyte 0
+        sta $d702
+        sta $d704
+        lda #>gfxdmalist
+        sta $d701
+        lda #<gfxdmalist
+        sta $d705               ; enhanced-mode trigger
+        rts
+
+gfxdmalist:
+        .byte $0b               ; F018B 12-byte job format
+        .byte $80, $00          ; source megabyte 0
+        .byte $81, $00          ; target megabyte 0
+        .byte $00               ; end of options
+        .byte $00               ; command: copy
+        .word $4000             ; count: the full 16KB window
+gfxdmasrc:
+        .byte $00, $00, $00     ; source lo/hi/bank (patched)
+        .byte $00, $00, $00     ; target lo/hi/bank (patched)
+        .byte $00               ; sub command
+        .word 0                 ; modulo
 
 ; GC-visible string temp stack: 20 two-byte slots in bank 1 at $1fd0.
 ; Compiled code parks string intermediates here instead of the CPU
@@ -4872,6 +5019,7 @@ rtdataend:    .byte 0,0
 rtstrroots:   .byte 0,0
 rtfltinit:    .byte 0,0
 rtlinetab:    .byte 0,0
+rtgfxflag:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
 snd_shutptr:  .word rtshutnop
@@ -4903,6 +5051,9 @@ sprs_len:     .byte 0
 bit_addr:     .byte 0,0,0,0
 bit_mask:     .byte 0
 strtsp:       .byte 0
+gfx_fn:       .byte 0
+gfx_pen:      .byte 1
+gfx_res:      .byte 0
 strtslots:    .fill 44, 0
 sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0

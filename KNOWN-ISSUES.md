@@ -58,3 +58,14 @@ CHR$ was only handled as a PRINT item; assignments and concatenation
 No fixture had ever exercised it. Fixed by adding the CHR$ string
 factor (chrstrf shares GET's one-byte-string tail); covered by
 basic/key.bas.
+
+## 5. BANK far-PEEK reads the wrong memory for banks >= 4
+
+Observed 2026-07-08 while bringing up banked graphics: with the GFX
+blob proven present at $50000 (xemu -dumpmem ground truth), `BANK 5 :
+PEEK(0)` returned 255,133,0,32 -- and `BANK 1`/`BANK 4` PEEKs of low
+addresses returned the same leading bytes, which look like CPU-visible
+zero-page, not the target bank. POKE/PEEK round-trip fixtures pass, so
+the write side may be broken symmetrically (round trips cancel out).
+Suspect peekbk/bankptr far-pointer setup. Verify with -dumpmem after a
+BANK 4 POKE to a fresh address.

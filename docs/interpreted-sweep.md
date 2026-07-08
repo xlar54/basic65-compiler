@@ -75,6 +75,15 @@ matches the compiled output.
 - bad_data.bas -- negative compile fixture; interpreted it errors by
   design (OUT OF DATA).
 
+- [ ] gfxtest.bas      (GRAPHIC CLR/SCREEN/PEN/LINE/BOX/CIRCLE/ELLIPSE/
+      PAINT/PALETTE, ends with SCREEN CLOSE; compiled run verified
+      2026-07-08 incl. an FCM bitmap decode of the drawn pixels.
+      Caveats: 320x200x256 only; PAINT is mode-0 semantics; PALETTE
+      redefinitions land in $D100 hardware registers.)
+- [ ] gfxmin.bas       (GRAPHIC CLR + PEN only -- the cheap blob-load
+      and DMA-swap dispatch regression check; compiled run verified
+      2026-07-08)
+
 ## Known divergences to NOT report as bugs
 
 - E-notation print threshold differs for small floats.

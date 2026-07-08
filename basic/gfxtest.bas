@@ -1,0 +1,21 @@
+10 print chr$(147);"gfx test"
+20 graphic clr
+30 screen 320,200,8
+40 pen 1
+50 line 10,10,309,189
+60 box 20,20,120,80
+70 pen 5
+80 box 140,20,240,80,1
+90 pen 7
+100 circle 160,130,40
+110 pen 2
+120 circle 260,130,30,1
+130 ellipse 60,130,40,25
+140 pen 4
+150 paint 160,131
+160 palette color 3,15,8,0
+170 pen 3
+180 box 250,150,300,190,1
+190 for i=1 to 5000:next i
+200 screen close
+210 print "gfx done"

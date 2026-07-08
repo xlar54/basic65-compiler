@@ -27,9 +27,9 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 70 | 7 | 48 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 75 | 7 | 43 |
 | $CE-prefixed functions | 17 | 12 | — | 5 |
-| $FE-prefixed statements | 72 | 42 | 2 (OFF, BIT) | 28 |
+| $FE-prefixed statements | 72 | 46 | 2 (OFF, BIT) | 24 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -131,14 +131,14 @@ Legend:
 | $DB | VOL | ✅ | |
 | $DC | AUTO | ✖ | editor |
 | $DD | PUDEF | ❌ | |
-| $DE | GRAPHIC | ❌ | graphics queued |
-| $DF | PAINT | ❌ | graphics queued |
+| $DE | GRAPHIC | ⚠️ | CLR form only |
+| $DF | PAINT | ⚠️ | repaints the seed pixel’s colour region (mode 0); modes 1/2 fall back to the same |
 | $E0 | CHAR | prefix | bare CHAR ❌; CHARDEF ($E0 $96) ✅ |
-| $E1 | BOX | ❌ | graphics queued |
-| $E2 | CIRCLE | ❌ | graphics queued |
+| $E1 | BOX | ⚠️ | two-corner form (+solid); the 4-corner path form unsupported |
+| $E2 | CIRCLE | ⚠️ | fill flag works; arcs (start/stop angles) unsupported |
 | $E3 | PASTE | ❌ | |
 | $E4 | CUT | ❌ | |
-| $E5 | LINE | ❌ | graphics queued |
+| $E5 | LINE | ⚠️ | 1 pair (pixel) or 2 pairs (segment); longer polylines unsupported |
 | $E6 | MERGE | ✖ | editor |
 | $E7 | COLOR | ✅ | text colour, same handler as FOREGROUND |
 | $E8 | SCNCLR | ❌ | use PRINT CHR$(147) |
@@ -234,13 +234,13 @@ Legend:
 | $FE $2B | FIND | ✖ | editor |
 | $FE $2C | CHANGE | ✖ | editor |
 | $FE $2D | SET | ⚠️ | only as SETBIT ($FE $2D $FE $4E): set one bit, BANK-aware <=64K, flat 28-bit above |
-| $FE $2E | SCREEN | ❌ | graphics queued |
+| $FE $2E | SCREEN | ⚠️ | [s,]w,h,d (320x200x256 only) and CLOSE; DEF/SET/OPEN/CLR forms unsupported |
 | $FE $2F | POLYGON | ❌ | graphics queued |
-| $FE $30 | ELLIPSE | ❌ | graphics queued |
+| $FE $30 | ELLIPSE | ⚠️ | fill flag works; arcs unsupported |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |
 | $FE $32 | GCOPY | ❌ | graphics queued |
-| $FE $33 | PEN | ❌ | graphics queued |
-| $FE $34 | PALETTE | ❌ | graphics queued |
+| $FE $33 | PEN | ⚠️ | drawing pen colour (pen 0) only |
+| $FE $34 | PALETTE | ⚠️ | screen,c,r,g,b and COLOR c,r,g,b; RESTORE unsupported |
 | $FE $35 | DMODE | ❌ | graphics queued |
 | $FE $36 | DPAT | ❌ | graphics queued |
 | $FE $37 | FORMAT | ✅ | HEADER alias (same ROM routine, same compile path) |

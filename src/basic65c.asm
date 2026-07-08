@@ -184,12 +184,12 @@ FOR_MAX                 = 64
 DO_MAX                  = 64
 ARRAY_RANK_MAX          = 6
 .if TEXT_EMITTER
-DATA_MAX                = 116   ; checked build: squeezed under $c000
+DATA_MAX                = 64    ; checked build: squeezed under $c000
 .else
 DATA_MAX                = 128
 .fi
 .if TEXT_EMITTER
-DATA_LINE_MAX           = 32    ; checked build: squeezed under $c000
+DATA_LINE_MAX           = 12    ; checked build: squeezed under $c000
 .else
 DATA_LINE_MAX           = 64
 .fi
@@ -199,7 +199,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 76    ; checked build: squeezed under $c000
+SYM_MAX                 = 61    ; checked build: squeezed under $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -267,6 +267,7 @@ main:
         sta math_used
         sta fgoto_used
         sta bank_used
+        sta gfx_used
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -1248,6 +1249,20 @@ _scan_vars_fio:
         ldx #1
         stx fio_used
 _scan_vars_no_fio:
+        cmp #$de                ; GRAPHIC PAINT load the banked blob
+        beq _scan_vars_gfx
+        cmp #$df
+        beq _scan_vars_gfx
+        cmp #$e1                ; BOX CIRCLE
+        beq _scan_vars_gfx
+        cmp #$e2
+        beq _scan_vars_gfx
+        cmp #$e5                ; LINE
+        bne _scan_vars_no_gfx
+_scan_vars_gfx:
+        ldx #1
+        stx gfx_used
+_scan_vars_no_gfx:
         cmp #$bc                ; LOG EXP COS SIN TAN ATN
         bcc _scan_vars_no_math
         cmp #$c1+1
@@ -1362,7 +1377,18 @@ _scan_vars_extended:
         bne +
         ldx #1
         stx bank_used
-+
++       cmp #$2e                ; SCREEN / ELLIPSE / PEN / PALETTE
+        beq _scan_ext_gfx
+        cmp #$30
+        beq _scan_ext_gfx
+        cmp #$33
+        beq _scan_ext_gfx
+        cmp #$34
+        beq _scan_ext_gfx
+        bra _scan_ext_skip
+_scan_ext_gfx:
+        ldx #1
+        stx gfx_used
         bra _scan_ext_skip
 _scan_ext_col:
         ldx #1
@@ -2043,7 +2069,8 @@ _stab:
         .byte TOK_CLR, TOK_IF, TOK_PRINT_HASH, TOK_OPEN, TOK_CLOSE
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
-        .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY
+        .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY, $DE
+        .byte $DF, $E1, $E2, $E5
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2057,7 +2084,8 @@ _stmt_jtab:
         .word compile_sound, compile_vol, compile_wait, compile_diskcmd
         .word compile_diskcmd, compile_diskcmd, compile_diskcmd
         .word compile_diskcmd, compile_attr_fg, compile_e0
-        .word compile_key
+        .word compile_key, compile_graphic
+        .word compile_paint, compile_box, compile_circle, compile_gline
 
 _stmt_return:
         jsr emit_tmpl_done
@@ -5405,6 +5433,7 @@ _cef_tab:
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
         .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
+        .byte $2e, $30, $33, $34
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5419,6 +5448,7 @@ _cef_jtab:
         .word compile_dma, compile_edma
         .word compile_bank, compile_rreg, compile_vsync
         .word compile_boot, compile_sprsav, compile_setbit
+        .word compile_screen, compile_ellipse, compile_pen, compile_palette
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6361,6 +6391,206 @@ compile_diskstmt:
 _cdisk_bare:
         jsr emit_tmpl_done
         .word out_jsr_dskst
+
+; GRAPHIC CLR initialises the banked graphics system (fn 0)
+compile_graphic:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cgfx_bad
+        jsr line_get
+        cmp #$9c                ; the CLR token
+        bne _cgfx_bad
+        lda #0
+        jsr emit_lda_imm
+        jsr emit_tmpl_done
+        .word out_jsr_gfxcall
+_cgfx_bad:
+        jmp compile_env_bad
+
+; shared graphics argument staging: dmarst zeroes the slots (optional
+; trailing args default to 0), then each expression lands in the next
+; 4-byte slot; count is left in cdma_i
+compile_gfxargs:
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        lda #0
+        sta cdma_i
+_cga_loop:
+        jsr compile_expression
+        bcs _cga_bad
+        lda expr_type
+        beq _cga_a16
+        jsr emit_tmpl
+        .word out_jsr_dmaa32
+        bra _cga_next
+_cga_a16:
+        jsr emit_tmpl
+        .word out_jsr_dmaa16
+_cga_next:
+        inc cdma_i
+        lda cdma_i
+        cmp #7
+        bcs _cga_done
+        jsr parse_opt_comma
+        bcs _cga_done
+        bra _cga_loop
+_cga_done:
+        clc
+        rts
+_cga_bad:
+        sec
+        rts
+
+; A = blob function index (args already staged)
+emit_gfxcall:
+        jsr emit_lda_imm
+        jsr emit_tmpl_done
+        .word out_jsr_gfxcall
+
+; LINE x,y draws a pixel; LINE x0,y0,x1,y1 a segment (longer paths
+; unsupported yet)
+compile_gline:
+        jsr compile_gfxargs
+        bcs _cgl_bad
+        lda cdma_i
+        cmp #2
+        bne _cgl_seg
+        lda #9                  ; single pair: plot
+        jmp emit_gfxcall
+_cgl_seg:
+        cmp #4
+        bne _cgl_bad
+        lda #2                  ; segment
+        jmp emit_gfxcall
+_cgl_bad:
+        jmp compile_env_bad
+
+; BOX x0,y0,x2,y2[,solid] -- the four-corner path form is unsupported
+compile_box:
+        jsr compile_gfxargs
+        bcs _cbox_bad
+        lda cdma_i
+        cmp #4
+        bcc _cbox_bad
+        cmp #5+1
+        bcs _cbox_bad
+        lda #3
+        jmp emit_gfxcall
+_cbox_bad:
+        jmp compile_env_bad
+
+; CIRCLE xc,yc,r[,flags] -- arcs (start/stop angles) unsupported
+compile_circle:
+        jsr compile_gfxargs
+        bcs _ccir_bad
+        lda cdma_i
+        cmp #3
+        bcc _ccir_bad
+        cmp #4+1
+        bcs _ccir_bad
+        lda #4
+        jmp emit_gfxcall
+_ccir_bad:
+        jmp compile_env_bad
+
+; ELLIPSE xc,yc,xr,yr[,flags] -- arcs unsupported
+compile_ellipse:
+        jsr compile_gfxargs
+        bcs _cell_bad
+        lda cdma_i
+        cmp #4
+        bcc _cell_bad
+        cmp #5+1
+        bcs _cell_bad
+        lda #5
+        jmp emit_gfxcall
+_cell_bad:
+        jmp compile_env_bad
+
+; PAINT x,y[,mode[,border]] -- only mode 0 semantics for now
+compile_paint:
+        jsr compile_gfxargs
+        bcs _cpnt_bad
+        lda cdma_i
+        cmp #2
+        bcc _cpnt_bad
+        cmp #4+1
+        bcs _cpnt_bad
+        lda #6
+        jmp emit_gfxcall
+_cpnt_bad:
+        jmp compile_env_bad
+
+; PEN [pen,] colour -- resident: just stores the colour
+compile_pen:
+        jsr compile_gfxargs
+        bcs _cpen_bad
+        lda cdma_i
+        beq _cpen_bad
+        cmp #2+1
+        bcs _cpen_bad
+        jsr emit_tmpl_done
+        .word out_jsr_penset
+_cpen_bad:
+        jmp compile_env_bad
+
+; PALETTE screen,c,r,g,b or PALETTE COLOR c,r,g,b (RESTORE unsupported)
+compile_palette:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cpal_bad
+        jsr line_peek
+        cmp #TOK_COLOR
+        bne _cpal_scr
+        jsr line_get
+        jsr compile_gfxargs
+        bcs _cpal_bad
+        lda cdma_i
+        cmp #4
+        bne _cpal_bad
+        lda #11
+        jmp emit_gfxcall
+_cpal_scr:
+        jsr compile_gfxargs
+        bcs _cpal_bad
+        lda cdma_i
+        cmp #5
+        bne _cpal_bad
+        lda #7
+        jmp emit_gfxcall
+_cpal_bad:
+        jmp compile_env_bad
+
+; SCREEN [screen,] width, height, depth opens the (only) 320x200x256
+; screen; SCREEN CLOSE returns to text. DEF/SET/OPEN/CLR unsupported.
+compile_screen:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cscr_bad
+        jsr line_peek
+        cmp #TOK_CLOSE
+        bne _cscr_open
+        jsr line_get
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cscr_close
+        jsr compile_gfxargs     ; optional screen number: parsed, ignored
+        bcs _cscr_bad
+_cscr_close:
+        lda #1
+        jmp emit_gfxcall
+_cscr_open:
+        jsr compile_gfxargs
+        bcs _cscr_bad
+        lda cdma_i
+        cmp #3
+        bcc _cscr_bad
+        cmp #4+1
+        bcs _cscr_bad
+        lda #10
+        jmp emit_gfxcall
+_cscr_bad:
+        jmp compile_env_bad
 
 ; KEY number, string (the ON/OFF/LOAD/SAVE and bare forms are not
 ; supported -- they only matter interactively)
@@ -9158,6 +9388,11 @@ emit_generated_header:
         lda rt_level
         jsr out_hex_byte
         jsr out_cr
+        jsr emit_tmpl
+        .word out_gfxflag_pre
+        lda gfx_used
+        jsr out_hex_byte
+        jsr out_cr
 _emit_header_text:
         jsr emit_tmpl
         .word out_rtpb_pre
@@ -9177,11 +9412,11 @@ _emit_generated_header_bin:
         ; strroots, fltinit vectors (6 words); start label follows them
         cpx #BK_EMIT
         beq _emit_header_vectors
-        lda #14
+        lda #16
         jmp bin_add_pc
 
 _emit_header_vectors:
-        lda #$0e                ; start = progbase + $0e
+        lda #$10                ; start = progbase + $10
         jsr bin_write_byte
         lda prog_base_hi
         jsr bin_write_byte
@@ -9208,6 +9443,10 @@ _emit_header_vectors:
         lda linetab_addr
         jsr bin_write_byte
         lda linetab_addr+1
+        jsr bin_write_byte
+        lda gfx_used
+        jsr bin_write_byte
+        lda #0
         jmp bin_write_byte
 
 emit_generated_tail:
@@ -12291,6 +12530,8 @@ out_header_post:
         .text "        .word fltlits"
         .byte 13
         .text "        .word linetab"
+        .byte 13
+        .text "        .word gfxflag"
         .byte 13, 13
         .text "start:"
         .byte 13
@@ -13622,6 +13863,27 @@ out_lineref_sep:
 .if TEXT_EMITTER
         .text ", l"
         .byte 0
+.else
+        .byte 0
+.fi
+out_gfxflag_pre:
+.if TEXT_EMITTER
+        .text "gfxflag = $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_penset:
+.if TEXT_EMITTER
+        .text "        jsr penset"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_gfxcall:
+.if TEXT_EMITTER
+        .text "        jsr gfxcall"
+        .byte 13, 0
 .else
         .byte 0
 .fi
@@ -15432,6 +15694,8 @@ math_used:
 fgoto_used:
         .byte 0
 bank_used:
+        .byte 0
+gfx_used:
         .byte 0
 cdma_i:
         .byte 0
