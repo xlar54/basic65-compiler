@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 77 | 7 | 41 |
 | $CE-prefixed functions | 17 | 13 | — | 4 |
-| $FE-prefixed statements | 72 | 46 | 2 (OFF, BIT) | 24 |
+| $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -235,7 +235,7 @@ Legend:
 | $FE $2C | CHANGE | ✖ | editor |
 | $FE $2D | SET | ⚠️ | only as SETBIT ($FE $2D $FE $4E): set one bit, BANK-aware <=64K, flat 28-bit above |
 | $FE $2E | SCREEN | ⚠️ | [s,]w,h,d (320x200x256 only) and CLOSE; DEF/SET/OPEN/CLR forms unsupported |
-| $FE $2F | POLYGON | ❌ | graphics queued |
+| $FE $2F | POLYGON | ⚠️ | regular n-gon from xrad (yrad/drawsides/subtend accepted, ignored); angle + solid work |
 | $FE $30 | ELLIPSE | ⚠️ | fill flag works; arcs unsupported |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |
 | $FE $32 | GCOPY | ❌ | graphics queued |
