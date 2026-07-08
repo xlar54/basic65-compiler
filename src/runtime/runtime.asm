@@ -4705,6 +4705,21 @@ setstrptrdst:
         sta varptr
         lda strdsthi
         sta varptr+1
+        bra setstrptrbank
+
+; the GC's pass-1 destination: the attic mirror of the final bank-1
+; address ($801xxxx keeps clear of the relocation map at $800xxxx)
+setstrptrdstmir:
+        lda strdstlo
+        sta varptr
+        lda strdsthi
+        sta varptr+1
+        lda #$01
+        sta varptr+2
+        lda #$08
+        sta varptr+3
+        rts
+
 setstrptrbank:
         lda #$01
         sta varptr+2
@@ -4721,13 +4736,18 @@ outofstring:
 ;=======================================================================================
 
 ; The GC compacts live strings to the top of the bank-1 heap by walking
-; the root regions (slots holding heap pointers). Two hazards handled
-; here: (1) string ops hold source pointers in bank-0 registers across
+; the root regions (slots holding heap pointers). Hazards handled here:
+; (1) string ops hold source pointers in bank-0 registers across
 ; stralloc, so a GC fired mid-operation must relocate those too -- they
-; are stashed as a synthetic first root region at bank-1 $1ff8; (2) the
+; are stashed as a synthetic first root region (strtslots tail); (2) the
 ; same heap string may be referenced by several slots, so every move is
 ; recorded in an old->new map (attic RAM, $8000000+) and later references
-; reuse the mapped address instead of copying stale bytes.
+; reuse the mapped address instead of copying stale bytes; (3) roots are
+; visited in table order, not address order, so a descending destination
+; frontier could overwrite a not-yet-visited source -- pass 1 therefore
+; writes every string to an attic mirror of its final address (megabyte
+; $801xxxx, same 16-bit offset) and never touches the live heap; the
+; packed block is CPU-copied back in one pass at the end.
 strgc:
         lda #<strheaptop
         sta strdstlo
@@ -4815,30 +4835,6 @@ strgcslot:
         lda [varptr],z
         sta strlen1
         jsr strgcallocdst
-        lda strdsthi
-        cmp strsrc1hi
-        bcc strgccopyfwd
-        bne strgccopyback
-        lda strdstlo
-        cmp strsrc1lo
-        bcc strgccopyfwd
-        beq strgcupdateroot
-strgccopyback:
-        lda strlen1
-        sta stridx
-strgccopybackloop:
-        jsr setstrptrsrc1
-        ldz stridx
-        lda [varptr],z
-        pha
-        jsr setstrptrdst
-        ldz stridx
-        pla
-        sta [varptr],z
-        lda stridx
-        beq strgcupdateroot
-        dec stridx
-        jmp strgccopybackloop
 strgccopyfwd:
         lda #0
         sta stridx
@@ -4847,7 +4843,7 @@ strgccopyfwdloop:
         ldz stridx
         lda [varptr],z
         pha
-        jsr setstrptrdst
+        jsr setstrptrdstmir     ; pass 1 writes the attic mirror only
         ldz stridx
         pla
         sta [varptr],z
@@ -4900,6 +4896,33 @@ strgcnextroot:
         sta rtptr+1
         jmp strgcroot
 strgcdone:
+        lda strdstlo            ; copy the packed block back from the
+        sta varptr              ; attic mirror in one ascending pass
+        lda strdsthi            ; (only varptr+3 toggles: $08 = mirror,
+        sta varptr+1            ; $00 = live bank-1 heap)
+        lda #$01
+        sta varptr+2
+        ldz #0
+_gccb_loop:
+        lda varptr+1
+        cmp #>strheaptop
+        bne +
+        lda varptr
+        cmp #<strheaptop
+        beq _gccb_done
++       lda #$08
+        sta varptr+3
+        lda [varptr],z
+        tax
+        lda #$00
+        sta varptr+3
+        txa
+        sta [varptr],z
+        inc varptr
+        bne _gccb_loop
+        inc varptr+1
+        bra _gccb_loop
+_gccb_done:
         lda strdstlo
         sta strheaplo
         lda strdsthi

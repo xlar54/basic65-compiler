@@ -4,7 +4,7 @@ Open defects, tracked with their investigation state. Documented
 divergences from the interpreter (by design or ROM quirk) live in
 [tokens.md](tokens.md) and docs/interpreted-sweep.md instead.
 
-## 1. String corruption after heavy GC churn (PARTIALLY FIXED)
+## 1. ~~String corruption after heavy GC churn~~ (FIXED 2026-07-08)
 
 **Fixed 2026-07-07:** compiled code parked string descriptors on the
 CPU stack across nested string operations (concat, LEFT$/RIGHT$/MID$,
@@ -15,7 +15,19 @@ image, walked as the GC's synthetic first region. This was the source
 of the original random garbage/black-text symptom (verified: zero
 control bytes through the print path across the full suite).
 
-**Still open -- compaction ordering:** the copying GC visits strings
+**FIXED 2026-07-08 -- compaction ordering (staged compaction):**
+pass 1 now writes every live string to an attic mirror of its final
+address ($801xxxx, same 16-bit offset -- clear of the relocation map
+at $800xxxx) and never touches the live heap; the packed block is
+CPU-copied back in one ascending pass at the end. The dst==src
+copy-skip and the backward-copy variant are gone (the wholesale
+copy-back requires every live string present in the mirror).
+Verified: basic/gcstorm.bas (~41,000 allocations through the 55KB
+heap, 7+ full compactions, per-string integrity readback prints
+FAILS: 0) and an unattended source.bas run ending with a clean
+screen. Original design notes below for history.
+
+**The residual as it was:** the copying GC visits strings
 in root-table order while the destination frontier descends from the
 heap top, so a string's destination can overwrite a NOT-YET-VISITED
 string's source. Rare with few live strings; guaranteed under

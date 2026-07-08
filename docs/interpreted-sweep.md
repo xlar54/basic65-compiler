@@ -85,6 +85,9 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [ ] gcstorm.bas      (GC compaction integrity: ~41k string allocs
+      through the heap with per-string readback, prints FAILS: 0 +
+      GC STORM OK; compiled run verified 2026-07-08)
 - [x] gfxclip.bas      (COMPILE-ONLY robustness check -- do not run
       interpreted, the ROM raises ILLEGAL QUANTITY on its deliberate
       out-of-range coordinates. Compiled: silently clips, PIXEL
