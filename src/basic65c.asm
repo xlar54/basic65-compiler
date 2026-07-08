@@ -1343,6 +1343,12 @@ _scan_vars_extended:
         ldx scan_ext_prefix
         cpx #TOK_EXT_FE
         bne _scan_ext_ce
+        cmp #$02                ; BANK gates far peek/poke emission
+        bne +                   ; (checked before the $04 early-out:
+        ldx #1                  ; $02/$03 sit below it)
+        stx bank_used
++       cmp #$03                ; FILTER needs the sound section
+        beq _scan_ext_snd
         cmp #$04                ; PLAY TEMPO MOVSPR SPRITE SPRCOLOR
         bcc _scan_ext_skip
         cmp #$08+1
@@ -1373,11 +1379,7 @@ _scan_vars_extended:
         beq _scan_ext_fg
         cmp #$48
         beq _scan_ext_fg
-        cmp #$02                ; BANK gates far peek/poke emission
-        bne +
-        ldx #1
-        stx bank_used
-+       cmp #$2e                ; SCREEN / ELLIPSE / PEN / PALETTE
+        cmp #$2e                ; SCREEN / ELLIPSE / PEN / PALETTE
         beq _scan_ext_gfx
         cmp #$30
         beq _scan_ext_gfx
