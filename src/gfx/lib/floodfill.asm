@@ -52,10 +52,9 @@ flood_target:   .byte 0         ; Target color to replace (mode 1 only)
 ; Returns: Carry clear = success, Carry set = error (invalid params or stack overflow)
 ;=======================================================================================
 flood_fill:
-        ; Validate coordinates
-        lda flood_x+1
-        bne _ff_error           ; X > 255 means X >= 256, check against screen width
-        
+        ; Validate coordinates ([basic65c] the old early bne on
+        ; flood_x+1 rejected x=256..319 and made the proper
+        ; width checks below unreachable)
         lda screen_mode
         cmp #80
         beq _ff_check_640

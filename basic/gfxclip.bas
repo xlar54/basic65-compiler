@@ -11,6 +11,12 @@
 110 polygon 160,100,300,300,6
 120 p=pixel(400,300)
 130 line 319,199
+132 pen 2
+134 box 260,150,310,190
+136 pen 5
+138 paint 285,170
+139 q=pixel(285,170)
 140 screen close
 150 print "clip ok, pixel(want 0):";p
+155 print "right-side paint (want 5):";q
 160 print "ds:";ds$
