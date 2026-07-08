@@ -85,6 +85,11 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [x] gfxclip.bas      (COMPILE-ONLY robustness check -- do not run
+      interpreted, the ROM raises ILLEGAL QUANTITY on its deliberate
+      out-of-range coordinates. Compiled: silently clips, PIXEL
+      out-of-range reads 0, DS$ stays 00,OK. Verified 2026-07-08.)
+
 ## Known divergences to NOT report as bugs
 
 - E-notation print threshold differs for small floats.
@@ -92,3 +97,6 @@ matches the compiled output.
   none (fixtures already comply).
 - FRE(0)/FRE(-1) return 0 compiled. DLOAD/DSAVE/MKDIR/RECORD and
   ,D/,U arguments unsupported. MOUSE pos pair rejected by the ROM.
+- Out-of-range graphics coordinates: the ROM raises ILLEGAL QUANTITY;
+  compiled programs silently clip (plot guard + wrapper high-byte
+  rejects) and PIXEL reads 0 off-screen.
