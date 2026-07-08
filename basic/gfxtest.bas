@@ -18,10 +18,13 @@
 160 palette color 3,15,8,0
 170 pen 3
 180 box 250,150,300,190,1
+182 pen 1
+183 polygon 40,105,22,22,6
+184 polygon 285,105,18,18,5,5,0,0,1
 185 p1=pixel(160,131):p2=pixel(2,2):r=rpen(0)
 190 for i=1 to 5000:next i
 200 screen close
 210 print "gfx done"
 220 print "pixel in paint (want 4):";p1
 230 print "pixel bg (want 6):";p2
-240 print "rpen (want 3):";r
+240 print "rpen (want 1):";r

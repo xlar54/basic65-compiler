@@ -3013,7 +3013,7 @@ _fq32_over:
 dmarst:
         lda #0
         sta dma_i
-        ldx #27
+        ldx #35
 _dmarst_clr:
         sta dma_args,x
         dex
@@ -3029,7 +3029,7 @@ dmaa32:
         jsr fq32
 dmastore:
         lda dma_i
-        cmp #7
+        cmp #9
         bcs _dma_store_done
         asl a
         asl a
@@ -5075,7 +5075,7 @@ exprb2:       .byte 0
 exprb3:       .byte 0
 dma_i:        .byte 0
 dma_tmp:      .byte 0
-dma_args:     .fill 28, 0
+dma_args:     .fill 36, 0
 dmalist:      .fill 18, 0
 cur_bank:     .byte 128
 boot_addr:    .byte 0,0

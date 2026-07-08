@@ -81,6 +81,7 @@ PTR                     = $F7           ; the runtime's varptr slot
         .word g_open            ; 10 SCREEN w,h,d
         .word g_palette4        ; 11 PALETTE COLOR c,r,g,b
         .word g_clear           ; 12 SCNCLR colour
+        .word g_polygon         ; 13 POLYGON
 
 ; GRAPHIC CLR: reset the drawing context; the display is untouched
 ; until SCREEN opens it
@@ -110,6 +111,51 @@ g_close:
 g_clear:
         lda dma_args+0
         jmp clear_bitmap
+
+; POLYGON x,y,xrad,yrad,sides[,drawsides,subtend,angle,solid]: the
+; library draws regular n-gons from one radius, so xrad rules and
+; yrad/drawsides/subtend are ignored; the start angle arrives in
+; degrees and becomes the library's 0-255 units via *182/256
+g_polygon:
+        lda dma_args+0
+        sta poly_cx
+        lda dma_args+1
+        sta poly_cx+1
+        lda dma_args+4
+        sta poly_cy
+        lda dma_args+8
+        sta poly_r
+        lda dma_args+16
+        sta poly_sides
+        lda gfx_pen
+        sta poly_col
+        lda #0
+        sta poly_grad
+        lda dma_args+28         ; angle: degrees * 182 / 256
+        sta _gpg_a
+        lda #0
+        sta _gpg_hi
+        ldx #8
+        lda #0
+_gpg_mul:
+        asl a
+        rol _gpg_hi
+        asl _gpg_a
+        bcc _gpg_next
+        clc
+        adc #182
+        bcc _gpg_next
+        inc _gpg_hi
+_gpg_next:
+        dex
+        bne _gpg_mul
+        lda _gpg_hi
+        sta poly_angle
+        lda dma_args+32         ; solid: nonzero fills (carry = fill)
+        cmp #1
+        jmp draw_polygon
+_gpg_a:  .byte 0
+_gpg_hi: .byte 0
 
 g_line:
         lda dma_args+0

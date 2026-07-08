@@ -1385,15 +1385,11 @@ _scan_vars_extended:
         beq _scan_ext_fg
         cmp #$48
         beq _scan_ext_fg
-        cmp #$2e                ; SCREEN / ELLIPSE / PEN / PALETTE
-        beq _scan_ext_gfx
-        cmp #$30
-        beq _scan_ext_gfx
-        cmp #$33
-        beq _scan_ext_gfx
-        cmp #$34
-        beq _scan_ext_gfx
-        bra _scan_ext_skip
+        cmp #$2e                ; SCREEN..PALETTE graphics block
+        bcc _scan_ext_skip      ; (VIEWPORT/GCOPY inside the range are
+        cmp #$34+1              ; unsupported statements anyway)
+        bcs _scan_ext_skip
+        bra _scan_ext_gfx
 _scan_ext_gfx:
         ldx #1
         stx gfx_used
@@ -5488,7 +5484,7 @@ _cef_tab:
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
         .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
-        .byte $2e, $30, $33, $34
+        .byte $2e, $30, $33, $34, $2f
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5504,6 +5500,7 @@ _cef_jtab:
         .word compile_bank, compile_rreg, compile_vsync
         .word compile_boot, compile_sprsav, compile_setbit
         .word compile_screen, compile_ellipse, compile_pen, compile_palette
+        .word compile_polygon
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6484,7 +6481,7 @@ _cga_a16:
 _cga_next:
         inc cdma_i
         lda cdma_i
-        cmp #7
+        cmp #9
         bcs _cga_done
         jsr parse_opt_comma
         bcs _cga_done
@@ -6649,6 +6646,18 @@ compile_pen:
         jsr emit_tmpl_done
         .word out_jsr_penset
 _cpen_bad:
+        jmp compile_env_bad
+
+; POLYGON x,y,xrad,yrad,sides[,drawsides,subtend,angle,solid]
+compile_polygon:
+        jsr compile_gfxargs
+        bcs _cpol_bad
+        lda cdma_i
+        cmp #5
+        bcc _cpol_bad
+        lda #13
+        jmp emit_gfxcall
+_cpol_bad:
         jmp compile_env_bad
 
 ; PALETTE screen,c,r,g,b or PALETTE COLOR c,r,g,b (RESTORE unsupported)
