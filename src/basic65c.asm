@@ -506,6 +506,36 @@ CC_LOAD:
         jsr cc_rom_out
         plp
         rts
+; these four only store KERNAL state and should not enter the DOS,
+; but real-hardware ROMs may differ from xemu -- wrapped on principle
+CC_SETLFS:
+        jsr cc_rom_in
+        jsr KERNAL_SETLFS
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_SETNAM:
+        jsr cc_rom_in
+        jsr KERNAL_SETNAM
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_SETBNK:
+        jsr cc_rom_in
+        jsr KERNAL_SETBNK
+        php
+        jsr cc_rom_out
+        plp
+        rts
+CC_READST:
+        jsr cc_rom_in
+        jsr KERNAL_READST
+        php
+        jsr cc_rom_out
+        plp
+        rts
 
 show_compile_line:
         ldx backend_mode
@@ -673,20 +703,20 @@ open_binary_output:
         lda #LFN_OUT
         ldx #DEVICE_DISK
         ldy #1
-        jsr KERNAL_SETLFS
+        jsr CC_SETLFS
 
         lda #0
         ldx #0
-        jsr KERNAL_SETBNK
+        jsr CC_SETBNK
 
         lda #outb_name_end - outb_name
         ldx #<outb_name
         ldy #>outb_name
-        jsr KERNAL_SETNAM
+        jsr CC_SETNAM
 
         jsr CC_OPEN
         bcs _open_binary_fail
-        jsr KERNAL_READST
+        jsr CC_READST
         bne _open_binary_fail
         clc
         rts
@@ -718,20 +748,20 @@ copy_runtime_image:
         lda #LFN_RT
         ldx #DEVICE_DISK
         ldy #4
-        jsr KERNAL_SETLFS
+        jsr CC_SETLFS
 
         lda #0
         ldx #0
-        jsr KERNAL_SETBNK
+        jsr CC_SETBNK
 
         lda #rt_name_end - rt_name
         ldx #<rt_name
         ldy #>rt_name
-        jsr KERNAL_SETNAM
+        jsr CC_SETNAM
 
         jsr CC_OPEN
         bcs _copy_runtime_fail
-        jsr KERNAL_READST
+        jsr CC_READST
         bne _copy_runtime_fail
 
         ; the file's two load-address bytes become the PRG header
@@ -749,7 +779,7 @@ _copy_runtime_read:
         jsr CC_CHRIN
         sta line_buf,y
         iny
-        jsr KERNAL_READST
+        jsr CC_READST
         sta rt_status
         bne _copy_runtime_read_done
         cpy #LINE_BUF_MAX
@@ -1007,17 +1037,17 @@ show_loading_source:
 load_source:
         lda #SOURCE_BANK
         ldx #0
-        jsr KERNAL_SETBNK
+        jsr CC_SETBNK
 
         lda #0
         ldx #DEVICE_DISK
         ldy #0
-        jsr KERNAL_SETLFS
+        jsr CC_SETLFS
 
         lda source_filename_len
         ldx #<source_filename_buf
         ldy #>source_filename_buf
-        jsr KERNAL_SETNAM
+        jsr CC_SETNAM
 
         lda #$40                         ; raw load to X/Y, PRG header included
         ldx #<SOURCE_BUF
@@ -1042,26 +1072,26 @@ open_output:
         lda #LFN_OUT
         ldx #DEVICE_DISK
         ldy #1
-        jsr KERNAL_SETLFS
+        jsr CC_SETLFS
 
         lda #0
         ldx #0
-        jsr KERNAL_SETBNK
+        jsr CC_SETBNK
 
         lda #output_name_end - output_name
         ldx #<output_name
         ldy #>output_name
-        jsr KERNAL_SETNAM
+        jsr CC_SETNAM
 
         jsr CC_OPEN
         bcs _open_output_fail
-        jsr KERNAL_READST
+        jsr CC_READST
         bne _open_output_fail
 
         ldx #LFN_OUT
         jsr CC_CHKOUT
         bcs _open_output_fail
-        jsr KERNAL_READST
+        jsr CC_READST
         bne _open_output_fail
         clc
         rts
@@ -1113,16 +1143,16 @@ disk_command:
         lda #LFN_CMD
         ldx #DEVICE_DISK
         ldy #LFN_CMD
-        jsr KERNAL_SETLFS
+        jsr CC_SETLFS
 
         lda #0
         ldx #0
-        jsr KERNAL_SETBNK
+        jsr CC_SETBNK
 
         lda #0
         ldx #0
         ldy #0
-        jsr KERNAL_SETNAM
+        jsr CC_SETNAM
 
         jsr CC_OPEN
         bcs _disk_command_fail
@@ -1139,7 +1169,7 @@ _disk_command_loop:
         bra _disk_command_loop
 
 _disk_command_sent:
-        jsr KERNAL_READST
+        jsr CC_READST
         bne _disk_command_fail
         lda #0
         sta disk_status
