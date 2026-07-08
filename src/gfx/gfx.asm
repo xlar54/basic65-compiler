@@ -12,8 +12,8 @@
 ;
 ; Drawing core: the vendored m65-fcm library (src/gfx/lib/), 256-colour
 ; FCM bitmap graphics. Pixel data lives in bank 4 ($40000+, claimed
-; wholly by 320x200); FCM screen codes in bank 1 $0000-$07CF (below
-; the variable heap). PTR is repointed into the runtime's varptr slot
+; wholly by 320x200); FCM screen codes at bank 5 $8000-$87CF (bank-1
+; low belongs to the C65 KERNAL/DOS -- README contract). PTR is repointed into the runtime's varptr slot
 ; ($F7-$FA) -- free during a graphics call; the resident gfxcall
 ; restores varptr's bank-1 invariant afterwards.
 ;
@@ -59,7 +59,9 @@ MODE_BITMAP80           = 4
 MODE_NCM40              = 5
 MODE_NCM80              = 6
 
-SCREEN_RAM              = $10000        ; FCM screen codes (bank 1 low)
+SCREEN_RAM              = $58000        ; FCM screen codes (bank 5, after
+                                        ; blob $0000 + stash $4000; bank-1
+                                        ; low is C65 KERNAL/DOS territory)
 CHAR_DATA               = $40000        ; pixel data claims bank 4
 CHAR_CODE_BASE          = $1000         ; $40000/64
 PTR                     = $F7           ; the runtime's varptr slot
@@ -117,6 +119,11 @@ g_clear:
 ; yrad/drawsides/subtend are ignored; the start angle arrives in
 ; degrees and becomes the library's 0-255 units via *182/256
 g_polygon:
+        lda dma_args+5
+        ora dma_args+9
+        beq _gpg_ok
+        rts
+_gpg_ok:
         lda dma_args+0
         sta poly_cx
         lda dma_args+1
@@ -157,7 +164,15 @@ _gpg_next:
 _gpg_a:  .byte 0
 _gpg_hi: .byte 0
 
+; each drawing wrapper rejects calls whose 8-bit-consumed args
+; (y coordinates, radii) arrive with a nonzero high byte -- the
+; plot-level clip can't see the truncation
 g_line:
+        lda dma_args+5
+        ora dma_args+13
+        beq _gl_ok
+        rts
+_gl_ok:
         lda dma_args+0
         sta line_x0
         lda dma_args+1
@@ -175,6 +190,10 @@ g_line:
         jmp draw_line
 
 g_plot:
+        lda dma_args+5
+        beq _gpl_ok
+        rts
+_gpl_ok:
         lda dma_args+0
         sta plot_x
         lda dma_args+1
@@ -188,6 +207,11 @@ g_plot:
 ; BOX x0,y0,x2,y2[,solid]: two diagonally opposite corners in any
 ; order; the library wants origin + size
 g_box:
+        lda dma_args+5
+        ora dma_args+13
+        beq _gbx_ok
+        rts
+_gbx_ok:
         sec                     ; x: rect_x = min, rect_w = |dx|+1
         lda dma_args+8
         sbc dma_args+0
@@ -243,6 +267,11 @@ _gb_yw:
         jmp draw_rect
 
 g_circle:
+        lda dma_args+5
+        ora dma_args+9
+        beq _gc_ok
+        rts
+_gc_ok:
         lda dma_args+0
         sta circ_cx
         lda dma_args+1
@@ -260,6 +289,12 @@ g_circle:
         jmp draw_circle
 
 g_ellipse:
+        lda dma_args+5
+        ora dma_args+9
+        ora dma_args+13
+        beq _ge_ok
+        rts
+_ge_ok:
         lda dma_args+0
         sta elip_cx
         lda dma_args+1
@@ -281,6 +316,10 @@ g_ellipse:
 ; PAINT x,y (mode 0 semantics): repaint the seed pixel's colour region
 ; with the pen colour
 g_paint:
+        lda dma_args+5
+        beq _gpt_ok
+        rts
+_gpt_ok:
         lda dma_args+0
         sta plot_x
         lda dma_args+1
@@ -328,6 +367,12 @@ g_palette4:
         jmp set_palette_color
 
 g_pixel:
+        lda dma_args+5          ; aliased y: read as colour 0
+        beq _gpx_ok
+        lda #0
+        sta gfxres
+        rts
+_gpx_ok:
         lda dma_args+0
         sta plot_x
         lda dma_args+1

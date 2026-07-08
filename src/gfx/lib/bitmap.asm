@@ -211,6 +211,20 @@ plot_y:     .byte 0
 plot_col:   .byte 0
 
 plot_pixel:
+        ; [basic65c] clip guard: x >= 320 or y >= 200 (including
+        ; negative wraps) plots nothing -- every shape routine funnels
+        ; through here, so this bounds all drawing
+        lda plot_y
+        cmp #200
+        bcs _pp_clip
+        lda plot_x+1
+        beq _pp_clip_xok
+        cmp #1
+        bne _pp_clip
+        lda plot_x
+        cmp #$40                ; 320 = $0140
+        bcs _pp_clip
+_pp_clip_xok:
         ; char_col = x / 8
         lda plot_x
         sta _pp_char_col
@@ -314,6 +328,9 @@ plot_pixel:
         
         rts
 
+_pp_clip:
+        rts
+
 _pp_char_col:   .word 0
 _pp_char_row:   .byte 0
 _pp_pixel_x:    .byte 0
@@ -331,6 +348,18 @@ _pp_tmp2:       .word 0
 ; Uses hardware multiplier for fast address calculation.
 ;=======================================================================================
 get_pixel:
+        ; [basic65c] clip guard: out-of-range reads return colour 0
+        lda plot_y
+        cmp #200
+        bcs _gp_clip
+        lda plot_x+1
+        beq _gp_clip_xok
+        cmp #1
+        bne _gp_clip
+        lda plot_x
+        cmp #$40
+        bcs _gp_clip
+_gp_clip_xok:
         lda plot_x
         sta _gp_char_col
         lda plot_x+1
@@ -416,6 +445,10 @@ get_pixel:
         taz
         
         lda [PTR],z
+        rts
+
+_gp_clip:
+        lda #0
         rts
 
 _gp_char_col:   .word 0
