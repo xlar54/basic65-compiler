@@ -154,10 +154,11 @@ _goc_80:
 _goc_set:
         jsr set_screen_mode     ; sets pointers, clears codes + bitmap
         jsr restore_default_palette
-        lda #0
-        sta gf_mode
-        lda #1
-        sta gfx_pen
+        lda #0                  ; FCM pixel value 0 is transparent and
+        sta BACKCOL             ; shows $d021: the book says SCREEN
+        sta gf_mode             ; sets the background to black
+        lda #1                  ; (restore_default_screen puts the
+        sta gfx_pen             ; boot blue back on CLOSE)
         rts
 
 ; A = w high byte, X = screen: record the width flag

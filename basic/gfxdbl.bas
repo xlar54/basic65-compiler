@@ -1,6 +1,7 @@
 10 print chr$(147);"dbl buffer test"
 20 graphic clr
 30 screen 320,200,8
+35 g0=rcolor(0)
 40 pen 2
 50 box 10,10,60,60,1
 60 screen def 1,0,0,8
@@ -26,4 +27,5 @@
 240 print "after clr (want 6):";p4
 242 print "open result (want 0):";e
 244 print "after hidden close (want 2):";p5
-250 if p1=5 and p2=5 and p3=2 and p4=6 and e=0 and p5=2 then print "dbl ok"
+246 print "bg after open (want 0):";g0
+250 if p1=5 and p2=5 and p3=2 and p4=6 and e=0 and p5=2 and g0=0 then print "dbl ok"
