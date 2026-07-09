@@ -4651,6 +4651,64 @@ strsubempty:
         sta exprhi
         rts
 
+; DEF FN glue: copy the 5-byte float slot between the parameter
+; variable ([varptr]) and its stash (bank-1 address in exprlo/hi).
+; fnsave: var -> stash (entry, before the argument lands);
+; fnrest: stash -> var (exit, un-shadowing the global).
+fnsave:
+        ldz #4
+        ldx #4
+_fns_rd:
+        lda [varptr],z
+        sta fnbuf,x
+        dez
+        dex
+        bpl _fns_rd
+        lda exprlo
+        sta varptr
+        lda exprhi
+        sta varptr+1
+        ldz #4
+        ldx #4
+_fns_wr:
+        lda fnbuf,x
+        sta [varptr],z
+        dez
+        dex
+        bpl _fns_wr
+        rts
+
+fnrest:
+        lda varptr              ; remember the variable, read the stash
+        sta fnptr
+        lda varptr+1
+        sta fnptr+1
+        lda exprlo
+        sta varptr
+        lda exprhi
+        sta varptr+1
+        ldz #4
+        ldx #4
+_fnr_rd:
+        lda [varptr],z
+        sta fnbuf,x
+        dez
+        dex
+        bpl _fnr_rd
+        lda fnptr
+        sta varptr
+        lda fnptr+1
+        sta varptr+1
+        ldz #4
+        ldx #4
+_fnr_wr:
+        lda fnbuf,x
+        sta [varptr],z
+        dez
+        dex
+        bpl _fnr_wr
+        rts
+
 ; RPT$(s$, count): the string repeated count times. Longer than 255
 ; is STRING TOO LONG; empty source or zero count gives "".
 MULTINA = $d770
@@ -5353,6 +5411,8 @@ chsrc:        .byte 0,0,0,0
 win_wh:       .byte 0,0
 win_active:   .byte 0
 rpt_j:        .byte 0
+fnbuf:        .byte 0,0,0,0,0
+fnptr:        .byte 0,0
 chlen:        .byte 0
 chidx:        .byte 0
 strtslots:    .fill 44, 0

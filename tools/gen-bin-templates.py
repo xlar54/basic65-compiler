@@ -84,7 +84,7 @@ NAME_FRAGMENTS = {
     "out_dodone_prefix", "out_iftrue_prefix", "out_ifskip_prefix",
     "out_ifend_prefix", "out_ifelse_prefix", "out_iftmp_prefix",
     "out_arrayok_prefix", "out_arraynonneg_prefix", "out_arrayhieq_prefix",
-    "out_onnext_prefix", "out_ondone_prefix",
+    "out_onnext_prefix", "out_ondone_prefix", "out_fnlab_prefix",
 }
 # handled by mode branches in their calling emitters, never sent to the
 # binary path through out_zstr

@@ -170,6 +170,7 @@ ASCII_LOWER_A           = $61
 ASCII_LOWER_F           = $66
 
 LINE_BUF_MAX            = 240
+DEF_MAX                 = 16
 FILENAME_MAX            = 31
 .if TEXT_EMITTER
 LINE_MAX                = 240   ; checked build: tables extend past $c000
@@ -293,6 +294,7 @@ _main_clr_hi:                   ; the zero-init state it expects
         sta fgoto_used
         sta bank_used
         sta gfx_used
+        sta def_count
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -1541,6 +1543,23 @@ _scan_vars_no_gfx:
         ldx #1
         stx math_used
 _scan_vars_no_math:
+        cmp #$a5                ; FN name( -- swallow the name so it
+        bne _scan_vars_no_fn    ; does not register as an array (the
+        jsr line_skip_spaces    ; parameter/argument still scan)
+        jsr line_at_end
+        bcs _scan_vars_jloop
+        jsr line_get
+_svfn_tail:
+        jsr line_at_end
+        bcs _scan_vars_jloop
+        jsr line_peek
+        jsr is_var_tail
+        bcs _scan_vars_jloop
+        jsr line_get
+        bra _svfn_tail
+_scan_vars_jloop:
+        jmp _scan_vars_loop
+_scan_vars_no_fn:
 
         sta token_value
         lda token_value
@@ -1696,8 +1715,9 @@ _scan_ext_skip:
         bra _scan_vars_loop
 
 _scan_vars_fail:
-        lda #1
-        sta compile_error
+        lda #<msg_error_scan_var
+        ldy #>msg_error_scan_var
+        jsr fatal_error_zstr
         bra _scan_vars_loop
 
 _scan_vars_done:
@@ -2344,7 +2364,7 @@ _stab:
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
         .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY, $DE
-        .byte $DF, $E1, $E2, $E5, $E8, $E3
+        .byte $DF, $E1, $E2, $E5, $E8, $E3, $96
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2360,7 +2380,7 @@ _stmt_jtab:
         .word compile_diskcmd, compile_attr_fg, compile_e0
         .word compile_key, compile_graphic
         .word compile_paint, compile_box, compile_circle, compile_gline
-        .word compile_scnclr, compile_paste
+        .word compile_scnclr, compile_paste, compile_def
 
 _stmt_return:
         jsr emit_tmpl_done
@@ -4698,7 +4718,10 @@ _factor_not_number:
         beq _factor_log
         cmp #TOK_EXP_FN
         beq _factor_exp
-        cmp #$d0                ; RPEN
+        cmp #$a5                ; FN
+        bne +
+        jmp _factor_fn
++       cmp #$d0                ; RPEN
         bne +
         jmp _factor_rpen
 +       cmp #$cd                ; RCOLOR
@@ -5278,6 +5301,41 @@ _factor_one:
 _factor_one_fail:
         ply
         pla
+        sec
+        rts
+
+; FN name(arg): argument to FAC, call the DEF body
+_factor_fn:
+        jsr line_get            ; consume the FN token
+        jsr parse_fn_name
+        bcs _ffn_fail
+        jsr fn_lookup
+        bcs _ffn_fail           ; FN before its DEF line
+        phx
+        jsr parse_open_paren
+        bcs _ffn_fail_pop
+        jsr compile_num_expression
+        bcs _ffn_fail_pop
+        jsr parse_close_paren
+        bcs _ffn_fail_pop
+        lda expr_type
+        bne _ffn_flt
+        jsr emit_tmpl
+        .word out_jsr_float16
+_ffn_flt:
+        pla
+        jsr fn_set_ref
+        jsr emit_tmpl
+        .word out_jsr_label
+        jsr out_fn_ref
+        jsr out_cr
+        lda #1
+        sta expr_type
+        clc
+        rts
+_ffn_fail_pop:
+        plx
+_ffn_fail:
         sec
         rts
 
@@ -6896,6 +6954,26 @@ _cgs_bad:
         jmp compile_env_bad
 cgfx_idx:
         .byte 0
+def_count:
+        .byte 0
+cfn_n1:
+        .byte 0
+cfn_n2:
+        .byte 0
+cfn_ref_lo:
+        .byte 0
+cfn_ref_hi:
+        .byte 0
+cdef_idx:
+        .byte 0
+cdef_skip_lo:
+        .byte 0
+cdef_skip_hi:
+        .byte 0
+cdef_parm_lo:
+        .byte 0
+cdef_parm_hi:
+        .byte 0
 cgfx_tab:
         .byte 4, 5+1, 3         ; 0: BOX
         .byte 3, 6+1, 4         ; 3: CIRCLE (arcs: +start,stop)
@@ -7174,6 +7252,232 @@ _cscr_set:
         jmp emit_gfxcall
 _cscr_bad:
         jmp compile_env_bad
+
+; ---- DEF FN name(param) = expression ----
+; The body compiles in place as a subroutine bracketed by a jump-over:
+; entry stashes the (float) parameter variable, stores the argument
+; (arriving in FAC), evaluates the body, restores the variable, and
+; returns with the result in FAC. FN calls must appear textually after
+; their DEF (matching interpreter execution order in practice); the
+; definition is static -- a re-DEF at runtime is not supported.
+; Body labels use LBL_IF ids 368+ (the IF counter grows from 0; they
+; can only clash in programs with ~70+ IF statements).
+
+; parse an FN name into cfn_n1/cfn_n2 (1-2 chars)
+parse_fn_name:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _pfn_bad
+        jsr line_get
+        jsr is_var_start
+        bcs _pfn_bad
+        sta cfn_n1
+        lda #0
+        sta cfn_n2
+        jsr line_at_end
+        bcs _pfn_ok
+        jsr line_peek
+        jsr is_var_tail
+        bcs _pfn_ok
+        jsr line_get
+        sta cfn_n2
+_pfn_ok:
+        clc
+        rts
+_pfn_bad:
+        sec
+        rts
+
+; find cfn_n1/n2 in the DEF table -> X, C clear; C set when absent
+fn_lookup:
+        ldx #0
+_fnl_scan:
+        cpx def_count
+        beq _fnl_miss
+        lda def_n1,x
+        cmp cfn_n1
+        bne _fnl_next
+        lda def_n2,x
+        cmp cfn_n2
+        beq _fnl_hit
+_fnl_next:
+        inx
+        bra _fnl_scan
+_fnl_hit:
+        clc
+        rts
+_fnl_miss:
+        sec
+        rts
+
+; cfn_ref = the body label id for def index in A (368 + index)
+fn_set_ref:
+        clc
+        adc #$70
+        sta cfn_ref_lo
+        lda #$01
+        sta cfn_ref_hi
+        rts
+
+; label reference/definition: LBL_IF id in cfn_ref (text: fnlabXXXX)
+out_fn_ref:
+        ldx backend_mode
+        beq +
+        lda #LBL_IF
+        ldx cfn_ref_lo
+        ldy cfn_ref_hi
+        jmp bin_label
++       lda #<out_fnlab_prefix
+        ldy #>out_fnlab_prefix
+        jsr out_zstr
+        lda cfn_ref_hi
+        jsr out_hex_byte
+        lda cfn_ref_lo
+        jsr out_hex_byte
+        rts
+
+; emit "fnlabXXXX:" on its own line (a definition site)
+emit_fn_label_line:
+        jsr out_fn_ref
+        lda #':'
+        jsr out_char
+        jmp out_cr
+
+compile_def:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cdef_bad
+        jsr line_get
+        cmp #$a5                ; FN
+        bne _cdef_bad
+        jsr parse_fn_name
+        bcs _cdef_bad
+        jsr fn_lookup
+        bcc _cdef_have          ; pass 2 finds the pass-1 entry
+        ldx def_count
+        cpx #DEF_MAX
+        bcs _cdef_bad
+        lda cfn_n1
+        sta def_n1,x
+        lda cfn_n2
+        sta def_n2,x
+        lda var_heap_next_hi    ; a 5-byte heap stash for the shadowed
+        cmp #>VAR_HEAP_LIMIT    ; parameter (allocated once: passes
+        bcs _cdef_bad           ; dedupe by name)
+        lda var_heap_next_lo
+        sta def_stash_lo,x
+        lda var_heap_next_hi
+        sta def_stash_hi,x
+        clc
+        lda var_heap_next_lo
+        adc #5
+        sta var_heap_next_lo
+        bcc +
+        inc var_heap_next_hi
++       inc def_count
+_cdef_have:
+        stx cdef_idx
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cdef_bad
+        jsr line_get
+        cmp #'('
+        bne _cdef_bad
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cdef_bad
+        jsr line_get
+        jsr parse_variable_with_first_char
+        bcs _cdef_bad
+        lda var_type
+        cmp #VAR_TYPE_FLOAT
+        bne _cdef_bad
+        jsr resolve_var         ; parse only names the variable; this
+        bcs _cdef_bad           ; sets current_var_data to its slot
+        ldx cdef_idx
+        lda current_var_data_lo
+        sta def_parm_lo,x
+        sta cdef_parm_lo
+        lda current_var_data_hi
+        sta def_parm_hi,x
+        sta cdef_parm_hi
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cdef_bad
+        jsr line_get
+        cmp #')'
+        bne _cdef_bad
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cdef_bad
+        jsr line_get
+        cmp #TOK_EQUAL
+        beq _cdef_body
+        cmp #'='
+        bne _cdef_bad
+_cdef_body:
+        lda if_label_next_lo    ; the jump-over label comes from the
+        sta cdef_skip_lo        ; shared counter (monotonic, so it
+        lda if_label_next_hi    ; never collides with an IF's ids)
+        sta cdef_skip_hi
+        jsr inc_if_label_next
+        jsr emit_tmpl           ; jmp past the body
+        .word out_jmp_label
+        lda cdef_skip_lo
+        sta cfn_ref_lo
+        lda cdef_skip_hi
+        sta cfn_ref_hi
+        jsr out_fn_ref
+        jsr out_cr
+        lda cdef_idx            ; the body entry label
+        jsr fn_set_ref
+        jsr emit_fn_label_line
+        ldx cdef_idx            ; entry: stash the parameter variable
+        lda def_stash_lo,x
+        sta number_lo
+        lda def_stash_hi,x
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_set_varptr_current
+        jsr emit_tmpl
+        .word out_jsr_fnsave
+        jsr emit_set_varptr_current
+        jsr emit_tmpl           ; the argument arrives in FAC
+        .word out_jsr_fstorevar
+        jsr compile_num_expression
+        bcs _cdef_bad
+        lda expr_type
+        bne _cdef_flt
+        jsr emit_tmpl           ; int body: result still lands in FAC
+        .word out_jsr_float16
+_cdef_flt:
+        lda cdef_parm_lo        ; restore the shadowed variable
+        sta current_var_data_lo
+        lda cdef_parm_hi
+        sta current_var_data_hi
+        ldx cdef_idx
+        lda def_stash_lo,x
+        sta number_lo
+        lda def_stash_hi,x
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_set_varptr_current
+        jsr emit_tmpl
+        .word out_jsr_fnrest
+        jsr emit_tmpl
+        .word out_rts
+        lda cdef_skip_lo        ; land here at runtime
+        sta cfn_ref_lo
+        lda cdef_skip_hi
+        sta cfn_ref_hi
+        jsr emit_fn_label_line
+        clc
+        rts
+_cdef_bad:
+        lda #<msg_error_bad_def
+        ldy #>msg_error_bad_def
+        jsr fatal_statement_error
+        rts
 
 ; KEY number, string (the ON/OFF/LOAD/SAVE and bare forms are not
 ; supported -- they only matter interactively)
@@ -13043,6 +13347,10 @@ msg_writing_prg:
 msg_wrote_prg:
         .text "basic65c: wrote out.prg"
         .byte 13, 0
+msg_error_bad_def:
+        .byte 13
+        .text "bad def fn"
+        .byte 0
 msg_bin_disk_fail:
         .byte 13
         .text "cannot write out file (disk full or write protected?)"
@@ -13080,6 +13388,9 @@ msg_error_too_many_data:
         .byte 13, 0
 msg_error_line_overflow:
         .text "line too long"
+        .byte 13, 0
+msg_error_scan_var:
+        .text "cannot resolve variable (out of symbols?)"
         .byte 13, 0
 msg_error_unsupported_token:
         .text "unsupported token"
@@ -14602,6 +14913,27 @@ out_jsr_rptf:
 .if TEXT_EMITTER
         .text "        jsr rptf"
         .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fnsave:
+.if TEXT_EMITTER
+        .text "        jsr fnsave"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_fnrest:
+.if TEXT_EMITTER
+        .text "        jsr fnrest"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_fnlab_prefix:
+.if TEXT_EMITTER
+        .text "fnlab"
+        .byte 0
 .else
         .byte 0
 .fi
@@ -16621,17 +16953,35 @@ data_line_addr_hi: .fill DATA_LINE_MAX, 0
 ; these don't care: main clears $c000-$cfff at startup, and everything
 ; below $c000 loads normally. All VALUED content (code, templates)
 ; must stay below $c000.
+;
+; EXCEPTION: the source filename is read at prompt time, BEFORE the
+; ROMs are banked out -- $c000-$cfff reads see the ROM shadow ($ff
+; padding) until then, so these two must stay below $c000 (writes
+; always land in RAM, which is why the startup clear and the prompt's
+; stores masked this until the block crossed the boundary).
+source_filename_len:
+        .byte 0
+source_filename_buf:
+        .fill FILENAME_MAX + 1, 0
         .cerror * >= $c000, "loaded content (code/templates) must stay below $c000"
+def_n1:
+        .fill DEF_MAX, 0
+def_n2:
+        .fill DEF_MAX, 0
+def_parm_lo:
+        .fill DEF_MAX, 0
+def_parm_hi:
+        .fill DEF_MAX, 0
+def_stash_lo:
+        .fill DEF_MAX, 0
+def_stash_hi:
+        .fill DEF_MAX, 0
 line_addr_lo:
         .fill LINE_MAX, 0
 line_addr_hi:
         .fill LINE_MAX, 0
 line_buf:
         .fill LINE_BUF_MAX, 0
-source_filename_len:
-        .byte 0
-source_filename_buf:
-        .fill FILENAME_MAX + 1, 0
 line_table_lo:
         .fill LINE_MAX, 0
 line_table_hi:

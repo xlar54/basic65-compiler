@@ -27,7 +27,7 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 78 | 7 | 40 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 80 | 7 | 38 |
 | $CE-prefixed functions | 18 | 16 | — | 2 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
@@ -59,7 +59,7 @@ Legend:
 | $93 | LOAD | ❌ | |
 | $94 | SAVE | ❌ | |
 | $95 | VERIFY | ❌ | |
-| $96 | DEF | ❌ | DEF FN queued; byte also tails CHARDEF ($E0 $96) |
+| $96 | DEF | ✅ | DEF FN name(param)=expr, float params, body compiled in place as a subroutine; byte also tails CHARDEF ($E0 $96) |
 | $97 | POKE | ✅ | |
 | $98 | PRINT# | ✅ | |
 | $99 | PRINT | ✅ | PRINT USING not supported ($FB) |
@@ -74,7 +74,7 @@ Legend:
 | $A2 | NEW | ✖ | direct-mode |
 | $A3 | TAB( | 🔧 | inside PRINT |
 | $A4 | TO | 🔧 | FOR / GO TO / MOVSPR |
-| $A5 | FN | ❌ | DEF FN queued |
+| $A5 | FN | ✅ | FN name(arg): numeric arg to FAC, calls the DEF body; the DEF must appear textually before the first call |
 | $A6 | SPC( | 🔧 | inside PRINT |
 | $A7 | THEN | 🔧 | inside IF |
 | $A8 | NOT | ✅ | |
