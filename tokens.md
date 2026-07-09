@@ -28,7 +28,7 @@ Legend:
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 78 | 7 | 40 |
-| $CE-prefixed functions | 17 | 14 | — | 3 |
+| $CE-prefixed functions | 17 | 15 | — | 2 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
@@ -177,7 +177,7 @@ Legend:
 | $CE $06 | RSPRITE | ✅ | |
 | $CE $07 | RSPCOLOR | ✅ | |
 | $CE $08 | LOG10 | ✅ | |
-| $CE $09 | RWINDOW | ❌ | |
+| $CE $09 | RWINDOW | ⚠️ | 0/1 window dims (tracked from the WINDOW command; raw ESC windows untracked), 2/3 live screen cols/rows from $D031 |
 | $CE $0A | POINTER | ❌ | |
 | $CE $0B | MOD | ✅ | |
 | $CE $0C | PIXEL | ⚠️ | reads a pixel colour; stages through the DMA arg slots, so not usable inside a DMA statement argument list |

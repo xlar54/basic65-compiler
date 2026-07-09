@@ -5256,6 +5256,8 @@ gfx_fn:       .byte 0
 gfx_pen:      .byte 1
 gfxres:       .byte 0
 chsrc:        .byte 0,0,0,0
+win_wh:       .byte 0,0
+win_active:   .byte 0
 chlen:        .byte 0
 chidx:        .byte 0
 strtslots:    .fill 44, 0
@@ -6305,6 +6307,18 @@ wingo:
         jsr kernalchrout        ; like the ROM's WINDOW does
         ply
         plx
+        sec                     ; record the dimensions for RWINDOW
+        lda win_a+2             ; width = col2 - col1 + 1 (the +1 is
+        sbc win_a+0             ; the carry surviving the sbc)
+        adc #0
+        sta win_wh
+        sec
+        lda win_a+3
+        sbc win_a+1
+        adc #0
+        sta win_wh+1
+        lda #1
+        sta win_active
         lda #0
         sta printcol
         lda win_i
@@ -6315,6 +6329,50 @@ wingo:
         lda #$93                ; clear flag: clear inside the window
         jsr kernalchrout
 +       rts
+
+; RWINDOW(n): 0 window width, 1 window height, 2 screen columns,
+; 3 screen rows. Without an active WINDOW, 0/1 report the full
+; screen. (A window set by raw ESC sequences is not tracked.)
+rwindowf:
+        lda exprlo
+        and #3
+        cmp #2
+        bcc _rw_win
+        cmp #3
+        beq _rw_rows
+_rw_cols:
+        lda $d031
+        and #$80                ; H640
+        beq _rw_c40
+        lda #80
+        bra _rw_out
+_rw_c40:
+        lda #40
+        bra _rw_out
+_rw_rows:
+        lda $d031
+        and #$08                ; V400
+        beq _rw_r25
+        lda #50
+        bra _rw_out
+_rw_r25:
+        lda #25
+        bra _rw_out
+_rw_win:
+        tax
+        lda win_active
+        beq _rw_full
+        lda win_wh,x
+        bra _rw_out
+_rw_full:
+        txa                     ; no window: the full screen
+        beq _rw_cols
+        bra _rw_rows
+_rw_out:
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
 
 ; KEY n,s$: rewrite the editor's function-key table in place.
 ; Probe-verified layout: 16 length bytes at $1000 (F1..), string data

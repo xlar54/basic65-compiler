@@ -5129,6 +5129,10 @@ _factor_no_pixel:
         bne _factor_no_hasbit
         jmp _factor_hasbit
 _factor_no_hasbit:
+        cmp #$09                ; RWINDOW
+        bne _factor_no_rwin
+        jmp _factor_rwindow
+_factor_no_rwin:
         cmp #$05                ; RSPPOS
         beq _factor_rsppos
         cmp #$06                ; RSPRITE
@@ -5248,6 +5252,11 @@ _factor_one_fail:
         pla
         sec
         rts
+
+_factor_rwindow:
+        lda #<out_jsr_rwindowf
+        ldy #>out_jsr_rwindowf
+        bra _factor_one
 
 _factor_rpen:
         jsr line_get            ; consume the RPEN token
@@ -14542,6 +14551,13 @@ out_jsr_charstage:
 out_jsr_hasbitf:
 .if TEXT_EMITTER
         .text "        jsr hasbitf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rwindowf:
+.if TEXT_EMITTER
+        .text "        jsr rwindowf"
         .byte 13, 0
 .else
         .byte 0

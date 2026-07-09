@@ -89,6 +89,10 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] rwindow.bas      (RWINDOW 0-3: screen cols/rows from $D031,
+      window dims tracked through the WINDOW command; prints RWINDOW
+      OK with a 16x6 window; compiled run verified 2026-07-09.
+      Divergence: windows set by raw ESC sequences are not tracked.)
 - [ ] gfxbox4.bas      (BOX 4-corner path form: filled diamond +
       parallelogram outline; PIXEL probes 3/5/0 + BOX4 OK; compiled
       run verified 2026-07-08 incl. bitmap decode. Note: path fill is
