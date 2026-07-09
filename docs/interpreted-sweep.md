@@ -85,6 +85,13 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [ ] gfxdbl.bas       (SCREEN DEF/OPEN/SET double buffering across
+      attic-backed screens 0-3 + SCREEN CLR; PIXEL readbacks assert
+      draw-to-hidden, flip, canvas-preservation and clear (5/5/2/6 +
+      DBL OK); compiled run verified 2026-07-08. Divergences: every
+      screen is 320x200x256 FCM -- DEF flags are bookkeeping; depths
+      1-8 render as the 256-colour superset; buffers live in attic,
+      not banks 4/5.)
 - [ ] rcolor.bas       (RCOLOR sources 0-3 with poked border/bg and
       CHR$(5) text colour; prints RCOLOR OK; compiled run verified
       2026-07-08)
