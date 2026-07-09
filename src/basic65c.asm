@@ -6856,10 +6856,12 @@ _cscr_simple3:
         jmp emit_gfxcall
 _cscr_close_kw:
         jsr line_get
+        jsr emit_tmpl           ; bare CLOSE means screen 0 -- without
+        .word out_jsr_dmarst    ; this the staged args are stale
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _cscr_close
-        jsr compile_gfxargs     ; optional screen number: parsed, ignored
+        jsr cglcoord            ; one screen-number expression
         bcs _cscr_bad
 _cscr_close:
         lda #1
@@ -6884,21 +6886,30 @@ _cscr_def:
         jmp emit_gfxcall
 _cscr_sopen:
         jsr line_get
+        jsr emit_tmpl
+        .word out_jsr_dmarst
         jsr line_skip_spaces
         jsr line_at_end_or_colon
-        bcs _cscr_sopen0
-        jsr compile_gfxargs
+        bcs _cscr_sopen_go      ; bare OPEN: screen 0
+        jsr cglcoord            ; the screen number
         bcs _cscr_bad
-        lda cdma_i
-        cmp #1
-        bne _cscr_bad
-        bra _cscr_sopen_go
-_cscr_sopen0:
-        jsr emit_tmpl           ; bare OPEN: screen 0 (dmarst zeroes)
-        .word out_jsr_dmarst
 _cscr_sopen_go:
         lda #15
-        jmp emit_gfxcall
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_jsr_gfxcall
+        jsr parse_opt_comma     ; optional result variable: our OPEN
+        bcs _cscr_sopen_done    ; cannot fail, so it reads 0
+        jsr compile_input_target_numeric
+        bcs _cscr_bad
+        lda #0
+        sta number_lo
+        sta number_hi
+        jsr emit_load_number
+        jsr emit_store_var
+_cscr_sopen_done:
+        clc
+        rts
 _cscr_set:
         jsr line_get            ; the $fe prefix
         jsr line_get

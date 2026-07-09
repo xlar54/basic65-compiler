@@ -234,7 +234,7 @@ Legend:
 | $FE $2B | FIND | ✖ | editor |
 | $FE $2C | CHANGE | ✖ | editor |
 | $FE $2D | SET | ⚠️ | only as SETBIT ($FE $2D $FE $4E): set one bit, BANK-aware <=64K, flat 28-bit above |
-| $FE $2E | SCREEN | ⚠️ | all forms: [s,]w,h,d, CLR c, DEF, OPEN [s], SET d,v (attic-backed double buffering), CLOSE [s]; 320x200 and 640x200 at 256 colours (VIC-IV FCM, not bitplanes); 400-line modes need more chip RAM than exists at 8bpp |
+| $FE $2E | SCREEN | ⚠️ | all forms: [s,]w,h,d, CLR c, DEF, OPEN [s][,resultvar], SET d,v (attic-backed double buffering), CLOSE [s] (view-aware: hidden screens close without leaving graphics); 320x200 and 640x200 at 256 colours (VIC-IV FCM, not bitplanes); 400-line modes need more chip RAM than exists at 8bpp |
 | $FE $2F | POLYGON | ⚠️ | regular n-gon from xrad (yrad/drawsides/subtend accepted, ignored); angle + solid work |
 | $FE $30 | ELLIPSE | ⚠️ | fill flag works; arcs unsupported |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |

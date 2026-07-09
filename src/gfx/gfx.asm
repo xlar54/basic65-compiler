@@ -373,7 +373,19 @@ scr_wf:    .byte 0,0,0,0
 scr_hf:    .byte 0,0,0,0
 scr_depth: .byte 0,0,0,0
 
+; SCREEN CLOSE [s]: closing the viewed screen returns to text (with
+; the palette restore inside restore_default_screen); closing a
+; hidden screen just clears its definition
 g_close:
+        lda dma_args+0
+        and #3
+        cmp scr_view
+        beq _gcl_view
+        tax
+        lda #0
+        sta scr_wf,x
+        rts
+_gcl_view:
         jmp restore_default_screen
 
 ; SCNCLR colour: fill the whole bitmap with one colour
