@@ -89,6 +89,10 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] gfxchar.bas      (CHAR text on the graphics screen: normal,
+      2x2, 3x-tall scaling and the down direction; sgn-sum PIXEL row/
+      column probes assert ink present (35/44/7 + CHAR OK); compiled
+      run verified 2026-07-08 incl. bitmap decode, user-confirmed.)
 - [ ] getkey.bas       (GETKEY string + numeric targets; INTERACTIVE
       -- blocks for keypresses, run by hand both ways. Compiled
       byte-diff verified 2026-07-08; on the harness skip list.)

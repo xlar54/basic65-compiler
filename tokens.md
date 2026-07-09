@@ -133,7 +133,7 @@ Legend:
 | $DD | PUDEF | ❌ | |
 | $DE | GRAPHIC | ⚠️ | CLR form only |
 | $DF | PAINT | ⚠️ | repaints the seed pixel’s colour region (mode 0); modes 1/2 fall back to the same |
-| $E0 | CHAR | prefix | bare CHAR ❌; CHARDEF ($E0 $96) ✅ |
+| $E0 | CHAR | ✅ | col,row,h,w,dir,string[,charset] with scaling + 4 directions (ROM fonts $29000/$29800/$2D000/$3D000); CHARDEF ($E0 $96) ✅ |
 | $E1 | BOX | ⚠️ | two-corner form (+solid); the 4-corner path form unsupported |
 | $E2 | CIRCLE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $E3 | PASTE | ❌ | |
