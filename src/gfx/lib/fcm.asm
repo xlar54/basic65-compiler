@@ -332,6 +332,25 @@ _ssm_finish_ncm:
 ; Setup screen/color/char pointers (common to all FCM modes)
 ;---------------------------------------------------------------------------------------
 _ssm_setup_pointers:
+        ; [basic65c] first mode switch: capture the platform's own
+        ; CHARPTR, all FOUR bytes -- $D06B (megabyte) included. The
+        ; boot charset location differs between xemu and real
+        ; hardware (the real machine's standard set lives in the char
+        ; WOM at $FF7E000), so restoring a hardcoded $2D000 garbled
+        ; the font on real machines while looking fine in xemu.
+        lda chp_saved
+        bne _ssm_chp_done
+        lda $D068
+        sta chp_save
+        lda $D069
+        sta chp_save+1
+        lda $D06A
+        sta chp_save+2
+        lda $D06B
+        sta chp_save+3
+        lda #1
+        sta chp_saved
+_ssm_chp_done:
         ; Screen RAM pointer ([basic65c] per-mode: scrn_base)
         lda scrn_base
         sta VIC4_SCRNPTRLSB
@@ -417,14 +436,6 @@ restore_default_screen:
         sta VIC4_SCRBPTRBNK
         stz $D063
 
-        ; Restore CHARPTR to ROM charset ($2D000)
-        lda #$00
-        sta $D068
-        lda #$D0
-        sta $D069
-        lda #$02
-        sta $D06A
-
         ; Restore DISPROWS
         lda #25
         sta VIC4_DISPROWS
@@ -459,12 +470,43 @@ restore_default_screen:
         jsr $FF81
         jsr $FF84
 
+        ; [basic65c] put the CAPTURED boot CHARPTR back, all four
+        ; bytes, AFTER CINT (whose hot-register writes recompute the
+        ; charset pointer and would clobber an earlier restore).
+        ; Falls back to the classic $02D000 if no mode switch ever
+        ; saved one (cannot happen through this code path).
+        lda chp_saved
+        beq _rds_chp_rom
+        lda chp_save
+        sta $D068
+        lda chp_save+1
+        sta $D069
+        lda chp_save+2
+        sta $D06A
+        lda chp_save+3
+        sta $D06B
+        bra _rds_colors
+_rds_chp_rom:
+        lda #$00
+        sta $D068
+        sta $D06B
+        lda #$D0
+        sta $D069
+        lda #$02
+        sta $D06A
+
+_rds_colors:
         ; Restore default colors
         lda #$06
         sta BORDERCOL
         sta BACKCOL
 
         rts
+
+chp_saved:
+        .byte 0
+chp_save:
+        .byte 0, 0, 0, 0
 
 ;===========================================================================================
 ; sets the palette of colors
