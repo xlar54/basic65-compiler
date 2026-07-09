@@ -3343,14 +3343,21 @@ _chst_dst:
         sta varptr+3
         rts
 
-; PEN [pen,] colour -- the colour is the last staged argument; the pen
-; number (only pen 0 exists here) is ignored
+; PEN [pen,] colour -- pens 0-2 are stored (0 = drawing pen; 1/2
+; only become visible under DMODE modes, matching the ROM's default
+; jam1 behaviour where they are latent too)
 penset:
         lda dma_i
         cmp #2
         bcc _pen_one
+        lda dma_args+0
+        and #3
+        cmp #3
+        bcs _pen_done           ; pen 3: not a pen
+        tax
         lda dma_args+4
-        sta gfx_pen
+        sta gfx_pen,x
+_pen_done:
         rts
 _pen_one:
         lda dma_args+0
@@ -3395,11 +3402,14 @@ _rcol_done:
         sta exprhi
         rts
 
-; RPEN(n): only the drawing pen exists here; other pens read as 0
+; RPEN(n): pens 0-2 read back; anything else is 0
 rpenf:
         lda exprlo
-        bne _rpen_zero
-        lda gfx_pen
+        and #3
+        cmp #3
+        bcs _rpen_zero
+        tax
+        lda gfx_pen,x
         sta exprlo
         lda #0
         sta exprhi
@@ -5337,7 +5347,7 @@ bit_addr:     .byte 0,0,0,0
 bit_mask:     .byte 0
 strtsp:       .byte 0
 gfx_fn:       .byte 0
-gfx_pen:      .byte 1
+gfx_pen:      .byte 1, 0, 0  ; pens 0-2 (0 = the drawing colour)
 gfxres:       .byte 0
 chsrc:        .byte 0,0,0,0
 win_wh:       .byte 0,0

@@ -89,6 +89,9 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] penrpen.bas      (PEN pens 0-2 + RPEN readback round trips,
+      independence of the three slots; prints PEN OK; compiled run
+      verified 2026-07-09.)
 - [ ] gfxcopy.bas      (GCOPY/PASTE: the book's box example with a
       red centre, pasted and probed (2/1/0), plus an over-budget
       GCOPY asserting the buffer empties; prints GCOPY OK; compiled

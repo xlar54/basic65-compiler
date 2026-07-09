@@ -117,7 +117,7 @@ Legend:
 | $CD | RCOLOR | ✅ | sources 0-3: background, text, highlight, border |
 | $CE | — | prefix | extended functions, see below |
 | $CF | JOY | ✅ | |
-| $D0 | RPEN | ⚠️ | drawing pen (0) only; pens 1/2 read as 0 |
+| $D0 | RPEN | ✅ | reads pens 0-2 |
 | $D1 | DEC | ✅ | no space allowed before "(" (ROM rule) |
 | $D2 | HEX$ | ✅ | |
 | $D3 | ERR$ | ✅ | |
@@ -241,7 +241,7 @@ Legend:
 | $FE $30 | ELLIPSE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |
 | $FE $32 | GCOPY | ✅ | copies x,y,w,h to the buffer; ROM budget honoured (w*h*depth/8 < 1KB, declared depth); over-budget empties the buffer instead of erroring |
-| $FE $33 | PEN | ⚠️ | drawing pen colour (pen 0) only |
+| $FE $33 | PEN | ✅ | pens 0-2 stored per the book (1/2 are latent in default jam1 mode, same as the ROM; they become visible only under DMODE, unsupported) |
 | $FE $34 | PALETTE | ⚠️ | screen,c,r,g,b and COLOR c,r,g,b; RESTORE unsupported |
 | $FE $35 | DMODE | ❌ | graphics queued |
 | $FE $36 | DPAT | ❌ | graphics queued |

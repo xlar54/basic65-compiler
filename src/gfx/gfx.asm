@@ -115,6 +115,8 @@ char_txt:
 g_init:
         lda #0
         sta gf_mode             ; flat fills
+        sta gfx_pen+1           ; erase/outline pens default off
+        sta gfx_pen+2
         lda #1                  ; default pen: white
         sta gfx_pen
         jmp gfx_rstscr
@@ -171,8 +173,10 @@ _goc_set:
         lda #0                  ; FCM pixel value 0 is transparent and
         sta BACKCOL             ; shows $d021: the book says SCREEN
         sta gf_mode             ; sets the background to black
-        lda #1                  ; (restore_default_screen puts the
-        sta gfx_pen             ; boot blue back on CLOSE)
+        sta gfx_pen+1           ; (restore_default_screen puts the
+        sta gfx_pen+2           ; boot blue back on CLOSE)
+        lda #1
+        sta gfx_pen
         rts
 
 ; A = w high byte, X = screen: record the width flag
