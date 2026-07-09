@@ -1514,6 +1514,14 @@ _scan_vars_no_fio:
         beq _scan_vars_gfx
         cmp #$e5                ; LINE
         beq _scan_vars_gfx
+        cmp #$e0                ; bare CHAR draws; CHARDEF ($e0 $96)
+        bne _scan_vars_no_char  ; does not need the blob
+        jsr line_peek
+        cmp #$96
+        beq _scan_vars_no_gfx
+        lda #$e0
+        bra _scan_vars_gfx
+_scan_vars_no_char:
         cmp #$e8                ; SCNCLR colour = graphics clear
         bne _scan_vars_no_gfx
         jsr line_skip_spaces
@@ -5894,9 +5902,10 @@ _cao_bad:
 compile_e0:
         jsr line_at_end
         bcs _ce0_bad
-        jsr line_get
+        jsr line_peek
         cmp #$96
-        bne _ce0_bad
+        bne _ce0_char
+        jsr line_get
         jsr compile_expression
         bcs _ce0_bad
         jsr emit_tmpl
@@ -5909,6 +5918,42 @@ _ce0_bytes:
         jsr emit_tmpl
         .word out_jsr_chputb
         bra _ce0_bytes
+_ce0_char:
+        ; CHAR col,row,h,w,dir,string[,charset]
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        lda #0
+        sta cdma_i
+        ldx #5
+_ce0_args:
+        phx
+        jsr cglcoord
+        plx
+        bcs _ce0_bad2
+        dex
+        beq _ce0_str
+        phx
+        jsr parse_comma
+        plx
+        bcs _ce0_bad2
+        bra _ce0_args
+_ce0_str:
+        jsr parse_comma
+        bcs _ce0_bad2
+        jsr compile_string_expression
+        bcs _ce0_bad2
+        jsr emit_tmpl
+        .word out_jsr_charstage
+        jsr parse_opt_comma
+        bcs _ce0_go
+        jsr cglcoord
+        bcs _ce0_bad2
+_ce0_go:
+        lda #18
+        jmp emit_gfxcall
+_ce0_bad2:
+        jmp compile_env_bad
+
 _ce0_done:
         clc
         rts
@@ -14398,6 +14443,13 @@ out_jsr_getkeyw:
 out_jsr_getstrw:
 .if TEXT_EMITTER
         .text "        jsr getstrw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_charstage:
+.if TEXT_EMITTER
+        .text "        jsr charstage"
         .byte 13, 0
 .else
         .byte 0

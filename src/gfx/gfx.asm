@@ -97,6 +97,15 @@ gfx_base:
         .word g_screenopen      ; 15 SCREEN OPEN [s]
         .word g_screendef       ; 16 SCREEN DEF s,wf,hf,d
         .word g_simple4         ; 17 SCREEN s,w,h,d
+        .word g_char            ; 18 CHAR
+
+; the CHAR text buffer sits at a fixed blob offset so the resident
+; charstage can far-write it into the attic image before the call
+        * = $8100
+char_len:
+        .byte 0
+char_txt:
+        .fill 255, 0
 
 ; GRAPHIC CLR: reset the drawing context; the display is untouched
 ; until SCREEN opens it
@@ -367,6 +376,321 @@ _gsd_trigger:
         lda #<gsdlist
         sta $d705
         rts
+
+; ---- CHAR column,row,height,width,direction,string[,charset] ----
+; glyphs come from the ROM image fonts in banks 2/3 (default $29800,
+; the upper/lower-case half of font A); set bits plot in the pen
+; colour, clear bits stay transparent. direction steps the cursor:
+; 1 up, 2 right (default), 4 down, 8 left.
+g_char:
+        lda dma_args+0          ; x = column * 8 (16-bit)
+        sta ch_x
+        lda #0
+        sta ch_x+1
+        asl ch_x
+        rol ch_x+1
+        asl ch_x
+        rol ch_x+1
+        asl ch_x
+        rol ch_x+1
+        lda dma_args+4          ; y in pixels (16-bit workspace)
+        sta ch_y
+        lda #0
+        sta ch_y+1
+        lda dma_args+8          ; height factor, 0 -> 1
+        bne +
+        lda #1
++       sta ch_h
+        lda dma_args+12         ; width factor, 0 -> 1
+        bne +
+        lda #1
++       sta ch_w
+        lda dma_args+16         ; direction, default right
+        bne +
+        lda #2
++       sta ch_dir
+        lda dma_args+20         ; charset (32-bit); 0 -> $29800
+        ora dma_args+21
+        ora dma_args+22
+        ora dma_args+23
+        beq _gch_defset
+        lda dma_args+20
+        sta ch_set
+        lda dma_args+21
+        sta ch_set+1
+        lda dma_args+22
+        sta ch_set+2
+        bra _gch_set_ok
+_gch_defset:
+        lda #$00
+        sta ch_set
+        lda #$98
+        sta ch_set+1
+        lda #$02
+        sta ch_set+2
+_gch_set_ok:
+        lda #0
+        sta ch_i
+_gch_next:
+        lda ch_i
+        cmp char_len
+        bcs _gch_done
+        tax
+        lda char_txt,x
+        jsr ch_p2sc             ; PETSCII -> screen code
+        sta ch_sc
+        ; glyph address = charset + sc*8 (32-bit)
+        lda ch_sc
+        sta ch_gl
+        lda #0
+        sta ch_gl+1
+        asl ch_gl
+        rol ch_gl+1
+        asl ch_gl
+        rol ch_gl+1
+        asl ch_gl
+        rol ch_gl+1
+        clc
+        lda ch_gl
+        adc ch_set
+        sta ch_gl
+        lda ch_gl+1
+        adc ch_set+1
+        sta ch_gl+1
+        lda #0
+        adc ch_set+2
+        sta ch_gl+2
+        jsr ch_glyph
+        ; step the cursor
+        lda ch_w                ; 8*w and 8*h as step sizes
+        asl
+        asl
+        asl
+        sta ch_t
+        lda ch_dir
+        cmp #8
+        beq _gch_left
+        cmp #1
+        beq _gch_up
+        cmp #4
+        beq _gch_down
+        clc                     ; right
+        lda ch_x
+        adc ch_t
+        sta ch_x
+        lda ch_x+1
+        adc #0
+        sta ch_x+1
+        bra _gch_stepped
+_gch_left:
+        sec
+        lda ch_x
+        sbc ch_t
+        sta ch_x
+        lda ch_x+1
+        sbc #0
+        sta ch_x+1
+        bra _gch_stepped
+_gch_up:
+        lda ch_h
+        asl
+        asl
+        asl
+        sta ch_t
+        sec
+        lda ch_y
+        sbc ch_t
+        sta ch_y
+        lda ch_y+1
+        sbc #0
+        sta ch_y+1
+        bra _gch_stepped
+_gch_down:
+        lda ch_h
+        asl
+        asl
+        asl
+        sta ch_t
+        clc
+        lda ch_y
+        adc ch_t
+        sta ch_y
+        lda ch_y+1
+        adc #0
+        sta ch_y+1
+_gch_stepped:
+        inc ch_i
+        bra _gch_next
+_gch_done:
+        rts
+
+; render one glyph at ch_x/ch_y scaled by ch_w/ch_h
+ch_glyph:
+        lda #0
+        sta ch_gy
+_chg_row:
+        lda ch_gl               ; read the glyph row byte (far: ROM
+        sta PTR                 ; image in bank 2/3)
+        lda ch_gl+1
+        sta PTR+1
+        lda ch_gl+2
+        sta PTR+2
+        lda #0
+        sta PTR+3
+        ldz ch_gy
+        lda [PTR],z
+        sta ch_bits
+        lda #0
+        sta ch_gx
+_chg_col:
+        asl ch_bits
+        bcc _chg_nopix
+        jsr ch_block
+_chg_nopix:
+        inc ch_gx
+        lda ch_gx
+        cmp #8
+        bne _chg_col
+        inc ch_gy
+        lda ch_gy
+        cmp #8
+        bne _chg_row
+        rts
+
+; plot a ch_w x ch_h block for glyph cell (ch_gx, ch_gy)
+ch_block:
+        ; px = ch_x + ch_gx*ch_w ; py = ch_y + ch_gy*ch_h
+        lda ch_gx
+        ldx ch_w
+        jsr pgmul8              ; A*X -> ch_t16
+        clc
+        lda ch_t16
+        adc ch_x
+        sta ch_px
+        lda ch_t16+1
+        adc ch_x+1
+        sta ch_px+1
+        lda ch_gy
+        ldx ch_h
+        jsr pgmul8
+        clc
+        lda ch_t16
+        adc ch_y
+        sta ch_py
+        lda ch_t16+1
+        adc ch_y+1
+        sta ch_py+1
+        lda #0
+        sta ch_bh
+_chb_row:
+        lda #0
+        sta ch_bw
+_chb_col:
+        lda ch_py+1             ; y beyond 8 bits: off screen
+        bne _chb_skip
+        clc
+        lda ch_px
+        adc ch_bw
+        sta plot_x
+        lda ch_px+1
+        adc #0
+        sta plot_x+1
+        clc
+        lda ch_py
+        adc ch_bh
+        bcs _chb_skip
+        sta plot_y
+        lda gfx_pen
+        sta plot_col
+        jsr plot_pixel
+_chb_skip:
+        inc ch_bw
+        lda ch_bw
+        cmp ch_w
+        bne _chb_col
+        inc ch_bh
+        lda ch_bh
+        cmp ch_h
+        bne _chb_row
+        rts
+
+; small unsigned A*X -> 16-bit ch_t16 (values <= 255 * 8)
+pgmul8:
+        sta MULTINA
+        lda #0
+        sta MULTINA+1
+        sta MULTINA+2
+        sta MULTINA+3
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        stx MULTINB
+        lda MULTOUT
+        sta ch_t16
+        lda MULTOUT+1
+        sta ch_t16+1
+        rts
+
+; PETSCII -> screen code (standard ladder)
+ch_p2sc:
+        cmp #$20
+        bcc _p2_ctl             ; control codes render as their glyphs
+        cmp #$40
+        bcc _p2_asis
+        cmp #$60
+        bcc _p2_sub40
+        cmp #$80
+        bcc _p2_sub20
+        cmp #$a0
+        bcc _p2_add40
+        cmp #$c0
+        bcc _p2_sub40
+        cmp #$e0
+        bcc _p2_sub80
+        sec
+        sbc #$40
+        rts
+_p2_ctl:
+        clc
+        adc #$80
+        rts
+_p2_asis:
+        rts
+_p2_sub40:
+        sec
+        sbc #$40
+        rts
+_p2_sub20:
+        sec
+        sbc #$20
+        rts
+_p2_add40:
+        clc
+        adc #$40
+        rts
+_p2_sub80:
+        sec
+        sbc #$80
+        rts
+
+ch_x:    .word 0
+ch_y:    .word 0
+ch_px:   .word 0
+ch_py:   .word 0
+ch_gl:   .byte 0,0,0
+ch_set:  .byte 0,0,0
+ch_h:    .byte 0
+ch_w:    .byte 0
+ch_dir:  .byte 0
+ch_i:    .byte 0
+ch_sc:   .byte 0
+ch_gy:   .byte 0
+ch_gx:   .byte 0
+ch_bits: .byte 0
+ch_bw:   .byte 0
+ch_bh:   .byte 0
+ch_t:    .byte 0
+ch_t16:  .word 0
 
 scr_draw:  .byte 0
 scr_view:  .byte 0

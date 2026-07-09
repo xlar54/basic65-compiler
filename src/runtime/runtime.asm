@@ -3281,6 +3281,68 @@ _gfxl_err:
 _gfx_name:
         .text "GFX,P,R"
 
+; CHAR: copy the string (descriptor in exprlo/hi) into the blob image
+; at attic $8180100 (blob offset $100); the next gfxcall swaps it in
+; with the blob. Byte-at-a-time pointer flip: varptr is the only far
+; pointer we own.
+charstage:
+        lda #0
+        sta chlen
+        lda exprlo
+        ora exprhi
+        beq _chst_len
+        jsr setstrptrexpr
+        lda varptr
+        sta chsrc
+        lda varptr+1
+        sta chsrc+1
+        lda varptr+2
+        sta chsrc+2
+        lda varptr+3
+        sta chsrc+3
+        ldz #0
+        lda [varptr],z
+        sta chlen
+        lda #0
+        sta chidx
+_chst_loop:
+        lda chidx
+        cmp chlen
+        beq _chst_len
+        inc chidx
+        lda chsrc
+        sta varptr
+        lda chsrc+1
+        sta varptr+1
+        lda chsrc+2
+        sta varptr+2
+        lda chsrc+3
+        sta varptr+3
+        ldz chidx
+        lda [varptr],z
+        pha
+        jsr _chst_dst
+        ldz chidx
+        pla
+        sta [varptr],z
+        bra _chst_loop
+_chst_len:
+        jsr _chst_dst
+        ldz #0
+        lda chlen
+        sta [varptr],z
+        jmp scrrestore
+_chst_dst:
+        lda #$00
+        sta varptr
+        lda #$01
+        sta varptr+1
+        lda #$18
+        sta varptr+2
+        lda #$08
+        sta varptr+3
+        rts
+
 ; PEN [pen,] colour -- the colour is the last staged argument; the pen
 ; number (only pen 0 exists here) is ignored
 penset:
@@ -5169,6 +5231,9 @@ strtsp:       .byte 0
 gfx_fn:       .byte 0
 gfx_pen:      .byte 1
 gfxres:       .byte 0
+chsrc:        .byte 0,0,0,0
+chlen:        .byte 0
+chidx:        .byte 0
 strtslots:    .fill 44, 0
 sprsavbuf:    .fill 64, 0
 sys_a:        .byte 0
