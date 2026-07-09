@@ -642,8 +642,12 @@ _run_size_pass_done:
 
 emit_binary_output:
         jsr open_binary_output
-        bcs _ebo_open_fail
-        jsr copy_runtime_image
+        bcc +
+        lda #<msg_bin_disk_fail
+        ldy #>msg_bin_disk_fail
+        jsr screen_zstr
+        bra _ebo_open_fail
++       jsr copy_runtime_image
         bcs _ebo_write_fail
         lda #BK_EMIT
         sta backend_mode
@@ -665,8 +669,12 @@ emit_binary_output:
         bne _ebo_mismatch
         jsr close_binary_files
         jsr finalize_binary_output
-        bcs _ebo_open_fail
-        clc
+        bcc +
+        lda #<msg_bin_disk_fail
+        ldy #>msg_bin_disk_fail
+        jsr screen_zstr
+        bra _ebo_open_fail
++       clc
         rts
 
 _ebo_mismatch:
@@ -694,11 +702,82 @@ close_binary_files:
         jsr CC_CLRCHN
         rts
 
+; open the command channel, read DS into screen output; C set on a
+; nonzero DOS status (first digit != '0')
+check_ds:
+        jsr CC_CLRCHN
+        lda #LFN_CMD
+        ldx #DEVICE_DISK
+        ldy #LFN_CMD
+        jsr CC_SETLFS
+        lda #0
+        ldx #0
+        jsr CC_SETBNK
+        lda #0
+        jsr CC_SETNAM
+        jsr CC_OPEN
+        bcs _check_ds_bad
+        ldx #LFN_CMD
+        jsr CC_CHKIN
+        bcs _check_ds_bad
+        jsr CC_CHRIN
+        sta ds_first
+        pha
+        cmp #'1'                ; 0x = OK; 1x.. = error
+        bcc _check_ds_drain
+        jsr CC_CLRCHN           ; error: echo the full status line
+        lda #13
+        jsr CC_CHROUT
+        ldx #LFN_CMD
+        jsr CC_CHKIN
+        pla
+        pha
+_check_ds_echo:
+        pha
+        jsr CC_CLRCHN
+        pla
+        jsr CC_CHROUT
+        ldx #LFN_CMD
+        jsr CC_CHKIN
+        jsr CC_CHRIN
+        cmp #13
+        bne _check_ds_echo
+        jsr CC_CLRCHN
+        lda #13
+        jsr CC_CHROUT
+        bra _check_ds_close
+_check_ds_drain:
+        jsr CC_CHRIN            ; consume the rest of the line
+        cmp #13
+        bne _check_ds_drain
+_check_ds_close:
+        jsr CC_CLRCHN
+        lda #LFN_CMD
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        pla
+        cmp #'1'
+        bcs _check_ds_err
+        clc
+        rts
+_check_ds_err:
+        sec
+        rts
+_check_ds_bad:
+        jsr CC_CLRCHN
+        lda #LFN_CMD
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        sec
+        rts
+
 open_binary_output:
         lda #<scratch_outb_name
         ldy #>scratch_outb_name
         ldx #scratch_outb_name_end - scratch_outb_name
         jsr disk_command
+        jsr check_ds            ; write-protect/disk-full surfaces on
+        bcs _open_binary_fail   ; the scratch, echoed in DOS's words
 
         lda #LFN_OUT
         ldx #DEVICE_DISK
@@ -745,6 +824,9 @@ _finalize_binary_fail:
 ; stream runtime.prg verbatim (load address first) into the output file,
 ; then pad with zeros until bin_pc reaches progbase ($5000)
 copy_runtime_image:
+        lda #0
+        sta rt_first_chunk
+        sta rt_first_write
         lda #LFN_RT
         ldx #DEVICE_DISK
         ldy #4
@@ -786,10 +868,18 @@ _copy_runtime_read:
         bcc _copy_runtime_read
 _copy_runtime_read_done:
         sty rt_chunk_len
+        lda rt_first_chunk
+        bne _crc_not_first
+        lda #1
+        sta rt_first_chunk
+        lda rt_chunk_len        ; a real runtime image is KBs; a
+        cmp #16                 ; missing file reads as 0-1 bytes
+        bcc _copy_runtime_missing
+_crc_not_first:
         jsr CC_CLRCHN
         ldx #LFN_OUT
-        jsr CC_CHKOUT
-        bcs _copy_runtime_fail
+        jsr CC_CHKOUT           ; a failed write-open (full or
+        bcs _copy_runtime_wfail ; protected disk) surfaces here
         ldy #0
 _copy_runtime_write:
         cpy rt_chunk_len
@@ -814,6 +904,13 @@ _copy_runtime_plain:
         lda line_buf,y
 _copy_runtime_put:
         jsr bin_write_byte
+        lda rt_first_write      ; the DOS reports a failed write-open
+        bne _crw_checked        ; (protected/full disk) only once data
+        lda #1                  ; flows: probe ST on the first byte
+        sta rt_first_write
+        jsr CC_READST
+        bne _copy_runtime_wfail
+_crw_checked:
         iny
         bra _copy_runtime_write
 _copy_runtime_written:
@@ -834,6 +931,16 @@ _copy_runtime_done:
         clc
         rts
 
+_copy_runtime_wfail:
+        jsr CC_CLRCHN
+        lda #<msg_bin_disk_fail
+        ldy #>msg_bin_disk_fail
+        jsr screen_zstr
+        bra _copy_runtime_fail
+_copy_runtime_missing:
+        lda #<msg_rt_missing
+        ldy #>msg_rt_missing
+        jsr screen_zstr
 _copy_runtime_fail:
         sec
         rts
@@ -12761,6 +12868,14 @@ msg_writing_prg:
 msg_wrote_prg:
         .text "basic65c: wrote out.prg"
         .byte 13, 0
+msg_bin_disk_fail:
+        .byte 13
+        .text "cannot write out file (disk full or write protected?)"
+        .byte 13, 0
+msg_rt_missing:
+        .byte 13
+        .text "runtime.prg missing or unreadable on this disk"
+        .byte 13, 0
 msg_bin_write_fail:
         .text "basic65c: native out.prg failed"
         .byte 13, 0
@@ -16136,6 +16251,12 @@ scan_ext_prefix:
 d030_save:
         .byte 0
 get_blocking:
+        .byte 0
+rt_first_chunk:
+        .byte 0
+rt_first_write:
+        .byte 0
+ds_first:
         .byte 0
 cc_mode:
         .byte 0
