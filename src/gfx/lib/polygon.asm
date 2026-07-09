@@ -648,3 +648,8 @@ _pg_vx:
 _pg_vy:
         .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+; [basic65c] exported for the arc module
+pgsin      = _pg_get_sin
+pgmul      = _pg_mul8x8_hw
+pgmulres   = _pg_mul_result
+pgsinneg   = _pg_sin_neg

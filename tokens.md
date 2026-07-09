@@ -135,7 +135,7 @@ Legend:
 | $DF | PAINT | ⚠️ | repaints the seed pixel’s colour region (mode 0); modes 1/2 fall back to the same |
 | $E0 | CHAR | prefix | bare CHAR ❌; CHARDEF ($E0 $96) ✅ |
 | $E1 | BOX | ⚠️ | two-corner form (+solid); the 4-corner path form unsupported |
-| $E2 | CIRCLE | ⚠️ | fill flag works; arcs (start/stop angles) unsupported |
+| $E2 | CIRCLE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $E3 | PASTE | ❌ | |
 | $E4 | CUT | ❌ | |
 | $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path |
@@ -236,7 +236,7 @@ Legend:
 | $FE $2D | SET | ⚠️ | only as SETBIT ($FE $2D $FE $4E): set one bit, BANK-aware <=64K, flat 28-bit above |
 | $FE $2E | SCREEN | ⚠️ | all forms: [s,]w,h,d, CLR c, DEF, OPEN [s][,resultvar], SET d,v (attic-backed double buffering), CLOSE [s] (view-aware: hidden screens close without leaving graphics); 320x200 and 640x200 at 256 colours (VIC-IV FCM, not bitplanes); 400-line modes need more chip RAM than exists at 8bpp |
 | $FE $2F | POLYGON | ⚠️ | regular n-gon from xrad (yrad/drawsides/subtend accepted, ignored); angle + solid work |
-| $FE $30 | ELLIPSE | ⚠️ | fill flag works; arcs unsupported |
+| $FE $30 | ELLIPSE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |
 | $FE $32 | GCOPY | ❌ | graphics queued |
 | $FE $33 | PEN | ⚠️ | drawing pen colour (pen 0) only |

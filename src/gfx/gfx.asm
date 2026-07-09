@@ -551,6 +551,34 @@ g_circle:
         beq _gc_ok
         rts
 _gc_ok:
+        lda dma_args+16         ; start/stop present? arc engine
+        ora dma_args+17
+        ora dma_args+20
+        ora dma_args+21
+        beq _gc_full
+        lda dma_args+0
+        sta arc_cx
+        lda dma_args+1
+        sta arc_cx+1
+        lda dma_args+4
+        sta arc_cy
+        lda dma_args+8
+        sta arc_xr
+        sta arc_yr
+        lda gfx_pen
+        sta arc_col
+        lda dma_args+12
+        sta arc_flags
+        lda dma_args+16
+        sta arc_start
+        lda dma_args+17
+        sta arc_start+1
+        lda dma_args+20
+        sta arc_stop
+        lda dma_args+21
+        sta arc_stop+1
+        jmp draw_arc
+_gc_full:
         lda dma_args+0
         sta circ_cx
         lda dma_args+1
@@ -574,6 +602,35 @@ g_ellipse:
         beq _ge_ok
         rts
 _ge_ok:
+        lda dma_args+20         ; start/stop present? arc engine
+        ora dma_args+21
+        ora dma_args+24
+        ora dma_args+25
+        beq _ge_full
+        lda dma_args+0
+        sta arc_cx
+        lda dma_args+1
+        sta arc_cx+1
+        lda dma_args+4
+        sta arc_cy
+        lda dma_args+8
+        sta arc_xr
+        lda dma_args+12
+        sta arc_yr
+        lda gfx_pen
+        sta arc_col
+        lda dma_args+16
+        sta arc_flags
+        lda dma_args+20
+        sta arc_start
+        lda dma_args+21
+        sta arc_start+1
+        lda dma_args+24
+        sta arc_stop
+        lda dma_args+25
+        sta arc_stop+1
+        jmp draw_arc
+_ge_full:
         lda dma_args+0
         sta elip_cx
         lda dma_args+1
@@ -670,6 +727,7 @@ _gpx_ok:
         .include "lib/circle.asm"
         .include "lib/ellipse.asm"
         .include "lib/polygon.asm"
+        .include "lib/arc.asm"
         .include "lib/floodfill.asm"
 
 ; text/NCM screen modes are unreachable (g_init only ever selects mode 3,

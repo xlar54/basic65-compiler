@@ -85,6 +85,11 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [ ] gfxarc.bas       (CIRCLE/ELLIPSE arcs: start/stop degrees with
+      legs, legs-suppress flag, filled pie sector; PIXEL readbacks
+      1/0/5/0 + ARC OK; compiled run verified 2026-07-08 incl. bitmap
+      decode. Note: pie fill is a chord+fan render -- a few rim-edge
+      pixels may differ from the ROM's fill.)
 - [ ] gfx640.bas       (SCREEN 640,200,8: filled box/circle spanning
       the 256/512 x-boundaries, full-width line, PIXEL readbacks
       3/7/0/5 + 640 OK; compiled run verified 2026-07-08 incl. bitmap

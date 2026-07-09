@@ -6676,8 +6676,8 @@ cgfx_idx:
         .byte 0
 cgfx_tab:
         .byte 4, 5+1, 3         ; 0: BOX
-        .byte 3, 4+1, 4         ; 3: CIRCLE
-        .byte 4, 5+1, 5         ; 6: ELLIPSE
+        .byte 3, 6+1, 4         ; 3: CIRCLE (arcs: +start,stop)
+        .byte 4, 7+1, 5         ; 6: ELLIPSE (arcs: +start,stop)
         .byte 2, 4+1, 6         ; 9: PAINT
         .byte 5, 9+1, 13        ; 12: POLYGON
 
