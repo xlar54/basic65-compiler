@@ -2596,12 +2596,17 @@ pdl:
 ; Input runtime
 ;=======================================================================================
 
+inputline2q:
+        lda #$3f                ; "??" continuation prompt: each
+        jsr printch             ; further LINE INPUT variable
 inputline:
         lda #$3f
         jsr printch
         lda #$20
         jsr printch
-        ldx #7                  ; CHRIN runs the KERNAL screen editor,
+inputlinenq:                    ; no question mark: LINE INPUT with a
+        ldx #7                  ; comma after the prompt
+                                ; CHRIN runs the KERNAL screen editor,
 _inputline_save:                ; whose state lives in $f7-$fe where
         lda varptr,x            ; the runtime keeps its pointers: park
         sta inputzpsave,x       ; ours and hand the editor its own
@@ -2765,6 +2770,19 @@ inputstrfinish:
         sta exprhi
 inputstrdone:
         rts
+
+; the whole remaining line as one string, verbatim -- LINE INPUT and
+; LINE INPUT# (no space skip, no comma split, quotes are data)
+inputraw:
+        lda inputpos
+        sta inputfieldstart
+        sec
+        lda inputlen
+        sbc inputpos
+        sta strlen
+        lda inputlen
+        sta inputpos
+        jmp inputstralloc
 
 ;=======================================================================================
 ; Decimal parse helper

@@ -200,7 +200,7 @@ STRING_MAX              = 240 ; offset tables live in bank 4
 STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
 
 .if TEXT_EMITTER
-SYM_MAX                 = 96    ; checked build: tables extend past $c000
+SYM_MAX                 = 64    ; checked build: tables extend past $c000
 .else
 SYM_MAX                 = 128
 .fi
@@ -1514,8 +1514,16 @@ _scan_vars_no_fio:
         beq _scan_vars_gfx
         cmp #$e2
         beq _scan_vars_gfx
-        cmp #$e5                ; LINE
-        beq _scan_vars_gfx
+        cmp #$e5                ; LINE draws; the INPUT forms do not
+        bne _scan_vars_no_line
+        jsr line_peek
+        cmp #$84                ; LINE INPUT# reads records
+        beq _scan_vars_fio
+        cmp #$85                ; LINE INPUT: keyboard, core runtime
+        beq _scan_vars_no_gfx
+        lda #$e5
+        bra _scan_vars_gfx
+_scan_vars_no_line:
         cmp #$e3                ; PASTE
         beq _scan_vars_gfx
         cmp #$e4                ; CUT
@@ -7023,6 +7031,17 @@ cgfx_tab:
 ; segment from the previous point (gfxlnext shifts the staged end
 ; coordinates into the start slots between calls)
 compile_gline:
+        jsr line_skip_spaces    ; LINE INPUT / LINE INPUT# ride the
+        jsr line_at_end         ; LINE token ($e5 $85 / $e5 $84)
+        bcs _cgl_draw
+        jsr line_peek
+        cmp #$85
+        bne +
+        jmp compile_line_input
++       cmp #$84
+        bne _cgl_draw
+        jmp compile_line_input_hash
+_cgl_draw:
         jsr emit_tmpl
         .word out_jsr_dmarst
         jsr cglcoord            ; x0
@@ -8181,6 +8200,107 @@ _compile_input_bad:
 _compile_input_done:
         rts
 
+; LINE INPUT ["prompt" <,|;>] v$ [, v$ ...] -- each variable takes a
+; whole keyboard line verbatim. A comma after the prompt suppresses
+; the question mark, a semicolon keeps it; every further variable
+; prompts "??" like the ROM. Prompts are literals (as with INPUT).
+compile_line_input:
+        jsr line_get            ; consume the INPUT token
+        lda #1
+        sta input_raw_mode
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cli_bad
+        jsr line_peek
+        cmp #'"'
+        bne _cli_first_q
+        jsr line_get            ; opening quote
+        jsr add_string_literal
+        bcs _cli_bad
+        jsr emit_print_string_current
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cli_bad
+        jsr line_get
+        cmp #','
+        beq _cli_first_nq
+        cmp #';'
+        beq _cli_first_q
+        bra _cli_bad
+_cli_first_nq:
+        jsr emit_tmpl
+        .word out_jsr_inputlinenq
+        bra _cli_target
+_cli_first_q:
+        jsr emit_tmpl
+        .word out_jsr_inputline
+_cli_target:
+        jsr compile_input_target
+        bcs _cli_bad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cli_done
+        jsr line_get
+        cmp #','
+        bne _cli_bad
+        jsr emit_tmpl
+        .word out_jsr_inputline2q
+        bra _cli_target
+_cli_bad:
+        lda #0
+        sta input_raw_mode
+        lda #<msg_error_bad_input
+        ldy #>msg_error_bad_input
+        jsr fatal_statement_error
+        rts
+_cli_done:
+        lda #0
+        sta input_raw_mode
+        rts
+
+; LINE INPUT# channel, v$ [, v$ ...] -- one CR-terminated record per
+; variable, verbatim (quotes are data; an empty record gives "")
+compile_line_input_hash:
+        jsr line_get            ; consume the INPUT# token
+        jsr compile_expression
+        bcs _clih_bad
+        jsr emit_tmpl
+        .word out_jsr_fiochkin
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _clih_bad
+        jsr line_get
+        cmp #','
+        bne _clih_bad
+        lda #1
+        sta io_from_file
+        sta input_raw_mode
+_clih_target:
+        jsr emit_input_line     ; one record per variable
+        jsr compile_input_target
+        bcs _clih_tbad
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _clih_done
+        jsr line_get
+        cmp #','
+        beq _clih_target
+_clih_tbad:
+        lda #0
+        sta io_from_file
+        sta input_raw_mode
+_clih_bad:
+        lda #<msg_error_bad_input
+        ldy #>msg_error_bad_input
+        jsr fatal_statement_error
+        rts
+_clih_done:
+        lda #0
+        sta io_from_file
+        sta input_raw_mode
+        jsr emit_tmpl_done
+        .word out_jsr_fiodone
+
 compile_input_target:
         jsr line_skip_spaces
         jsr line_at_end_or_colon
@@ -8190,7 +8310,12 @@ compile_input_target:
         bcs _compile_input_target_bad
         jsr parse_variable_with_first_char
         bcs _compile_input_target_bad
-        lda var_type
+        lda input_raw_mode      ; LINE INPUT: strings only (the book
+        beq +                   ; raises TYPE MISMATCH; we reject at
+        lda var_type            ; compile time)
+        cmp #VAR_TYPE_STRING
+        bne _compile_input_target_bad
++       lda var_type
         jsr var_type_is_numeric
         bcc _compile_input_type_ok
         cmp #VAR_TYPE_STRING
@@ -11357,8 +11482,13 @@ emit_input_int:
         .word out_jsr_inputint
 
 emit_input_string:
+        lda input_raw_mode      ; LINE INPUT: the whole line, verbatim
+        bne _emit_input_raw
         jsr emit_tmpl_done
         .word out_jsr_inputstr
+_emit_input_raw:
+        jsr emit_tmpl_done
+        .word out_jsr_inputraw
 
 emit_get_key:
         lda get_blocking
@@ -15676,6 +15806,27 @@ out_jsr_inputline:
 .else
         .byte 0
 .fi
+out_jsr_inputlinenq:
+.if TEXT_EMITTER
+        .text "        jsr inputlinenq"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_inputline2q:
+.if TEXT_EMITTER
+        .text "        jsr inputline2q"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_inputraw:
+.if TEXT_EMITTER
+        .text "        jsr inputraw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_inputint:
 .if TEXT_EMITTER
         .text "        jsr inputint"
@@ -16843,6 +16994,8 @@ begin_sp:
         .byte 0
 io_from_file:
         .byte 0
+input_raw_mode:
+        .byte 0
 trap_used:
         .byte 0
 play_track_no:
@@ -17035,11 +17188,6 @@ lbladdr_base_hi:
         .byte >(LBLTAB_BASE+lbloff_forcont), >(LBLTAB_BASE+lbloff_fordone)
         .byte >(LBLTAB_BASE+lbloff_dotop), >(LBLTAB_BASE+lbloff_dodone)
 
-string_addr_lo:  .fill STRING_MAX, 0
-string_addr_hi:  .fill STRING_MAX, 0
-data_line_addr_lo: .fill DATA_LINE_MAX, 0
-data_line_addr_hi: .fill DATA_LINE_MAX, 0
-
 ;=======================================================================================
 ; Derived binary template records (regenerated by tools\gen-bin-templates.py)
 ;=======================================================================================
@@ -17076,6 +17224,10 @@ def_stash_lo:
         .fill DEF_MAX, 0
 def_stash_hi:
         .fill DEF_MAX, 0
+string_addr_lo:  .fill STRING_MAX, 0
+string_addr_hi:  .fill STRING_MAX, 0
+data_line_addr_lo: .fill DATA_LINE_MAX, 0
+data_line_addr_hi: .fill DATA_LINE_MAX, 0
 line_addr_lo:
         .fill LINE_MAX, 0
 line_addr_hi:

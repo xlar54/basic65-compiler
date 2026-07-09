@@ -138,7 +138,7 @@ Legend:
 | $E2 | CIRCLE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $E3 | PASTE | ✅ | pastes the GCOPY buffer at x,y (raw pixels, clipped) |
 | $E4 | CUT | ✅ | x,y,w,h: GCOPY the region then fill it with the current pen; same buffer/budget as GCOPY (w*h*depth < 8192), over-budget cuts nothing |
-| $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path |
+| $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path; LINE INPUT ($E5 $85) and LINE INPUT# ($E5 $84) read whole lines/records verbatim into string variables (prompt literals only; 80-char line cap vs the ROM's 160) |
 | $E6 | MERGE | ✖ | editor |
 | $E7 | COLOR | ✅ | text colour, same handler as FOREGROUND |
 | $E8 | SCNCLR | ✅ | bare = text clear; SCNCLR colour fills the graphics bitmap |
