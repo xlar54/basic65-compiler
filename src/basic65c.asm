@@ -339,6 +339,8 @@ _main_clr_hi:                   ; the zero-init state it expects
         lda compile_error
         bne _main_compile_failed
         jsr report_size_pass
+        lda compile_error       ; the size report enforces the window
+        bne _main_compile_failed
 
 .if TEXT_EMITTER
         lda #<msg_opening_out
@@ -974,7 +976,32 @@ report_size_pass:
         jsr out_hex_byte
         lda #13
         jsr CC_CHROUT
+        ; enforce the program-window cap natively too: the emitted
+        ; .cerror only protects PC-side links, and an on-device
+        ; compile must not silently write an image that runs into
+        ; the i/o space (or the $c000 screen codes in gfx programs)
+        ldx #$d0
+        lda gfx_used
+        beq +
+        ldx #$c0
++       stx size_cap_hi
+        lda bin_pc+1
+        cmp size_cap_hi
+        bcc _rsp_fits
+        bne _rsp_over
+        lda bin_pc              ; exactly at the cap is still legal
+        beq _rsp_fits
+_rsp_over:
+        lda #<msg_error_too_large
+        ldy #>msg_error_too_large
+        jsr screen_zstr
+        lda #1
+        sta compile_error
+        inc error_count
+_rsp_fits:
         rts
+size_cap_hi:
+        .byte 0
 
 fatal_error_zstr:
         sta diag_msg_lo
@@ -13639,6 +13666,9 @@ msg_error_line_overflow:
         .byte 13, 0
 msg_error_scan_var:
         .text "cannot resolve variable (out of symbols?)"
+        .byte 13, 0
+msg_error_too_large:
+        .text "basic65c: program too large for the memory window"
         .byte 13, 0
 msg_error_unsupported_token:
         .text "unsupported token"

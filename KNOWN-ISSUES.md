@@ -6,27 +6,12 @@ divergences from the interpreter (by design or ROM quirk) live in
 Resolved issues are removed from this file; their write-ups live in
 the git history (this file's log and the fixing commits' messages).
 
-## 1. Program-shape-dependent false "UNSUPPORTED TOKEN" at compile
-
-**Symptom:** a reduced variant of the old test suite (source.bas with
-most gosubs removed from line 20) failed to compile with
-"ERROR LINE 12040: UNSUPPORTED TOKEN" pointing at a WPOKE statement
-whose tokenized bytes are verified correct ($FE $1D). Supersets of
-the same file compiled fine. Something about program size/label
-population desynchronizes the compiler before that line.
-
-**Status (2026-07-09):** reproducible at last attempt (2026-07-06);
-not yet bisected. The affected statement compiles correctly in every
-shipped fixture. Note: the variable scanner's silent failure path now
-prints "cannot resolve variable (out of symbols?)" (added with DEF
-FN) -- if this phantom was actually a table-limit overflow, the next
-repro will say so instead of pointing at an innocent token.
-
-## 2. Harness phase-1 timeout (boot stall)
+## 1. Harness phase-1 timeout (boot stall)
 
 **Symptom:** `tools/emu-test.ps1` occasionally reports "no OUT.ASM in
 240 s" even though the same fixture compiles in ~2-3 min; the same
-invocation passes on retry (most recently input.bas, 2026-07-09).
+invocation passes on retry (2026-07-09: input.bas once, then deffn
+and gfxtest back-to-back -- the rate is not negligible).
 Believed to be the xemu boot-banner stall; the manual autoboot chain
 retries up to 3x for the same reason, the harness does not retry.
 
