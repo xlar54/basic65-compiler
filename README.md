@@ -39,7 +39,7 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 | Benchmark | Workload | Interpreted | Compiled | Speedup |
 |---|---|---|---|---|
 | `basic/mandel.bas` | float multiply/add (Mandelbrot escape loop) | 4.63 s | 0.16 s | ~29x |
-| `basic/primes.bas` | integer MOD trial division up to 5000 | 8.2019072 s | 0.04 s | ~205x |
+| `basic/primes.bas` | integer MOD trial division up to 5000 | 7.87 s | 0.02 s | ~394x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 0.26 s | ~81x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.02 s | ~39x |
 
