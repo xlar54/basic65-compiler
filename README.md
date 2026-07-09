@@ -42,7 +42,7 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 | `basic/primes.bas` | integer MOD trial division up to 5000 | 7.87 s | 0.02 s | ~394x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 20.13 s | 0.26 s | ~77x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.758 s | <0.02 s | >45x |
-| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | — | — | — |
+
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
