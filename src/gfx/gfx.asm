@@ -103,6 +103,8 @@ gfx_base:
         .word g_paste           ; 21 PASTE x,y
         .word g_rgraphic        ; 22 RGRAPHIC(s,p) read
         .word g_cut             ; 23 CUT x,y,w,h
+        .word g_vpdef           ; 24 VIEWPORT DEF x,y,w,h
+        .word g_vpclr           ; 25 VIEWPORT CLR
 
 ; the CHAR text buffer sits at a fixed blob offset so the resident
 ; charstage can far-write it into the attic image before the call
@@ -125,6 +127,7 @@ g_init:
 
 ; reset screen state: draw = view = 0, base = the bank-4 canvas
 gfx_rstscr:
+        jsr gfx_vprst
         lda #0
         sta scr_draw
         sta scr_view
@@ -177,6 +180,7 @@ _goc_80:
         lda #MODE_BITMAP80
 _goc_set:
         jsr set_screen_mode     ; sets pointers, clears codes + bitmap
+        jsr gfx_vprst           ; viewport = the new full screen
         jsr restore_default_palette
         lda #0                  ; FCM pixel value 0 is transparent and
         sta BACKCOL             ; shows $d021: the book says SCREEN
@@ -290,6 +294,7 @@ _gss_want40:
         lda #MODE_BITMAP40
         jsr set_screen_mode
 _gss_show:
+        jsr gfx_vprst           ; viewport tracks the mode in force
         lda scr_view
         jsr gsdsrcattic
         jsr gsddstb4
@@ -902,6 +907,14 @@ scr_hf:    .byte 0,0,0,0
 scr_depth: .byte 0,0,0,0
 scr_openf: .byte 0,0,0,0
 
+; drawing clip region (VIEWPORT DEF); plot_pixel clips against these,
+; the flood fill scans within them. Defaults/resets = the full screen
+; of the current mode.
+vp_x0:     .word 0
+vp_x1:     .word 319
+vp_y0:     .byte 0
+vp_y1:     .byte 199
+
 ; SCREEN CLOSE [s]: closing the viewed screen returns to text (with
 ; the palette restore inside restore_default_screen); closing a
 ; hidden screen just clears its definition
@@ -1065,6 +1078,152 @@ _gb4_outline:
 
 ; BOX x0,y0,x2,y2[,solid]: two diagonally opposite corners in any
 ; order; the library wants origin + size
+; reset the viewport to the full screen of the current mode
+gfx_vprst:
+        lda #0
+        sta vp_x0
+        sta vp_x0+1
+        sta vp_y0
+        lda #199
+        sta vp_y1
+        ldx #>320
+        ldy #<320
+        lda screen_mode
+        cmp #80
+        bne _gvr_narrow
+        ldx #>640
+        ldy #<640
+_gvr_narrow:
+        tya
+        sec
+        sbc #1
+        sta vp_x1
+        txa
+        sbc #0
+        sta vp_x1+1
+        rts
+
+; VIEWPORT DEF x,y,w,h: clip region = x..x+w-1, y..y+h-1, clamped to
+; the current mode's screen. A degenerate region (w or h of 0, or a
+; y origin off-screen) clips everything until the next DEF.
+g_vpdef:
+        lda dma_args+8          ; w = 0: degenerate
+        ora dma_args+9
+        beq _gvd_degen
+        lda dma_args+12         ; h = 0: degenerate
+        ora dma_args+13
+        beq _gvd_degen
+        lda dma_args+5          ; y origin past 255: off-screen
+        bne _gvd_degen
+        lda dma_args+0
+        sta vp_x0
+        lda dma_args+1
+        sta vp_x0+1
+        lda dma_args+4
+        sta vp_y0
+        clc                     ; x1 = x + w - 1
+        lda dma_args+0
+        adc dma_args+8
+        sta vp_x1
+        lda dma_args+1
+        adc dma_args+9
+        sta vp_x1+1
+        lda vp_x1
+        bne +
+        dec vp_x1+1
++       dec vp_x1
+        lda dma_args+13         ; h >= 256: bottom clamps anyway
+        bne _gvd_ymax
+        lda dma_args+4          ; y1 = y + h - 1
+        clc
+        adc dma_args+12
+        bcs _gvd_ymax           ; past 255: clamp
+        sec
+        sbc #1
+        cmp #200
+        bcc _gvd_ystore
+_gvd_ymax:
+        lda #199
+_gvd_ystore:
+        sta vp_y1
+        ldx #>320               ; clamp x1 to the mode width
+        ldy #<320
+        lda screen_mode
+        cmp #80
+        bne _gvd_narrow
+        ldx #>640
+        ldy #<640
+_gvd_narrow:
+        sty _gvd_w
+        stx _gvd_w+1
+        lda vp_x1+1
+        cmp _gvd_w+1
+        bcc _gvd_done           ; x1 below the width: fits
+        bne _gvd_clamp
+        lda vp_x1
+        cmp _gvd_w
+        bcc _gvd_done
+_gvd_clamp:
+        sec                     ; x1 = width - 1
+        lda _gvd_w
+        sbc #1
+        sta vp_x1
+        lda _gvd_w+1
+        sbc #0
+        sta vp_x1+1
+_gvd_done:
+        rts
+_gvd_degen:
+        lda #200                ; y0 past the screen: everything clips
+        sta vp_y0
+        lda #0
+        sta vp_y1
+        rts
+_gvd_w: .word 0
+
+; VIEWPORT CLR: fill the clip region with the current pen
+g_vpclr:
+        lda vp_x1+1             ; degenerate region (x1 < x0): no fill
+        cmp vp_x0+1
+        bcc _gvc_skip
+        bne _gvc_go
+        lda vp_x1
+        cmp vp_x0
+        bcc _gvc_skip
+_gvc_go:
+        lda vp_y1
+        cmp vp_y0
+        bcc _gvc_skip
+        lda vp_x0
+        sta rect_x
+        lda vp_x0+1
+        sta rect_x+1
+        lda vp_y0
+        sta rect_y
+        sec                     ; w = x1 - x0 + 1
+        lda vp_x1
+        sbc vp_x0
+        sta rect_w
+        lda vp_x1+1
+        sbc vp_x0+1
+        sta rect_w+1
+        inc rect_w
+        bne +
+        inc rect_w+1
++       sec                     ; h = y1 - y0 + 1
+        lda vp_y1
+        sbc vp_y0
+        sta rect_h
+        inc rect_h
+        lda gfx_pen
+        sta rect_col
+        lda #0
+        sta rect_grad
+        sec                     ; filled
+        jmp draw_rect
+_gvc_skip:
+        rts
+
 ; CUT x,y,w,h: GCOPY the region, then fill it with the current pen.
 ; An over-budget or degenerate region leaves the buffer empty and
 ; fills nothing (the ROM errors instead; PASTE stays a no-op).

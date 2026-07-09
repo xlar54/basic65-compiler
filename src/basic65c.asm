@@ -1674,8 +1674,8 @@ _scan_vars_extended:
         cmp #$48
         beq _scan_ext_fg
         cmp #$2e                ; SCREEN..PALETTE graphics block
-        bcc _scan_ext_skip      ; (VIEWPORT/GCOPY inside the range are
-        cmp #$34+1              ; unsupported statements anyway)
+        bcc _scan_ext_skip      ; ($2e-$34: SCREEN POLYGON SCNCLR
+        cmp #$34+1              ; VIEWPORT GCOPY ELLIPSE PALETTE)
         bcs _scan_ext_skip
         bra _scan_ext_gfx
 _scan_ext_gfx:
@@ -5919,7 +5919,7 @@ _cef_tab:
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
         .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
-        .byte $2e, $30, $33, $34, $2f, $32
+        .byte $2e, $30, $33, $34, $2f, $32, $31
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5935,7 +5935,7 @@ _cef_jtab:
         .word compile_bank, compile_rreg, compile_vsync
         .word compile_boot, compile_sprsav, compile_setbit
         .word compile_screen, compile_ellipse, compile_pen, compile_palette
-        .word compile_polygon, compile_gcopy
+        .word compile_polygon, compile_gcopy, compile_viewport
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -7144,6 +7144,32 @@ compile_cut:
         ldx #21
 cgfx_stmt_go:
         jmp cgfx_stmt
+
+; VIEWPORT DEF x,y,w,h (clip region) / VIEWPORT CLR (fill it with the
+; current pen)
+compile_viewport:
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _cvp_bad
+        jsr line_get
+        cmp #$96                ; DEF
+        beq _cvp_def
+        cmp #$9c                ; CLR
+        bne _cvp_bad
+        jsr emit_tmpl           ; CLR takes no arguments
+        .word out_jsr_dmarst
+        lda #25
+        jmp emit_gfxcall
+_cvp_def:
+        jsr compile_gfxargs
+        bcs _cvp_bad
+        lda cdma_i
+        cmp #4
+        bne _cvp_bad
+        lda #24
+        jmp emit_gfxcall
+_cvp_bad:
+        jmp compile_env_bad
 
 ; PEN [pen,] colour -- resident: just stores the colour
 compile_pen:

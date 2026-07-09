@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 82 | 7 | 36 |
 | $CE-prefixed functions | 18 | 16 | — | 2 |
-| $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
+| $FE-prefixed statements | 72 | 48 | 2 (OFF, BIT) | 22 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -239,7 +239,7 @@ Legend:
 | $FE $2E | SCREEN | ⚠️ | all forms: [s,]w,h,d, CLR c, DEF, OPEN [s][,resultvar], SET d,v (attic-backed double buffering), CLOSE [s] (view-aware: hidden screens close without leaving graphics); 320x200 and 640x200 at 256 colours (VIC-IV FCM, not bitplanes); 400-line modes need more chip RAM than exists at 8bpp |
 | $FE $2F | POLYGON | ⚠️ | regular n-gon from xrad (yrad/drawsides/subtend accepted, ignored); angle + solid work |
 | $FE $30 | ELLIPSE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
-| $FE $31 | VIEWPORT | ❌ | graphics queued |
+| $FE $31 | VIEWPORT | ✅ | DEF x,y,w,h (clip region, clamped to the mode; all drawing including PAINT respects it) and CLR (fill region with current pen); resets to full screen on SCREEN open/SET and GRAPHIC CLR |
 | $FE $32 | GCOPY | ✅ | copies x,y,w,h to the buffer; ROM budget honoured (w*h*depth/8 < 1KB, declared depth); over-budget empties the buffer instead of erroring |
 | $FE $33 | PEN | ✅ | pens 0-2 stored per the book (1/2 are latent in default jam1 mode, same as the ROM; they become visible only under DMODE, unsupported) |
 | $FE $34 | PALETTE | ⚠️ | screen,c,r,g,b and COLOR c,r,g,b; RESTORE unsupported |

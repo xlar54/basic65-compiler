@@ -214,28 +214,33 @@ plot_y:     .byte 0
 plot_col:   .byte 0
 
 plot_pixel:
-        ; [basic65c] clip guard: x >= 320 or y >= 200 (including
-        ; negative wraps) plots nothing -- every shape routine funnels
-        ; through here, so this bounds all drawing
+        ; [basic65c] clip guard against the viewport (vp_* default to
+        ; the full screen and reset on every mode switch; VIEWPORT DEF
+        ; narrows them). Every shape routine funnels through here, so
+        ; this bounds all drawing; negative wraps read as large
+        ; unsigned values and clip.
         lda plot_y
-        cmp #200
+        cmp vp_y0
+        bcc _pp_clip
+        cmp vp_y1
+        beq _pp_ylo_ok
         bcs _pp_clip
-        ldy #$40                ; x bound: 320 = $0140 ...
-        ldx #1
-        lda screen_mode
-        cmp #80
-        bne _pp_clip_b
-        ldy #$80                ; ... or 640 = $0280
-        ldx #2
-_pp_clip_b:
-        stx _pp_clip_t
-        sty _pp_clip_t2
-        lda plot_x+1
-        cmp _pp_clip_t
-        bcc _pp_clip_xok        ; hi below the bound: in range
-        bne _pp_clip            ; hi above (incl. negative wraps): out
-        lda plot_x              ; hi equal: lo must be under the bound
-        cmp _pp_clip_t2
+_pp_ylo_ok:
+        lda plot_x+1            ; x >= vp_x0 (16-bit)
+        cmp vp_x0+1
+        bcc _pp_clip
+        bne _pp_xlo_ok
+        lda plot_x
+        cmp vp_x0
+        bcc _pp_clip
+_pp_xlo_ok:
+        lda plot_x+1            ; x <= vp_x1 (16-bit)
+        cmp vp_x1+1
+        bcc _pp_clip_xok
+        bne _pp_clip
+        lda plot_x
+        cmp vp_x1
+        beq _pp_clip_xok
         bcs _pp_clip
 _pp_clip_xok:
         ; char_col = x / 8

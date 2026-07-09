@@ -84,6 +84,34 @@ _ff_y_check:
         cmp #200
         bcs _ff_error           ; Y >= 200, error
 
+        ; [basic65c] the seed must sit inside the viewport -- the scan
+        ; bounds below wall the fill at vp_*, so a seed outside would
+        ; never terminate its first span otherwise
+        lda flood_y
+        cmp vp_y0
+        bcc _ff_error
+        cmp vp_y1
+        beq _ff_vy_ok
+        bcs _ff_error
+_ff_vy_ok:
+        lda flood_x+1
+        cmp vp_x0+1
+        bcc _ff_error
+        bne _ff_vxlo_ok
+        lda flood_x
+        cmp vp_x0
+        bcc _ff_error
+_ff_vxlo_ok:
+        lda flood_x+1
+        cmp vp_x1+1
+        bcc _ff_vx_ok
+        bne _ff_error
+        lda flood_x
+        cmp vp_x1
+        beq _ff_vx_ok
+        bcs _ff_error
+_ff_vx_ok:
+
         ; Get pixel at seed point
         lda flood_x
         sta plot_x
@@ -178,9 +206,11 @@ _ff_process_scanline:
         ; Now scan right, filling as we go
         jsr _ff_scan_right
 
-        ; Check scanline above for new seeds
+        ; Check scanline above for new seeds ([basic65c] the vertical
+        ; walls are the viewport's top and bottom rows)
         lda _ff_scan_y
-        beq _ff_ps_no_above     ; Y=0, no line above
+        cmp vp_y0
+        beq _ff_ps_no_above     ; at the top edge, no line above
         dec _ff_scan_y
         jsr _ff_check_adjacent
         inc _ff_scan_y
@@ -188,8 +218,8 @@ _ff_process_scanline:
 _ff_ps_no_above:
         ; Check scanline below for new seeds
         lda _ff_scan_y
-        cmp #199
-        beq _ff_ps_no_below     ; Y=199, no line below
+        cmp vp_y1
+        beq _ff_ps_no_below     ; at the bottom edge, no line below
         inc _ff_scan_y
         jsr _ff_check_adjacent
         dec _ff_scan_y
@@ -210,11 +240,14 @@ _ff_scan_left:
         sta _ff_left_x+1
 
 _ff_sl_loop:
-        ; Check if we can go further left
+        ; Check if we can go further left ([basic65c] the wall is the
+        ; viewport's left edge, vp_x0 -- 0 when no viewport is active)
         lda _ff_left_x
+        cmp vp_x0
         bne _ff_sl_check_pixel
         lda _ff_left_x+1
-        beq _ff_sl_done         ; Hit X=0
+        cmp vp_x0+1
+        beq _ff_sl_done         ; at the left edge
 
 _ff_sl_check_pixel:
         ; Move left
@@ -248,23 +281,14 @@ _ff_sl_done:
 ; Updates _ff_right_x to rightmost filled pixel
 ;=======================================================================================
 _ff_scan_right:
-        ; Determine screen width
-        lda screen_mode
-        cmp #80
-        beq _ff_sr_640
-
-        ; 40-col: width = 320
-        lda #<320
+        ; [basic65c] the right wall is the viewport's edge (exclusive
+        ; bound = vp_x1 + 1); the full screen when no viewport is set
+        clc
+        lda vp_x1
+        adc #1
         sta _ff_max_x
-        lda #>320
-        sta _ff_max_x+1
-        jmp _ff_sr_start
-
-_ff_sr_640:
-        ; 80-col: width = 640
-        lda #<640
-        sta _ff_max_x
-        lda #>640
+        lda vp_x1+1
+        adc #0
         sta _ff_max_x+1
 
 _ff_sr_start:
