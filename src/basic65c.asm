@@ -5293,7 +5293,7 @@ _fpix_fail:
 _factor_hasbit:
         jsr parse_open_paren
         bcs _fhb_fail
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _fhb_fail
         lda expr_type
         beq _fhb_a16
@@ -6567,7 +6567,7 @@ compile_bitargs:
         jsr line_get
         cmp #$4e                ; the BIT token's second byte
         bne _cbit_bad2
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cbit_bad2
         lda expr_type
         beq _cbit_a16
@@ -6731,7 +6731,7 @@ cdmacommon:
         lda #0
         sta cdma_i
 _cdma_loop:
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cdma_bad
         lda expr_type
         beq _cdma_a16
@@ -6810,7 +6810,7 @@ compile_gfxargs:
         lda #0
         sta cdma_i
 _cga_loop:
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cga_bad
         lda expr_type
         beq _cga_a16
@@ -6908,7 +6908,7 @@ _cgl_bad:
 ; stage one numeric expression into the next DMA arg slot (int or
 ; float); shared by LINE and PIXEL()
 cglcoord:
-        jsr compile_expression
+        jsr compile_num_expression
         bcs _cglc_fail
         lda expr_type
         beq _cglc_a16
@@ -9242,7 +9242,7 @@ _parse_float_minus:
 
 _parse_float_before:
         jsr line_at_end
-        bcs _parse_float_fail
+        bcs _parse_float_intend ; digits ran to end of line
         jsr line_peek
         cmp #'0'
         bcc _parse_float_dot_check
@@ -9256,7 +9256,39 @@ _parse_float_before:
 
 _parse_float_dot_check:
         cmp #'.'
+        beq _parse_float_dot
+        ; no dot: a plain integer. Values past 16 bits must ride the
+        ; float-literal path (the int path wraps) -- the digits are
+        ; already in string_temp, so just accept.
+_parse_float_intend:
+        lda number_digits
+        cmp #6
+        bcs _parse_float_bigint
+        cmp #5
         bne _parse_float_fail
+        ldx string_temp_len     ; five digits: lexical compare against
+        dex                     ; 65535, most significant first
+        dex
+        dex
+        dex
+        dex
+        ldy #0
+_pf_cmp5:
+        lda string_temp,x
+        cmp _pf_65535,y
+        bcc _parse_float_fail   ; below: fits, the int path takes it
+        bne _parse_float_bigint ; above: 16-bit overflow, go float
+        inx
+        iny
+        cpy #5
+        bne _pf_cmp5
+        bra _parse_float_fail   ; exactly 65535 still fits
+_parse_float_bigint:
+        clc
+        rts
+_pf_65535:
+        .text "65535"
+_parse_float_dot:
         jsr line_get
         lda #'.'
         jsr string_temp_append_a

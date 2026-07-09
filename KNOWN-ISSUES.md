@@ -84,7 +84,7 @@ early-out. Verified with basic/bankpk.bas + xemu -dumpmem ground
 truth: BANK 4 POKE lands at $49000 physically, BANK 5 PEEK reads the
 GFX blob bytes; bankrreg.bas passes with genuine far access.
 
-## 6. Flat-address SETBIT/CLRBIT writes (>= $10000) do not land
+## 6. ~~Flat-address SETBIT/CLRBIT writes (>= $10000) do not land~~ (FIXED 2026-07-09)
 
 Exposed 2026-07-09 by the BANK far-PEEK fix (the old CPU-visible
 reads false-passed bits.bas's FLAT check for months): after
@@ -95,5 +95,20 @@ path -- possibly the address staging order between bitadr32 and the
 second (bit-number) expression clobbering exprb2/exprb3, or the
 number going through a different path than assumed. bits.bas now
 prints FLAT FAIL honestly; hasbit's flat assertion also passed only
-by leftover luck. Diagnose with a minimal poke-probe fixture +
--dumpmem next session.
+by leftover luck.
+
+**FIXED -- the real bug was two layers up.** (1) Decimal integer
+literals above 65535 silently wrapped to 16 bits: the float-literal
+scanner rejected dot-less numbers, so 262145 parsed as 5. Big
+integers (6+ digits, or 5 digits lexically above 65535) now ride the
+float-literal path, including at end of line (the scanner's
+line_at_end exit bypassed the first fix -- caught because dma.bas's
+fill literal sits at end of line while its copy literal does not).
+(2) compile_expression demotes every float to int16 by design
+(emit_qint_expr), so the a16/a32 staging branches in SETBIT/DMA/
+graphics arg consumers were dead code; those consumers now call
+compile_num_expression and their 32-bit paths finally run. Verified
+with -dumpmem ground truth: flat SETBIT lands ($40005 reads $82),
+dma.bas prints FAR OK against real bank-4 memory (its old pass was a
+zero-page round trip that also smashed zp $00-$0F), bits.bas fully
+green, gfxtest regression clean.
