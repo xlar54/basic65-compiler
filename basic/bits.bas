@@ -11,3 +11,13 @@
 110 bank 128
 120 if v>=128 then print " flat ok" : else print "flat fail";v
 130 print "bits done"
+200 setbit $a002,6
+210 h1=hasbit($a002,6)
+220 clrbit $a002,6
+230 h2=hasbit($a002,6)
+240 setbit 262147,3
+250 h3=hasbit(262147,3)
+260 print "hasbit set (want-1):";h1
+270 print "hasbit clr (want 0):";h2
+280 print "hasbit flat (want-1):";h3
+290 if h1=-1 and h2=0 and h3=-1 then print " hasbit ok"

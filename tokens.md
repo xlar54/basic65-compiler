@@ -28,7 +28,7 @@ Legend:
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 78 | 7 | 40 |
-| $CE-prefixed functions | 17 | 13 | — | 4 |
+| $CE-prefixed functions | 17 | 14 | — | 3 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
@@ -187,6 +187,7 @@ Legend:
 | $CE $10 | WPEEK | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
 | $CE $11 | DECBIN | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
 | $CE $12 | STRBIN$ | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
+| $CE $13 | HASBIT | ⚠️ | -1/0 bit test with SETBIT address rules; flat (>= $10000) addresses affected by KNOWN-ISSUES #6 |
 
 ## $FE-prefixed extended statements
 

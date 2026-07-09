@@ -5125,6 +5125,10 @@ _factor_ext_ce:
         bne _factor_no_pixel
         jmp _factor_pixel
 _factor_no_pixel:
+        cmp #$13                ; HASBIT
+        bne _factor_no_hasbit
+        jmp _factor_hasbit
+_factor_no_hasbit:
         cmp #$05                ; RSPPOS
         beq _factor_rsppos
         cmp #$06                ; RSPRITE
@@ -5282,6 +5286,35 @@ _factor_pixel:
         jsr emit_tmpl_done
         .word out_pixel_res
 _fpix_fail:
+        sec
+        rts
+
+; HASBIT(address, bit) -- SETBIT's address resolution, then a read
+_factor_hasbit:
+        jsr parse_open_paren
+        bcs _fhb_fail
+        jsr compile_expression
+        bcs _fhb_fail
+        lda expr_type
+        beq _fhb_a16
+        jsr emit_tmpl
+        .word out_jsr_bitadr32
+        bra _fhb_bit
+_fhb_a16:
+        jsr emit_tmpl
+        .word out_jsr_bitadr16
+_fhb_bit:
+        jsr parse_comma
+        bcs _fhb_fail
+        jsr compile_expression
+        bcs _fhb_fail
+        jsr parse_close_paren
+        bcs _fhb_fail
+        lda #0
+        sta expr_type
+        jsr emit_tmpl_done
+        .word out_jsr_hasbitf
+_fhb_fail:
         sec
         rts
 
@@ -14470,6 +14503,13 @@ out_jsr_getstrw:
 out_jsr_charstage:
 .if TEXT_EMITTER
         .text "        jsr charstage"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_hasbitf:
+.if TEXT_EMITTER
+        .text "        jsr hasbitf"
         .byte 13, 0
 .else
         .byte 0

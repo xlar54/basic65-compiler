@@ -83,3 +83,17 @@ section from a FILTER-only program. Both checks now sit above the
 early-out. Verified with basic/bankpk.bas + xemu -dumpmem ground
 truth: BANK 4 POKE lands at $49000 physically, BANK 5 PEEK reads the
 GFX blob bytes; bankrreg.bas passes with genuine far access.
+
+## 6. Flat-address SETBIT/CLRBIT writes (>= $10000) do not land
+
+Exposed 2026-07-09 by the BANK far-PEEK fix (the old CPU-visible
+reads false-passed bits.bas's FLAT check for months): after
+`SETBIT 262145,7`, -dumpmem shows bank-4 $40001 unchanged. The
+16-bit/banked paths work (set/clr/hasbit at $A002 verified genuinely)
+and flat READS work (hasbitf), so suspicion falls on the flat WRITE
+path -- possibly the address staging order between bitadr32 and the
+second (bit-number) expression clobbering exprb2/exprb3, or the
+number going through a different path than assumed. bits.bas now
+prints FLAT FAIL honestly; hasbit's flat assertion also passed only
+by leftover luck. Diagnose with a minimal poke-probe fixture +
+-dumpmem next session.

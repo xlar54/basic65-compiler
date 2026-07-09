@@ -79,6 +79,18 @@ foreach ($item in $Path) {
                 $i += 4
                 continue
             }
+            # HASBIT: petcat leaves it as plain text
+            if ($i + 5 -lt $lineEnd -and $b -eq 0x48 -and
+                $bytes[$i+1] -eq 0x41 -and $bytes[$i+2] -eq 0x53 -and
+                $bytes[$i+3] -eq 0x42 -and $bytes[$i+4] -eq 0x49 -and
+                $bytes[$i+5] -eq 0x54) {
+                for ($k = 0; $k -le 3; $k++) { $bytes[$i+$k] = 0x20 }
+                $bytes[$i+4] = 0xce
+                $bytes[$i+5] = 0x13
+                $changed++
+                $i += 5
+                continue
+            }
             # DECBIN: petcat emits the DEC token + literal BIN
             if ($i + 3 -lt $lineEnd -and $b -eq 0xd1 -and
                 $bytes[$i+1] -eq 0x42 -and $bytes[$i+2] -eq 0x49 -and $bytes[$i+3] -eq 0x4e) {

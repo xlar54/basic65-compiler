@@ -3625,6 +3625,30 @@ _sb_cpu:
         sta (rtptr),y
         rts
 
+; HASBIT(address, bit): -1 when the bit is set, else 0; the address
+; rules are SETBIT's (bank for 16-bit, flat for >= $10000)
+hasbitf:
+        jsr bitprep
+        bcc _hb_cpu
+        ldz #0
+        lda [varptr],z
+        and bit_mask
+        tax
+        jsr scrrestore
+        txa
+        bra _hb_res
+_hb_cpu:
+        ldy #0
+        lda (rtptr),y
+        and bit_mask
+_hb_res:
+        beq _hb_zero
+        lda #$ff
+_hb_zero:
+        sta exprlo
+        sta exprhi
+        rts
+
 clrbitgo:
         jsr bitprep
         lda bit_mask
