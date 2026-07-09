@@ -40,7 +40,7 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 |---|---|---|---|---|
 | `basic/mandel.bas` | float multiply/add (Mandelbrot escape loop) | 4.63 s | 0.16 s | ~29x |
 | `basic/primes.bas` | integer MOD trial division up to 5000 | 7.87 s | 0.02 s | ~394x |
-| `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 0.26 s | ~81x |
+| `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 20.13 s | 0.26 s | ~77x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.02 s | ~39x |
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
