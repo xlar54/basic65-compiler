@@ -1450,6 +1450,7 @@ _scan_program_done:
 scan_line_variables:
         lda #0
         sta line_idx
+        sta scan_pmode
 
 _scan_vars_loop:
         jsr line_at_end
@@ -1588,6 +1589,15 @@ _scan_vars_no_fn:
         jsr line_peek
         cmp #'('
         bne _scan_vars_scalar
+        lda scan_pmode          ; BSAVE/BLOAD on this line: a lone
+        beq _scan_vars_array    ; P( is an address prefix, not an
+        lda var_name_1          ; array -- skip the P, the inner
+        cmp #$50                ; expression scans normally
+        bne _scan_vars_array
+        lda var_name_2
+        bne _scan_vars_array
+        jmp _scan_vars_loop
+_scan_vars_array:
         lda #VAR_KIND_ARRAY1
         sta var_kind
         jsr resolve_existing_var
@@ -1663,6 +1673,14 @@ _scan_vars_extended:
         beq _scan_ext_snd
         cmp #$17                ; COLLISION
         beq _scan_ext_col
+        cmp #$10                ; BSAVE/BLOAD: P(expr) addresses
+        beq _scan_ext_pmode     ; follow -- P( is not an array ref
+        cmp #$11
+        bne _scan_ext_no_pmode
+_scan_ext_pmode:
+        ldx #1
+        stx scan_pmode
+_scan_ext_no_pmode:
         cmp #$0d                ; DOPEN..DCLEAR, ERASE, CHDIR
         bcc _scan_ext_skip
         cmp #$15+1
@@ -17035,6 +17053,8 @@ brtab_hi:
 pool_save:
         .byte 0,0,0,0
 scan_ext_prefix:
+        .byte 0
+scan_pmode:
         .byte 0
 d030_save:
         .byte 0

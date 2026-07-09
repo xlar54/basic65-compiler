@@ -34,12 +34,6 @@ retries up to 3x for the same reason, the harness does not retry.
 `build.bat basic\X.bas`, boot xemu with `-prg target\bootstrap.prg
 -dumpscreen`, extract OUT.PRG with c1541.
 
-## 3. BSAVE with P(expr) address forms halts silently
-
-**Symptom:** BSAVE using computed P(expr) start/end addresses halts
-the compiled program without an error message. Literal P addresses
-(as in disk.bas) work. Not yet investigated.
-
 ## Capacity watch (not defects, but current hard limits)
 
 - **Runtime core is full:** rtendsound = $70FA vs progbase = $7100 --
