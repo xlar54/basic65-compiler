@@ -89,6 +89,11 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] gfxcopy.bas      (GCOPY/PASTE: the book's box example with a
+      red centre, pasted and probed (2/1/0), plus an over-budget
+      GCOPY asserting the buffer empties; prints GCOPY OK; compiled
+      run verified 2026-07-09 incl. bitmap decode. Divergence: the
+      ROM errors on over-budget, we silently empty the buffer.)
 - [ ] rpt.bas          (RPT$: both book examples plus length,
       zero-count and empty-source cases; prints RPT OK; compiled run
       verified 2026-07-09.)

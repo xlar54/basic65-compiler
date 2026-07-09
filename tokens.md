@@ -136,7 +136,7 @@ Legend:
 | $E0 | CHAR | ✅ | col,row,h,w,dir,string[,charset] with scaling + 4 directions (ROM fonts $29000/$29800/$2D000/$3D000); CHARDEF ($E0 $96) ✅ |
 | $E1 | BOX | ✅ | both forms: two diagonal corners and the 4-corner path (+solid; path fill is row-span based -- exact for convex quads) |
 | $E2 | CIRCLE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
-| $E3 | PASTE | ❌ | |
+| $E3 | PASTE | ✅ | pastes the GCOPY buffer at x,y (raw pixels, clipped) |
 | $E4 | CUT | ❌ | |
 | $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path |
 | $E6 | MERGE | ✖ | editor |
@@ -240,7 +240,7 @@ Legend:
 | $FE $2F | POLYGON | ⚠️ | regular n-gon from xrad (yrad/drawsides/subtend accepted, ignored); angle + solid work |
 | $FE $30 | ELLIPSE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $FE $31 | VIEWPORT | ❌ | graphics queued |
-| $FE $32 | GCOPY | ❌ | graphics queued |
+| $FE $32 | GCOPY | ✅ | copies x,y,w,h to the buffer; ROM budget honoured (w*h*depth/8 < 1KB, declared depth); over-budget empties the buffer instead of erroring |
 | $FE $33 | PEN | ⚠️ | drawing pen colour (pen 0) only |
 | $FE $34 | PALETTE | ⚠️ | screen,c,r,g,b and COLOR c,r,g,b; RESTORE unsupported |
 | $FE $35 | DMODE | ❌ | graphics queued |
