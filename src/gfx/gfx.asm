@@ -238,6 +238,7 @@ g_screendef:
 ; SCREEN OPEN [s]: clear the screen's attic buffer; if it is the
 ; viewed screen, clear the visible canvas too
 g_screenopen:
+        jsr gfx_vprst           ; open resets the viewport (all forms)
         lda dma_args+0
         and #3
         pha

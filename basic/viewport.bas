@@ -16,8 +16,13 @@
 150 b1=pixel(50,70):b2=pixel(5,70):b3=pixel(300,70)
 160 p1=pixel(60,120):p2=pixel(10,145):p3=pixel(60,90)
 170 r1=pixel(200,10)
+172 viewport def 20,30,10,10
+174 screen open 0
+176 pen 4
+178 line 0,5,319,5
+179 r2=pixel(300,5)
 180 screen close
 190 print "vp:";v1;v2;v3;v4
 200 print "ln:";l0;l1;l2;" bx:";b1;b2;b3
-210 print "pt:";p1;p2;p3;" rs:";r1
-220 if v1=1 and v2=1 and v3=0 and v4=0 then if l0=2 and l1=0 and l2=0 and b1=2 and b2=0 and b3=0 then if p1=3 and p2=0 and p3=1 and r1=2 then print "viewport ok"
+210 print "pt:";p1;p2;p3;" rs:";r1;r2
+220 if v1=1 and v2=1 and v3=0 and v4=0 then if l0=2 and l1=0 and l2=0 and b1=2 and b2=0 and b3=0 then if p1=3 and p2=0 and p3=1 and r1=2 and r2=4 then print "viewport ok"
