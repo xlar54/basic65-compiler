@@ -3,132 +3,55 @@
 Open defects, tracked with their investigation state. Documented
 divergences from the interpreter (by design or ROM quirk) live in
 [tokens.md](tokens.md) and docs/interpreted-sweep.md instead.
+Resolved issues are removed from this file; their write-ups live in
+the git history (this file's log and the fixing commits' messages).
 
-## 1. ~~String corruption after heavy GC churn~~ (FIXED 2026-07-08)
+## 1. Program-shape-dependent false "UNSUPPORTED TOKEN" at compile
 
-**Fixed 2026-07-07:** compiled code parked string descriptors on the
-CPU stack across nested string operations (concat, LEFT$/RIGHT$/MID$,
-INSTR, string compares, RENAME/COPY stashes) -- invisible to the GC
-root walk, so a mid-expression collection recycled them. All those
-sites now park in a GC-visible temp-slot block inside the runtime
-image, walked as the GC's synthetic first region. This was the source
-of the original random garbage/black-text symptom (verified: zero
-control bytes through the print path across the full suite).
-
-**FIXED 2026-07-08 -- compaction ordering (staged compaction):**
-pass 1 now writes every live string to an attic mirror of its final
-address ($801xxxx, same 16-bit offset -- clear of the relocation map
-at $800xxxx) and never touches the live heap; the packed block is
-CPU-copied back in one ascending pass at the end. The dst==src
-copy-skip and the backward-copy variant are gone (the wholesale
-copy-back requires every live string present in the mirror).
-Verified: basic/gcstorm.bas (~41,000 allocations through the 55KB
-heap, 7+ full compactions, per-string integrity readback prints
-FAILS: 0) and an unattended source.bas run ending with a clean
-screen. Original design notes below for history.
-
-**The residual as it was:** the copying GC visits strings
-in root-table order while the destination frontier descends from the
-heap top, so a string's destination can overwrite a NOT-YET-VISITED
-string's source. Rare with few live strings; guaranteed under
-source.bas-scale churn (test 11 prints array cells containing churn
-fragments). Fix design: stage the compaction in an attic mirror
-($800xxxx = final address) so pass 1 never touches the heap, then
-copy the packed block back; a first attempt corrupted memory via the
-EDMA writeback and was reverted -- verify EDMA-from-GC in isolation
-(or use a CPU copy-back loop) next session. The temp-slot machinery,
-attic relocation map, and bank-aware synthetic-region walker are all
-in place and committed.
-
-## 2. Program-shape-dependent false "UNSUPPORTED TOKEN" at compile
-
-**Symptom:** a reduced variant of the test suite (source.bas with
-most gosubs removed from line 20) fails to compile with
+**Symptom:** a reduced variant of the old test suite (source.bas with
+most gosubs removed from line 20) failed to compile with
 "ERROR LINE 12040: UNSUPPORTED TOKEN" pointing at a WPOKE statement
 whose tokenized bytes are verified correct ($FE $1D). Supersets of
-the same file compile fine. Something about program size/label
+the same file compiled fine. Something about program size/label
 population desynchronizes the compiler before that line.
 
-**Status (2026-07-06):** reproducible; not yet bisected. The affected
-statement compiles correctly in every shipped fixture.
+**Status (2026-07-09):** reproducible at last attempt (2026-07-06);
+not yet bisected. The affected statement compiles correctly in every
+shipped fixture. Note: the variable scanner's silent failure path now
+prints "cannot resolve variable (out of symbols?)" (added with DEF
+FN) -- if this phantom was actually a table-limit overflow, the next
+repro will say so instead of pointing at an innocent token.
 
-## 3. Harness phase-1 timeout on large fixtures
+## 2. Harness phase-1 timeout (boot stall)
 
-**Symptom:** `tools/emu-test.ps1` reports "no OUT.ASM in 240 s" for
-source.bas-sized fixtures even though the same compile succeeds in a
-manual xemu run (~2-3 min). The polling copy of the D81 appears to
-race the emulated writes.
+**Symptom:** `tools/emu-test.ps1` occasionally reports "no OUT.ASM in
+240 s" even though the same fixture compiles in ~2-3 min; the same
+invocation passes on retry (most recently input.bas, 2026-07-09).
+Believed to be the xemu boot-banner stall; the manual autoboot chain
+retries up to 3x for the same reason, the harness does not retry.
 
-**Workaround:** manual chain — `build.bat basic\X.bas`, boot xemu
-with `-prg target\bootstrap.prg -dumpscreen`, extract OUT.PRG with
-c1541, write it back as AUTOBOOT.C65, boot again with `-dumpscreen`.
+**Workaround:** rerun the fixture. Manual chain if needed:
+`build.bat basic\X.bas`, boot xemu with `-prg target\bootstrap.prg
+-dumpscreen`, extract OUT.PRG with c1541.
 
-## 4. ~~CHR$ unusable outside PRINT~~ (FIXED 2026-07-07)
+## 3. BSAVE with P(expr) address forms halts silently
 
-CHR$ was only handled as a PRINT item; assignments and concatenation
-(`k$="dir"+chr$(13)`) failed with the generic BAD-expression error.
-No fixture had ever exercised it. Fixed by adding the CHR$ string
-factor (chrstrf shares GET's one-byte-string tail); covered by
-basic/key.bas.
+**Symptom:** BSAVE using computed P(expr) start/end addresses halts
+the compiled program without an error message. Literal P addresses
+(as in disk.bas) work. Not yet investigated.
 
-## 5. ~~BANK far PEEK/POKE never actually reached other banks~~ (FIXED 2026-07-08)
+## Capacity watch (not defects, but current hard limits)
 
-The scan pass's $FE-token chain opened with `cmp #$04 / bcc skip`,
-so BANK ($FE $02) never set bank_used and every PEEK/POKE compiled to
-the plain CPU-visible form -- round-trip fixtures passed because both
-directions used the same wrong addressing (a textbook byte-diff blind
-spot; peekbk/pokebk themselves were always correct). FILTER ($FE $03)
-was skipped by the same early-out and would have dropped the sound
-section from a FILTER-only program. Both checks now sit above the
-early-out. Verified with basic/bankpk.bas + xemu -dumpmem ground
-truth: BANK 4 POKE lands at $49000 physically, BANK 5 PEEK reads the
-GFX blob bytes; bankrreg.bas passes with genuine far access.
-
-## 6. ~~Flat-address SETBIT/CLRBIT writes (>= $10000) do not land~~ (FIXED 2026-07-09)
-
-Exposed 2026-07-09 by the BANK far-PEEK fix (the old CPU-visible
-reads false-passed bits.bas's FLAT check for months): after
-`SETBIT 262145,7`, -dumpmem shows bank-4 $40001 unchanged. The
-16-bit/banked paths work (set/clr/hasbit at $A002 verified genuinely)
-and flat READS work (hasbitf), so suspicion falls on the flat WRITE
-path -- possibly the address staging order between bitadr32 and the
-second (bit-number) expression clobbering exprb2/exprb3, or the
-number going through a different path than assumed. bits.bas now
-prints FLAT FAIL honestly; hasbit's flat assertion also passed only
-by leftover luck.
-
-**FIXED -- the real bug was two layers up.** (1) Decimal integer
-literals above 65535 silently wrapped to 16 bits: the float-literal
-scanner rejected dot-less numbers, so 262145 parsed as 5. Big
-integers (6+ digits, or 5 digits lexically above 65535) now ride the
-float-literal path, including at end of line (the scanner's
-line_at_end exit bypassed the first fix -- caught because dma.bas's
-fill literal sits at end of line while its copy literal does not).
-(2) compile_expression demotes every float to int16 by design
-(emit_qint_expr), so the a16/a32 staging branches in SETBIT/DMA/
-graphics arg consumers were dead code; those consumers now call
-compile_num_expression and their 32-bit paths finally run. Verified
-with -dumpmem ground truth: flat SETBIT lands ($40005 reads $82),
-dma.bas prints FAR OK against real bank-4 memory (its old pass was a
-zero-page round trip that also smashed zp $00-$0F), bits.bas fully
-green, gfxtest regression clean.
-
-## 7. ~~source.bas emission overflows the $7100-$D000 program window~~ (RESOLVED 2026-07-09)
-
-Pre-existing at c501799 (verified against the committed compiler with
-all DEF FN work stashed): compiling basic/source.bas now ends at
-$D0D9, 217 bytes past the $D000 I/O-space guard, so the link (and the
-native size guard) fail with PROGRAM TOO LARGE. Not a compiler bug --
-the 200-line kitchen-sink demo has simply outgrown the fixed window
-as statement emission accreted (graphics staging, PEN, polyline).
-Options when it matters: trim source.bas, shave hot templates, or the
-planned program overlays (bank-4 segments + far GOTO/GOSUB). All
-other fixtures fit comfortably.
-
-**RESOLVED by splitting the fixture, not the window.** source.bas is
-now a compact non-interactive smoke test (8 suites, ~11KB emission);
-its depth moved to per-area fixtures (flow, loops, temp, get join the
-existing expr/data/strings/strarray/gc/mem/types/intfunc/floats/
-input). The 24KB window itself still bounds any single program --
-program overlays (bank-attic segments + line-table trampoline) remain
-the plan for genuinely large programs.
+- **Runtime core is full:** rtendsound = $70FA vs progbase = $7100 --
+  6 bytes of headroom (guarded by .cerror). The next runtime addition
+  forces the graphics-trampoline carve-out (~250 bytes), sectioned
+  emission, or a progbase bump (costs every program 256 bytes of the
+  24KB window).
+- **Checked compiler:** valued content ends $BE32 (~460 bytes below
+  the $C000 guard) after squeeze round 2 (string/data-line scratch
+  moved into the $C000 tail, SYM_MAX 96 -> 64; fixture peak is ~44
+  symbols).
+- **Graphics blob:** ~14.1KB of the 16KB bank-5 budget (~2.3KB free).
+- **Program window:** any single program is bound by $7100-$D000
+  (~24KB emitted). Program overlays (attic segments + line-table
+  trampoline) are the plan when a real program outgrows it.
