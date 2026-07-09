@@ -728,12 +728,14 @@ ch_t16:  .word 0
 ; screen). GCOPY reads through the current draw base; PASTE replays
 ; raw bytes through plot_pixel, so clipping and attic screens work.
 g_gcopy:
-        lda dma_args+5          ; y/w/h are 8-bit consumed
-        ora dma_args+9
-        ora dma_args+13
-        beq _ggc_ok
-        rts
-_ggc_ok:
+        lda dma_args+5          ; y/w/h are 8-bit consumed; any
+        ora dma_args+9          ; rejection empties the buffer so a
+        ora dma_args+13         ; later PASTE cannot replay stale data
+        bne _ggc_over
+        lda dma_args+8          ; w = 0 or h = 0: nothing to record
+        beq _ggc_over           ; (the do-while copy loops below would
+        lda dma_args+12         ; wrap a zero count to 256)
+        beq _ggc_over
         lda dma_args+8          ; ROM budget check: w*h*depth < 8192
         sta MULTINA             ; (1KB of bitplanes, the KERNAL's cap)
         lda #0
@@ -768,9 +770,9 @@ _ggc_ok:
         cmp #$20
         bcc _ggc_fits
 _ggc_over:
-        lda #0                  ; over budget: empty buffer, PASTE
-        sta cut_w               ; becomes a no-op (the ROM errors)
-        sta cut_h
+        lda #0                  ; rejected (bad args, zero size, or
+        sta cut_w               ; over budget): empty buffer, PASTE
+        sta cut_h               ; becomes a no-op (the ROM errors)
         rts
 _ggc_fits:
         lda dma_args+8
@@ -1232,6 +1234,9 @@ g_cut:
         ora dma_args+9
         ora dma_args+13
         beq _gct_go
+        lda #0                  ; rejected: empty the buffer so PASTE
+        sta cut_w               ; and the fill below both no-op
+        sta cut_h
         rts
 _gct_go:
         jsr g_gcopy
