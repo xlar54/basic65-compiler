@@ -267,8 +267,11 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 | Benchmark | Workload | Interpreted | Compiled | Speedup |
 |---|---|---|---|---|
 | `basic/mandel.bas` | float multiply/add (Mandelbrot escape loop) | 4.87 s | 0.04 s | ~122x |
+| `basic/primes.bas` | integer MOD trial division up to 5000 | 8.2019072 s | 0.04 s | ~205x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 0.26 s | ~81x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.02 s | ~39x |
+
+Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
 Ahl's accuracy figure: 2.27e-04 compiled vs 3.11e-04 interpreted --
 the compiler's MFLP math lands slightly closer to the true value than
