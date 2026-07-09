@@ -6917,6 +6917,26 @@ _cscn_bad:
 ; xc,yc,r[,flags] (no arcs), ELLIPSE xc,yc,xr,yr[,flags] (no arcs),
 ; PAINT x,y[,mode[,border]] (mode-0 semantics)
 compile_box:
+        jsr compile_gfxargs
+        bcs _cbox_bad
+        lda cdma_i
+        cmp #4
+        beq _cbox_two
+        cmp #5
+        beq _cbox_two
+        cmp #8
+        beq _cbox_four
+        cmp #9
+        bne _cbox_bad
+_cbox_four:
+        lda #19
+        jmp emit_gfxcall
+_cbox_two:
+        lda #3
+        jmp emit_gfxcall
+_cbox_bad:
+        jmp compile_env_bad
+compile_box_unused:
         ldx #0
         bra cgfx_stmt_go
 compile_circle:

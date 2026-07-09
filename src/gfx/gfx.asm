@@ -98,6 +98,7 @@ gfx_base:
         .word g_screendef       ; 16 SCREEN DEF s,wf,hf,d
         .word g_simple4         ; 17 SCREEN s,w,h,d
         .word g_char            ; 18 CHAR
+        .word g_box4            ; 19 BOX four-corner path
 
 ; the CHAR text buffer sits at a fixed blob offset so the resident
 ; charstage can far-write it into the attic image before the call
@@ -807,6 +808,54 @@ _gpl_ok:
         lda gfx_pen
         sta plot_col
         jmp plot_pixel
+
+; BOX x0,y0,x1,y1,x2,y2,x3,y3[,solid]: the four-corner path form --
+; any quadrilateral. Outline connects the points and closes; solid
+; fills via the polygon module's scanline fill (min/max row spans:
+; exact for convex quads, hull-like for bow-ties).
+g_box4:
+        lda dma_args+5          ; y high bytes must be clear
+        ora dma_args+13
+        ora dma_args+21
+        ora dma_args+29
+        beq _gb4_ok
+        rts
+_gb4_ok:
+        lda dma_args+0
+        sta pgvx
+        lda dma_args+1
+        sta pgvx+1
+        lda dma_args+4
+        sta pgvy
+        lda dma_args+8
+        sta pgvx+2
+        lda dma_args+9
+        sta pgvx+3
+        lda dma_args+12
+        sta pgvy+1
+        lda dma_args+16
+        sta pgvx+4
+        lda dma_args+17
+        sta pgvx+5
+        lda dma_args+20
+        sta pgvy+2
+        lda dma_args+24
+        sta pgvx+6
+        lda dma_args+25
+        sta pgvx+7
+        lda dma_args+28
+        sta pgvy+3
+        lda #4
+        sta poly_sides
+        lda gfx_pen
+        sta poly_col
+        lda #0
+        sta poly_grad
+        lda dma_args+32         ; solid
+        beq _gb4_outline
+        jmp pgofill
+_gb4_outline:
+        jmp pgoline
 
 ; BOX x0,y0,x2,y2[,solid]: two diagonally opposite corners in any
 ; order; the library wants origin + size

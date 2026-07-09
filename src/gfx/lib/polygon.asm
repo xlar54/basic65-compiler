@@ -648,8 +648,12 @@ _pg_vx:
 _pg_vy:
         .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-; [basic65c] exported for the arc module
+; [basic65c] exported for the arc module and the 4-corner BOX
 pgsin      = _pg_get_sin
 pgmul      = _pg_mul8x8_hw
 pgmulres   = _pg_mul_result
 pgsinneg   = _pg_sin_neg
+pgvx       = _pg_vx
+pgvy       = _pg_vy
+pgofill    = _pg_draw_filled
+pgoline    = _pg_draw_outline

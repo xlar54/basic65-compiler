@@ -89,6 +89,11 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] gfxbox4.bas      (BOX 4-corner path form: filled diamond +
+      parallelogram outline; PIXEL probes 3/5/0 + BOX4 OK; compiled
+      run verified 2026-07-08 incl. bitmap decode. Note: path fill is
+      min/max row spans -- convex quads exact, bow-tie fills may
+      differ from the ROM.)
 - [ ] gfxchar.bas      (CHAR text on the graphics screen: normal,
       2x2, 3x-tall scaling and the down direction; sgn-sum PIXEL row/
       column probes assert ink present (35/44/7 + CHAR OK); compiled
