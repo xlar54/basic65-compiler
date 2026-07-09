@@ -13192,13 +13192,48 @@ _bin_fin_hi:
         lda pending_value+1
         jmp bin_write_byte
 _bin_fin_rel8:
-        ; displacement = target - (address after the operand byte)
+        ; displacement = target - (address after the operand byte),
+        ; computed 16-bit: a branch past rel8 range fails the backend
+        ; (error 5) instead of silently wrapping -- 64tass rejects the
+        ; far branch on the text side, but the on-device OUT.PRG has
+        ; no second assembler to save it
+        sec
         lda pending_value
-        sec
         sbc bin_pc
-        sec
-        sbc #1
+        sta bin_rel_lo
+        lda pending_value+1
+        sbc bin_pc+1
+        sta bin_rel_hi
+        lda bin_rel_lo
+        bne +
+        dec bin_rel_hi
++       dec bin_rel_lo
+        lda bin_rel_hi          ; in range iff hi/lo read as one
+        beq _bfr_hi0            ; signed byte: $00 with bit7 clear,
+        cmp #$ff                ; or $ff with bit7 set
+        bne _bfr_far
+        lda bin_rel_lo
+        bmi _bfr_write
+        bra _bfr_far
+_bfr_hi0:
+        lda bin_rel_lo
+        bmi _bfr_far
+_bfr_write:
+        lda bin_rel_lo
         jmp bin_write_byte
+_bfr_far:
+        lda #5                  ; rel8 branch out of range at bin_pc
+        sta backend_error
+        lda bin_pc
+        sta backend_error_ptr
+        lda bin_pc+1
+        sta backend_error_ptr+1
+        lda bin_rel_lo          ; still write a byte so bin_pc stays
+        jmp bin_write_byte      ; in step with the label map
+bin_rel_lo:
+        .byte 0
+bin_rel_hi:
+        .byte 0
 
 ; write one byte of the native program image and advance bin_pc; the binary
 ; output channel is selected while the emit pass runs
