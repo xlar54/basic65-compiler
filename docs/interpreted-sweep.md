@@ -89,6 +89,9 @@ matches the compiled output.
       SCREEN/PEN/LINE/GETKEY/CLOSE; INTERACTIVE (GETKEY). Also the
       compile-diagnostics reproducer: on a write-protected disk the
       compiler now echoes the DOS status, e.g. 26,WRITE PROTECT ON.)
+- [ ] rpt.bas          (RPT$: both book examples plus length,
+      zero-count and empty-source cases; prints RPT OK; compiled run
+      verified 2026-07-09.)
 - [ ] rwindow.bas      (RWINDOW 0-3: screen cols/rows from $D031,
       window dims tracked through the WINDOW command; prints RWINDOW
       OK with a 16x6 window; compiled run verified 2026-07-09.

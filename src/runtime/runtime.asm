@@ -66,7 +66,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $7000            ; standalone-assembly cap; generated programs compute rtpb
+progbase     = $7100            ; standalone-assembly cap; generated programs compute rtpb
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -4641,6 +4641,90 @@ strsubempty:
         sta exprhi
         rts
 
+; RPT$(s$, count): the string repeated count times. Longer than 255
+; is STRING TOO LONG; empty source or zero count gives "".
+MULTINA = $d770
+MULTINB = $d774
+MULTOUT = $d778
+rptf:
+        lda lhslo
+        sta strsrc1lo
+        lda lhshi
+        sta strsrc1hi
+        lda lhslo
+        ora lhshi
+        bne _rpt_have
+        jmp strsubempty
+_rpt_have:
+        jsr strlen1load
+        lda strlen1
+        bne _rpt_lenok
+        jmp strsubempty
+_rpt_lenok:
+        lda exprhi              ; count >= 256 with a nonempty string
+        bne _rpt_long           ; always overflows 255
+        lda exprlo
+        bne _rpt_cntok
+        jmp strsubempty
+_rpt_cntok:
+        sta MULTINB             ; total = len * count, must fit a byte
+        lda #0
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        sta MULTINA+1
+        sta MULTINA+2
+        sta MULTINA+3
+        lda strlen1
+        sta MULTINA
+        lda MULTOUT+1
+        bne _rpt_long
+        lda MULTOUT
+        sta strlen
+        ldy #1                  ; the source must survive a collection
+        sty gcregmask
+        jsr stralloc
+        ldy #0
+        sty gcregmask
+        bcs _rpt_done
+        ldz #0
+        lda strlen
+        sta [varptr],z
+        lda #0
+        sta stridx
+        sta rpt_j
+_rpt_copy:
+        lda stridx
+        cmp strlen
+        beq _rpt_fin
+        lda rpt_j               ; source position cycles 1..len
+        cmp strlen1
+        bcc _rpt_step
+        lda #0
+        sta rpt_j
+_rpt_step:
+        inc rpt_j
+        jsr setstrptrsrc1
+        ldz rpt_j
+        lda [varptr],z
+        pha
+        jsr setstrptrdst
+        inc stridx
+        ldz stridx
+        pla
+        sta [varptr],z
+        bra _rpt_copy
+_rpt_fin:
+        lda strdstlo
+        sta exprlo
+        lda strdsthi
+        sta exprhi
+_rpt_done:
+        rts
+_rpt_long:
+        lda #23                 ; STRING TOO LONG
+        jmp rterror
+
 ;=======================================================================================
 ; STR$ runtime
 ;=======================================================================================
@@ -5258,6 +5342,7 @@ gfxres:       .byte 0
 chsrc:        .byte 0,0,0,0
 win_wh:       .byte 0,0
 win_active:   .byte 0
+rpt_j:        .byte 0
 chlen:        .byte 0
 chidx:        .byte 0
 strtslots:    .fill 44, 0

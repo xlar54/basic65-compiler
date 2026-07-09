@@ -79,6 +79,18 @@ foreach ($item in $Path) {
                 $i += 4
                 continue
             }
+            # RPT$: petcat leaves it as plain text
+            if ($i + 3 -lt $lineEnd -and $b -eq 0x52 -and
+                $bytes[$i+1] -eq 0x50 -and $bytes[$i+2] -eq 0x54 -and
+                $bytes[$i+3] -eq 0x24) {
+                $bytes[$i] = 0x20
+                $bytes[$i+1] = 0x20
+                $bytes[$i+2] = 0xce
+                $bytes[$i+3] = 0x14
+                $changed++
+                $i += 3
+                continue
+            }
             # HASBIT: petcat leaves it as plain text
             if ($i + 5 -lt $lineEnd -and $b -eq 0x48 -and
                 $bytes[$i+1] -eq 0x41 -and $bytes[$i+2] -eq 0x53 -and

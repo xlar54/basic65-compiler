@@ -2747,6 +2747,10 @@ _string_factor_ce:
         jsr line_at_end         ; the CE byte is already consumed
         bcs _string_factor_fail
         jsr line_get
+        cmp #$14                ; RPT$
+        bne _string_factor_no_rpt
+        jmp compile_rpt_string_function
+_string_factor_no_rpt:
         cmp #$12                ; STRBIN$
         bne _string_factor_fail
         jsr parse_open_paren
@@ -2838,6 +2842,8 @@ _string_expr_starts_ce:
         sta line_idx
         cpx #$12                ; STRBIN$
         beq _string_expr_starts_yes
+        cpx #$14                ; RPT$
+        beq _string_expr_starts_yes
         sec
         rts
 
@@ -2880,6 +2886,26 @@ compile_left_string_function:
         rts
 
 _compile_left_fail:
+        sec
+        rts
+
+; RPT$(s$, count): the RIGHT$ parse shape with the repeat runtime
+compile_rpt_string_function:
+        jsr parse_open_paren
+        bcs _compile_rpt_fail
+        jsr compile_string_expression
+        bcs _compile_rpt_fail
+        jsr emit_push_sexpr
+        jsr parse_comma
+        bcs _compile_rpt_fail
+        jsr compile_expression
+        bcs _compile_rpt_fail
+        jsr parse_close_paren
+        bcs _compile_rpt_fail
+        jsr emit_pop_slhs
+        jsr emit_tmpl_done
+        .word out_jsr_rptf
+_compile_rpt_fail:
         sec
         rts
 
@@ -14558,6 +14584,13 @@ out_jsr_hasbitf:
 out_jsr_rwindowf:
 .if TEXT_EMITTER
         .text "        jsr rwindowf"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_rptf:
+.if TEXT_EMITTER
+        .text "        jsr rptf"
         .byte 13, 0
 .else
         .byte 0
