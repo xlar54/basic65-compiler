@@ -113,7 +113,7 @@ dma.bas prints FAR OK against real bank-4 memory (its old pass was a
 zero-page round trip that also smashed zp $00-$0F), bits.bas fully
 green, gfxtest regression clean.
 
-## 7. source.bas emission overflows the $7100-$D000 program window
+## 7. ~~source.bas emission overflows the $7100-$D000 program window~~ (RESOLVED 2026-07-09)
 
 Pre-existing at c501799 (verified against the committed compiler with
 all DEF FN work stashed): compiling basic/source.bas now ends at
@@ -124,3 +124,11 @@ as statement emission accreted (graphics staging, PEN, polyline).
 Options when it matters: trim source.bas, shave hot templates, or the
 planned program overlays (bank-4 segments + far GOTO/GOSUB). All
 other fixtures fit comfortably.
+
+**RESOLVED by splitting the fixture, not the window.** source.bas is
+now a compact non-interactive smoke test (8 suites, ~11KB emission);
+its depth moved to per-area fixtures (flow, loops, temp, get join the
+existing expr/data/strings/strarray/gc/mem/types/intfunc/floats/
+input). The 24KB window itself still bounds any single program --
+program overlays (bank-attic segments + line-table trampoline) remain
+the plan for genuinely large programs.
