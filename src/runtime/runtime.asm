@@ -2962,6 +2962,19 @@ getstr:
         sta exprlo
         sta exprhi
         rts
+; GETKEY: the blocking forms wait for a key
+getkeyw:
+        jsr kernalgetin
+        beq getkeyw
+        sta exprlo
+        lda #0
+        sta exprhi
+        rts
+getstrw:
+        jsr kernalgetin
+        beq getstrw
+        sta digit
+        jmp getstrgot
 ; FAC -> unsigned 32-bit in exprlo/exprhi/exprb2/exprb3 (DMA addresses)
 fq32:
         lda #0

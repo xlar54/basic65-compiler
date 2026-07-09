@@ -85,6 +85,9 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [ ] getkey.bas       (GETKEY string + numeric targets; INTERACTIVE
+      -- blocks for keypresses, run by hand both ways. Compiled
+      byte-diff verified 2026-07-08; on the harness skip list.)
 - [ ] gfxarc.bas       (CIRCLE/ELLIPSE arcs: start/stop degrees with
       legs, legs-suppress flag, filled pie sector; PIXEL readbacks
       1/0/5/0 + ARC OK; compiled run verified 2026-07-08 incl. bitmap

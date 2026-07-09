@@ -7659,10 +7659,19 @@ _compile_input_target_bad:
         rts
 
 compile_get:
+        lda #0
+        sta get_blocking
         jsr line_skip_spaces
         jsr line_at_end_or_colon
         bcs _compile_get_target_loop
         jsr line_peek
+        cmp #TOK_KEY            ; GETKEY tokenizes as GET + KEY
+        bne _compile_get_nokey
+        jsr line_get
+        lda #1
+        sta get_blocking
+        bra _compile_get_target_loop
+_compile_get_nokey:
         cmp #'#'
         bne _compile_get_target_loop
         jsr line_get
@@ -10701,6 +10710,11 @@ emit_input_string:
         .word out_jsr_inputstr
 
 emit_get_key:
+        lda get_blocking
+        beq _emit_get_key_poll
+        jsr emit_tmpl_done
+        .word out_jsr_getkeyw
+_emit_get_key_poll:
         lda io_from_file
         bne _emit_get_key_file
         jsr emit_tmpl_done
@@ -10710,6 +10724,11 @@ _emit_get_key_file:
         .word out_jsr_fiogetbyte
 
 emit_get_string:
+        lda get_blocking
+        beq _emit_get_string_poll
+        jsr emit_tmpl_done
+        .word out_jsr_getstrw
+_emit_get_string_poll:
         lda io_from_file
         bne _emit_get_string_file
         jsr emit_tmpl_done
@@ -14254,6 +14273,20 @@ out_jsr_rcolorf:
 .else
         .byte 0
 .fi
+out_jsr_getkeyw:
+.if TEXT_EMITTER
+        .text "        jsr getkeyw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_getstrw:
+.if TEXT_EMITTER
+        .text "        jsr getstrw"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_penset:
 .if TEXT_EMITTER
         .text "        jsr penset"
@@ -16101,6 +16134,8 @@ pool_save:
 scan_ext_prefix:
         .byte 0
 d030_save:
+        .byte 0
+get_blocking:
         .byte 0
 cc_mode:
         .byte 0

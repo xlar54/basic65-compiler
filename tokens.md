@@ -70,7 +70,7 @@ Legend:
 | $9E | SYS | ✅ | |
 | $9F | OPEN | ✅ | |
 | $A0 | CLOSE | ✅ | |
-| $A1 | GET | ✅ | |
+| $A1 | GET | ✅ | GETKEY ($A1 $F9, GET+KEY) waits for a key -- string and numeric targets |
 | $A2 | NEW | ✖ | direct-mode |
 | $A3 | TAB( | 🔧 | inside PRINT |
 | $A4 | TO | 🔧 | FOR / GO TO / MOVSPR |
