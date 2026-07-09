@@ -27,7 +27,7 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 81 | 7 | 37 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 82 | 7 | 36 |
 | $CE-prefixed functions | 18 | 16 | — | 2 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
@@ -137,7 +137,7 @@ Legend:
 | $E1 | BOX | ✅ | both forms: two diagonal corners and the 4-corner path (+solid; path fill is row-span based -- exact for convex quads) |
 | $E2 | CIRCLE | ✅ | fill, arcs (start/stop degrees), legs suppress, combs, filled pies |
 | $E3 | PASTE | ✅ | pastes the GCOPY buffer at x,y (raw pixels, clipped) |
-| $E4 | CUT | ❌ | |
+| $E4 | CUT | ✅ | x,y,w,h: GCOPY the region then fill it with the current pen; same buffer/budget as GCOPY (w*h*depth < 8192), over-budget cuts nothing |
 | $E5 | LINE | ✅ | 1 pair draws a pixel; 2+ pairs draw a connected path |
 | $E6 | MERGE | ✖ | editor |
 | $E7 | COLOR | ✅ | text colour, same handler as FOREGROUND |

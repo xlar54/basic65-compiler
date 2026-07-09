@@ -1518,6 +1518,8 @@ _scan_vars_no_fio:
         beq _scan_vars_gfx
         cmp #$e3                ; PASTE
         beq _scan_vars_gfx
+        cmp #$e4                ; CUT
+        beq _scan_vars_gfx
         cmp #$cc                ; RGRAPHIC()
         beq _scan_vars_gfx
         cmp #$e0                ; bare CHAR draws; CHARDEF ($e0 $96)
@@ -2366,7 +2368,7 @@ _stab:
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
         .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY, $DE
-        .byte $DF, $E1, $E2, $E5, $E8, $E3, $96
+        .byte $DF, $E1, $E2, $E5, $E8, $E3, $96, $E4
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2382,7 +2384,7 @@ _stmt_jtab:
         .word compile_diskcmd, compile_attr_fg, compile_e0
         .word compile_key, compile_graphic
         .word compile_paint, compile_box, compile_circle, compile_gline
-        .word compile_scnclr, compile_paste, compile_def
+        .word compile_scnclr, compile_paste, compile_def, compile_cut
 
 _stmt_return:
         jsr emit_tmpl_done
@@ -7015,6 +7017,7 @@ cgfx_tab:
         .byte 5, 9+1, 13        ; 12: POLYGON
         .byte 4, 4+1, 20        ; 15: GCOPY
         .byte 2, 2+1, 21        ; 18: PASTE
+        .byte 4, 4+1, 23        ; 21: CUT
 
 ; LINE x,y draws a pixel; each further pair extends the path with a
 ; segment from the previous point (gfxlnext shifts the staged end
@@ -7136,6 +7139,9 @@ compile_gcopy:
         bra cgfx_stmt_go
 compile_paste:
         ldx #18
+        bra cgfx_stmt_go
+compile_cut:
+        ldx #21
 cgfx_stmt_go:
         jmp cgfx_stmt
 

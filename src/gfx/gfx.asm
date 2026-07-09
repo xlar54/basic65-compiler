@@ -102,6 +102,7 @@ gfx_base:
         .word g_gcopy           ; 20 GCOPY x,y,w,h
         .word g_paste           ; 21 PASTE x,y
         .word g_rgraphic        ; 22 RGRAPHIC(s,p) read
+        .word g_cut             ; 23 CUT x,y,w,h
 
 ; the CHAR text buffer sits at a fixed blob offset so the resident
 ; charstage can far-write it into the attic image before the call
@@ -1064,6 +1065,39 @@ _gb4_outline:
 
 ; BOX x0,y0,x2,y2[,solid]: two diagonally opposite corners in any
 ; order; the library wants origin + size
+; CUT x,y,w,h: GCOPY the region, then fill it with the current pen.
+; An over-budget or degenerate region leaves the buffer empty and
+; fills nothing (the ROM errors instead; PASTE stays a no-op).
+g_cut:
+        lda dma_args+5
+        ora dma_args+9
+        ora dma_args+13
+        beq _gct_go
+        rts
+_gct_go:
+        jsr g_gcopy
+        lda cut_w
+        beq _gct_done
+        lda dma_args+0
+        sta rect_x
+        lda dma_args+1
+        sta rect_x+1
+        lda dma_args+4
+        sta rect_y
+        lda dma_args+8
+        sta rect_w
+        lda #0
+        sta rect_w+1
+        sta rect_grad
+        lda dma_args+12
+        sta rect_h
+        lda gfx_pen
+        sta rect_col
+        sec                     ; filled
+        jmp draw_rect
+_gct_done:
+        rts
+
 g_box:
         lda dma_args+5
         ora dma_args+13
