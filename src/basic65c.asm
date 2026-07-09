@@ -1518,6 +1518,8 @@ _scan_vars_no_fio:
         beq _scan_vars_gfx
         cmp #$e3                ; PASTE
         beq _scan_vars_gfx
+        cmp #$cc                ; RGRAPHIC()
+        beq _scan_vars_gfx
         cmp #$e0                ; bare CHAR draws; CHARDEF ($e0 $96)
         bne _scan_vars_no_char  ; does not need the blob
         jsr line_peek
@@ -4727,6 +4729,9 @@ _factor_not_number:
 +       cmp #$cd                ; RCOLOR
         bne +
         jmp _factor_rcolor
++       cmp #$cc                ; RGRAPHIC
+        bne +
+        jmp _factor_rgraphic
 +       jsr is_var_start
         bcc _factor_variable
 _factor_fail:
@@ -5355,6 +5360,34 @@ _factor_rcolor:
         lda #<out_jsr_rcolorf
         ldy #>out_jsr_rcolorf
         bra _factor_one
+
+; RGRAPHIC(screen, parameter) reads screen state through the blob
+; (fn 22); stages through the DMA arg slots like PIXEL
+_factor_rgraphic:
+        jsr line_get            ; consume the RGRAPHIC token
+        jsr emit_tmpl
+        .word out_jsr_dmarst
+        jsr parse_open_paren
+        bcs _frg_fail
+        jsr cglcoord
+        bcs _frg_fail
+        jsr parse_comma
+        bcs _frg_fail
+        jsr cglcoord
+        bcs _frg_fail
+        jsr parse_close_paren
+        bcs _frg_fail
+        lda #22
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_jsr_gfxcall
+        lda #0
+        sta expr_type
+        jsr emit_tmpl_done
+        .word out_pixel_res
+_frg_fail:
+        sec
+        rts
 
 ; PIXEL(x,y) reads a pixel through the blob (fn 8); note it stages
 ; through the DMA arg slots, so PIXEL inside a DMA statement's own

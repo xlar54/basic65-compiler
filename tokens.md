@@ -27,7 +27,7 @@ Legend:
 
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
-| Single-byte $80–$FF | 125 (+3 prefix bytes) | 80 | 7 | 38 |
+| Single-byte $80–$FF | 125 (+3 prefix bytes) | 81 | 7 | 37 |
 | $CE-prefixed functions | 18 | 16 | — | 2 |
 | $FE-prefixed statements | 72 | 47 | 2 (OFF, BIT) | 23 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
@@ -113,7 +113,7 @@ Legend:
 | $C9 | RIGHT$ | ✅ | |
 | $CA | MID$ | ✅ | |
 | $CB | GO | ✅ | GO TO |
-| $CC | RGRAPHIC | ❌ | graphics queued |
+| $CC | RGRAPHIC | ⚠️ | (screen,param) 0-10 per the book, mapped to FCM internals: 4 = (2^depth)-1, 5/6 = 15 when the canvas claims bank 4/5, 9/10 = 0 until DMODE/DPAT; book example prints identically |
 | $CD | RCOLOR | ✅ | sources 0-3: background, text, highlight, border |
 | $CE | — | prefix | extended functions, see below |
 | $CF | JOY | ✅ | |

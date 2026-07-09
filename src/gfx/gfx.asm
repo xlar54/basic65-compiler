@@ -101,6 +101,7 @@ gfx_base:
         .word g_box4            ; 19 BOX four-corner path
         .word g_gcopy           ; 20 GCOPY x,y,w,h
         .word g_paste           ; 21 PASTE x,y
+        .word g_rgraphic        ; 22 RGRAPHIC(s,p) read
 
 ; the CHAR text buffer sits at a fixed blob offset so the resident
 ; charstage can far-write it into the attic image before the call
@@ -126,6 +127,10 @@ gfx_rstscr:
         lda #0
         sta scr_draw
         sta scr_view
+        sta scr_openf
+        sta scr_openf+1
+        sta scr_openf+2
+        sta scr_openf+3
 gfx_base4:
         lda #0
         sta gfx_base
@@ -154,6 +159,8 @@ gfx_basea:
 ; with the default palette, black background, white pen
 g_open:
         jsr gfx_rstscr
+        lda #1
+        sta scr_openf           ; screen 0 opens
         lda dma_args+8          ; record the declared depth (GCOPY's
         sta scr_depth           ; ROM budget uses it); screen 0 here
         lda dma_args+1          ; w high byte >= 2 selects 640
@@ -199,6 +206,8 @@ g_simple4:
         sta scr_draw
         sta scr_view
         tax
+        lda #1
+        sta scr_openf,x
         lda dma_args+16         ; record the declared depth (s,w,h,d)
         sta scr_depth,x
         lda dma_args+5          ; w high byte
@@ -226,6 +235,11 @@ g_screendef:
 g_screenopen:
         lda dma_args+0
         and #3
+        pha
+        tax
+        lda #1
+        sta scr_openf,x
+        pla
         pha
         jsr gsddstattic         ; fill attic buffer of screen A
         pla
@@ -885,6 +899,7 @@ scr_view:  .byte 0
 scr_wf:    .byte 0,0,0,0
 scr_hf:    .byte 0,0,0,0
 scr_depth: .byte 0,0,0,0
+scr_openf: .byte 0,0,0,0
 
 ; SCREEN CLOSE [s]: closing the viewed screen returns to text (with
 ; the palette restore inside restore_default_screen); closing a
@@ -892,9 +907,12 @@ scr_depth: .byte 0,0,0,0
 g_close:
         lda dma_args+0
         and #3
+        tax
+        lda #0
+        sta scr_openf,x
+        txa
         cmp scr_view
         beq _gcl_view
-        tax
         lda #0
         sta scr_wf,x
         rts
@@ -1279,6 +1297,87 @@ _gpx_ok:
         jsr get_pixel
         sta gfxres
         rts
+
+; RGRAPHIC(s,p): screen status per the book's table, mapped onto the
+; FCM internals. Bitplane-flavoured params return their 256-colour
+; equivalents: 4 = (2^depth)-1, 5/6 = 15 when the canvas claims that
+; chip bank (bank 4 always when open; bank 5 only for 640-wide).
+; Height is the recorded DEF flag (only 200-line modes render).
+; 9/10 (drawmodes/pattern) are 0 until DMODE/DPAT exist.
+g_rgraphic:
+        lda dma_args+0
+        and #3
+        tay                     ; Y = screen index (masked)
+        lda dma_args+5          ; parameter out of range -> 0
+        bne _grg_zero
+        lda dma_args+4
+        cmp #11
+        bcs _grg_zero
+        asl a
+        tax
+        jmp (_grg_tab,x)
+_grg_zero:
+        lda #0
+_grg_res:
+        sta gfxres
+        rts
+_grg_tab:
+        .word _grg_open, _grg_w, _grg_h, _grg_d, _grg_planes
+        .word _grg_bank4, _grg_bank5, _grg_draw, _grg_view
+        .word _grg_zero, _grg_zero
+_grg_open:
+        lda dma_args+1          ; screen number itself out of range
+        bne _grg_inv            ; -> "invalid" (> 1)
+        lda dma_args+0
+        cmp #4
+        bcs _grg_inv
+        lda scr_openf,y
+        bra _grg_res
+_grg_inv:
+        lda #2
+        bra _grg_res
+_grg_w:
+        lda scr_wf,y
+        bra _grg_res
+_grg_h:
+        lda scr_hf,y
+        bra _grg_res
+_grg_d:
+        jsr _grg_depth
+        bra _grg_res
+_grg_depth:
+        lda scr_depth,y         ; 0 = never declared = the full 8
+        bne +
+        lda #8
++       rts
+_grg_planes:
+        jsr _grg_depth
+        tax
+        lda #0
+_grg_pl:
+        asl a
+        ora #1
+        dex
+        bne _grg_pl
+        bra _grg_res
+_grg_bank4:
+        lda scr_openf,y         ; open canvas claims bank 4 wholly
+        beq _grg_res
+        lda #15
+        bra _grg_res
+_grg_bank5:
+        lda scr_openf,y         ; 640-wide spills into bank 5
+        beq _grg_res
+        lda scr_wf,y
+        beq _grg_zero
+        lda #15
+        bra _grg_res
+_grg_draw:
+        lda scr_draw
+        bra _grg_res
+_grg_view:
+        lda scr_view
+        bra _grg_res
 
         .include "lib/fcm.asm"
         .include "lib/bitmap.asm"
