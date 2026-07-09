@@ -1514,6 +1514,8 @@ _scan_vars_no_fio:
         beq _scan_vars_gfx
         cmp #$e5                ; LINE
         beq _scan_vars_gfx
+        cmp #$e3                ; PASTE
+        beq _scan_vars_gfx
         cmp #$e0                ; bare CHAR draws; CHARDEF ($e0 $96)
         bne _scan_vars_no_char  ; does not need the blob
         jsr line_peek
@@ -2342,7 +2344,7 @@ _stab:
         .byte TOK_INPUT_HASH, TOK_TRAP, TOK_RESUME, TOK_SOUND, TOK_VOL
         .byte TOK_WAIT, TOK_SCRATCH, TOK_HEADER, TOK_COLLECT, TOK_COPY
         .byte TOK_RENAME, TOK_COLOR, TOK_EXT_E0, TOK_KEY, $DE
-        .byte $DF, $E1, $E2, $E5, $E8
+        .byte $DF, $E1, $E2, $E5, $E8, $E3
 _stab_end:
 _stmt_jtab:
         .word compile_for, compile_next, compile_do, compile_loop
@@ -2358,7 +2360,7 @@ _stmt_jtab:
         .word compile_diskcmd, compile_attr_fg, compile_e0
         .word compile_key, compile_graphic
         .word compile_paint, compile_box, compile_circle, compile_gline
-        .word compile_scnclr
+        .word compile_scnclr, compile_paste
 
 _stmt_return:
         jsr emit_tmpl_done
@@ -5824,7 +5826,7 @@ _cef_tab:
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
         .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
-        .byte $2e, $30, $33, $34, $2f
+        .byte $2e, $30, $33, $34, $2f, $32
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5840,7 +5842,7 @@ _cef_jtab:
         .word compile_bank, compile_rreg, compile_vsync
         .word compile_boot, compile_sprsav, compile_setbit
         .word compile_screen, compile_ellipse, compile_pen, compile_palette
-        .word compile_polygon
+        .word compile_polygon, compile_gcopy
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -6900,6 +6902,8 @@ cgfx_tab:
         .byte 4, 7+1, 5         ; 6: ELLIPSE (arcs: +start,stop)
         .byte 2, 4+1, 6         ; 9: PAINT
         .byte 5, 9+1, 13        ; 12: POLYGON
+        .byte 4, 4+1, 20        ; 15: GCOPY
+        .byte 2, 2+1, 21        ; 18: PASTE
 
 ; LINE x,y draws a pixel; each further pair extends the path with a
 ; segment from the previous point (gfxlnext shifts the staged end
@@ -7015,6 +7019,12 @@ compile_ellipse:
         bra cgfx_stmt_go
 compile_paint:
         ldx #9
+        bra cgfx_stmt_go
+compile_gcopy:
+        ldx #15
+        bra cgfx_stmt_go
+compile_paste:
+        ldx #18
 cgfx_stmt_go:
         jmp cgfx_stmt
 

@@ -99,6 +99,8 @@ gfx_base:
         .word g_simple4         ; 17 SCREEN s,w,h,d
         .word g_char            ; 18 CHAR
         .word g_box4            ; 19 BOX four-corner path
+        .word g_gcopy           ; 20 GCOPY x,y,w,h
+        .word g_paste           ; 21 PASTE x,y
 
 ; the CHAR text buffer sits at a fixed blob offset so the resident
 ; charstage can far-write it into the attic image before the call
@@ -150,6 +152,8 @@ gfx_basea:
 ; with the default palette, black background, white pen
 g_open:
         jsr gfx_rstscr
+        lda dma_args+8          ; record the declared depth (GCOPY's
+        sta scr_depth           ; ROM budget uses it); screen 0 here
         lda dma_args+1          ; w high byte >= 2 selects 640
         ldx scr_view
         jsr gfx_setwf
@@ -191,6 +195,8 @@ g_simple4:
         sta scr_draw
         sta scr_view
         tax
+        lda dma_args+16         ; record the declared depth (s,w,h,d)
+        sta scr_depth,x
         lda dma_args+5          ; w high byte
         jsr gfx_setwf
         jsr gfx_base4
@@ -692,6 +698,183 @@ ch_bw:   .byte 0
 ch_bh:   .byte 0
 ch_t:    .byte 0
 ch_t16:  .word 0
+
+; ---- GCOPY/PASTE: rectangle buffer in attic at $81a0000 ----
+; (the ROM caps its buffer at 1KB of bitplanes; ours holds a full
+; screen). GCOPY reads through the current draw base; PASTE replays
+; raw bytes through plot_pixel, so clipping and attic screens work.
+g_gcopy:
+        lda dma_args+5          ; y/w/h are 8-bit consumed
+        ora dma_args+9
+        ora dma_args+13
+        beq _ggc_ok
+        rts
+_ggc_ok:
+        lda dma_args+8          ; ROM budget check: w*h*depth < 8192
+        sta MULTINA             ; (1KB of bitplanes, the KERNAL's cap)
+        lda #0
+        sta MULTINA+1
+        sta MULTINA+2
+        sta MULTINA+3
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        lda dma_args+12
+        sta MULTINB
+        ldx scr_draw            ; declared depth (0 = default 8)
+        lda scr_depth,x
+        bne +
+        lda #8
++       sta cut_t
+        lda MULTOUT             ; w*h (16 bit) ...
+        sta MULTINA
+        lda MULTOUT+1
+        sta MULTINA+1
+        lda #0
+        sta MULTINA+2
+        sta MULTINA+3
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        lda cut_t
+        sta MULTINB
+        lda MULTOUT+2           ; ... * depth: >= 8192 rejects
+        bne _ggc_over
+        lda MULTOUT+1
+        cmp #$20
+        bcc _ggc_fits
+_ggc_over:
+        lda #0                  ; over budget: empty buffer, PASTE
+        sta cut_w               ; becomes a no-op (the ROM errors)
+        sta cut_h
+        rts
+_ggc_fits:
+        lda dma_args+8
+        sta cut_w
+        lda dma_args+12
+        sta cut_h
+        jsr cut_bufrst
+        lda #0
+        sta cut_j
+_ggc_row:
+        lda #0
+        sta cut_i
+_ggc_col:
+        clc
+        lda dma_args+0          ; px = x + i
+        adc cut_i
+        sta plot_x
+        lda dma_args+1
+        adc #0
+        sta plot_x+1
+        clc
+        lda dma_args+4          ; py = y + j (clip: off-screen reads 0)
+        adc cut_j
+        sta plot_y
+        bcs _ggc_zero
+        jsr get_pixel
+        bra _ggc_store
+_ggc_zero:
+        lda #0
+_ggc_store:
+        jsr cut_bufput
+        inc cut_i
+        lda cut_i
+        cmp cut_w
+        bne _ggc_col
+        inc cut_j
+        lda cut_j
+        cmp cut_h
+        bne _ggc_row
+        rts
+
+g_paste:
+        lda dma_args+5
+        beq _gps_ok
+        rts
+_gps_ok:
+        lda cut_w
+        beq _gps_done           ; nothing buffered
+        lda cut_h
+        beq _gps_done
+        jsr cut_bufrst
+        lda #0
+        sta cut_j
+_gps_row:
+        lda #0
+        sta cut_i
+_gps_col:
+        jsr cut_bufget
+        sta plot_col
+        clc
+        lda dma_args+0
+        adc cut_i
+        sta plot_x
+        lda dma_args+1
+        adc #0
+        sta plot_x+1
+        clc
+        lda dma_args+4
+        adc cut_j
+        sta plot_y
+        bcs _gps_skip           ; below the screen: clipped
+        jsr plot_pixel
+_gps_skip:
+        inc cut_i
+        lda cut_i
+        cmp cut_w
+        bne _gps_col
+        inc cut_j
+        lda cut_j
+        cmp cut_h
+        bne _gps_row
+_gps_done:
+        rts
+
+cut_bufrst:
+        lda #0
+        sta cut_ptr
+        sta cut_ptr+1
+        lda #$1a
+        sta cut_ptr+2
+        lda #$08
+        sta cut_ptr+3
+        rts
+cut_bufput:
+        pha
+        jsr cutsetptr
+        pla
+        ldz #0
+        sta [PTR],z
+        bra cutbump
+cut_bufget:
+        jsr cutsetptr
+        ldz #0
+        lda [PTR],z
+cutbump:
+        pha
+        inc cut_ptr
+        bne +
+        inc cut_ptr+1
++       pla
+        rts
+cutsetptr:
+        lda cut_ptr
+        sta PTR
+        lda cut_ptr+1
+        sta PTR+1
+        lda cut_ptr+2
+        sta PTR+2
+        lda cut_ptr+3
+        sta PTR+3
+        rts
+
+cut_w:   .byte 0
+cut_h:   .byte 0
+cut_i:   .byte 0
+cut_j:   .byte 0
+cut_ptr: .byte 0,0,0,0
+cut_t:   .byte 0
 
 scr_draw:  .byte 0
 scr_view:  .byte 0
