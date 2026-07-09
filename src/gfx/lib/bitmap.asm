@@ -4,11 +4,11 @@
 ; 40-col: 1000 positions (40×25), 80-col: 2750 positions (80×25 + TEXTYPOS overflow)
 ;=======================================================================================
 init_bitmap:
-        lda #<SCREEN_RAM
+        lda scrn_base
         sta PTR
-        lda #>SCREEN_RAM
+        lda scrn_base+1
         sta PTR+1
-        lda #`SCREEN_RAM
+        lda scrn_base+2
         sta PTR+2
         lda #0
         sta PTR+3
@@ -62,30 +62,25 @@ _ib_loop:
 
 _ib_code:   .word 0
 _ib_cnt:    .word 0
-_ib_counts: .word 1000, 3000    ; 40-col, 80-col
+_ib_counts: .word 1000, 2000    ; 40-col, 80-col ([basic65c] 80x25)
 
 ;=======================================================================================
 ; clear_bitmap - Clear all pixel data to a single color
 ; 40-col: 250×256 bytes, 80-col: 500×256 bytes
 ;=======================================================================================
 clear_bitmap:
+        ; [basic65c] rewritten as a static parameterized list: one
+        ; 64000-byte fill from the draw base (gfx_base), run twice
+        ; (second at base+$fa00) for a 640x200 canvas
         sta _cb_fill
-
-        lda screen_mode
-        cmp #80
-        beq _cb_80col
-
-        ; 40-col: single DMA, 64000 bytes at the current draw base
-        ; ([basic65c] destination parameterized on gfx_base)
-        lda _cb_fill
-        sta _cb_40_val
+        sta _cb_val
         lda gfx_base
-        sta _cb_40_dst
+        sta _cb_dst
         lda gfx_base+1
-        sta _cb_40_dst+1
+        sta _cb_dst+1
         lda gfx_base+2
         and #$0f
-        sta _cb_40_dst+2
+        sta _cb_dst+2
         lda gfx_base+2
         lsr
         lsr
@@ -98,66 +93,48 @@ clear_bitmap:
         asl
         asl
         ora _cb_tmp
-        sta _cb_40_dmb
-        lda #$00
-        sta $D707
-        .byte $80, $00          ; source MB = $00
+        sta _cb_dmb
+        jsr _cb_go
+        lda screen_mode
+        cmp #80
+        bne _cb_done
+        clc                     ; second half (base lo/hi are 0, so no
+        lda _cb_dst+1           ; carry past the hi byte)
+        adc #$fa
+        sta _cb_dst+1
+        jsr _cb_go
+_cb_done:
+        rts
+
+_cb_go:
+        lda #0
+        sta $d702
+        sta $d704
+        lda #>_cb_list
+        sta $d701
+        lda #<_cb_list
+        sta $d705
+        rts
+
+_cb_list:
+        .byte $0b
+        .byte $80, $00          ; source MB
         .byte $81               ; dest MB option
-_cb_40_dmb:
+_cb_dmb:
         .byte $00
         .byte $00               ; end options
         .byte $03               ; fill
-        .word 64000             ; count
-_cb_40_val:
-        .byte $00, $00          ; fill value (self-modified)
-        .byte $00               ; src bank
-_cb_40_dst:
-        .word $0000             ; dest addr
-        .byte $04               ; dest bank-in-MB
-        .byte $00               ; cmd high
-        .word $0000             ; modulo
-        rts
+        .word 64000
+_cb_val:
+        .byte $00, $00
+        .byte $00
+_cb_dst:
+        .word $0000
+        .byte $04
+        .byte $00
+        .word $0000
 _cb_tmp:
         .byte 0
-
-_cb_80col:
-        ; 80-col: 128000 bytes = 65536 + 62464 (banks 4+5 only)
-
-        ; DMA 1: 65536 bytes at $40000
-        lda _cb_fill
-        sta _cb_80_val1
-        lda #$00
-        sta $D707
-        .byte $81, $00
-        .byte $00
-        .byte $03
-        .word $0000             ; count 0 = 65536
-_cb_80_val1:
-        .byte $00, $00
-        .byte $00
-        .word $0000
-        .byte $04               ; bank 4
-        .byte $00
-        .word $0000
-
-        ; DMA 2: 62464 bytes at $50000 (128000 - 65536)
-        lda _cb_fill
-        sta _cb_80_val2
-        lda #$00
-        sta $D707
-        .byte $81, $00
-        .byte $00
-        .byte $03
-        .word 62464
-_cb_80_val2:
-        .byte $00, $00
-        .byte $00
-        .word $0000
-        .byte $05               ; bank 5
-        .byte $00
-        .word $0000
-        rts
-
 _cb_fill: .byte 0
 
 
@@ -243,12 +220,22 @@ plot_pixel:
         lda plot_y
         cmp #200
         bcs _pp_clip
+        ldy #$40                ; x bound: 320 = $0140 ...
+        ldx #1
+        lda screen_mode
+        cmp #80
+        bne _pp_clip_b
+        ldy #$80                ; ... or 640 = $0280
+        ldx #2
+_pp_clip_b:
+        stx _pp_clip_t
+        sty _pp_clip_t2
         lda plot_x+1
-        beq _pp_clip_xok
-        cmp #1
-        bne _pp_clip
-        lda plot_x
-        cmp #$40                ; 320 = $0140
+        cmp _pp_clip_t
+        bcc _pp_clip_xok        ; hi below the bound: in range
+        bne _pp_clip            ; hi above (incl. negative wraps): out
+        lda plot_x              ; hi equal: lo must be under the bound
+        cmp _pp_clip_t2
         bcs _pp_clip
 _pp_clip_xok:
         ; char_col = x / 8
@@ -357,6 +344,10 @@ _pp_clip_xok:
 
 _pp_clip:
         rts
+_pp_clip_t:
+        .byte 0
+_pp_clip_t2:
+        .byte 0
 
 _pp_char_col:   .word 0
 _pp_char_row:   .byte 0
@@ -379,12 +370,22 @@ get_pixel:
         lda plot_y
         cmp #200
         bcs _gp_clip
+        ldy #$40                ; x bound: 320 or 640, per mode
+        ldx #1
+        lda screen_mode
+        cmp #80
+        bne _gp_clip_b
+        ldy #$80
+        ldx #2
+_gp_clip_b:
+        stx _gp_clip_t
+        sty _gp_clip_t2
         lda plot_x+1
-        beq _gp_clip_xok
-        cmp #1
+        cmp _gp_clip_t
+        bcc _gp_clip_xok
         bne _gp_clip
         lda plot_x
-        cmp #$40
+        cmp _gp_clip_t2
         bcs _gp_clip
 _gp_clip_xok:
         lda plot_x
@@ -478,6 +479,10 @@ _gp_clip_xok:
 _gp_clip:
         lda #0
         rts
+_gp_clip_t:
+        .byte 0
+_gp_clip_t2:
+        .byte 0
 
 _gp_char_col:   .word 0
 _gp_char_row:   .byte 0

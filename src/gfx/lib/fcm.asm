@@ -5,6 +5,7 @@ screen_mode:
         .byte $00
 
 ssm_mode: .byte 0
+scrn_base: .byte <SCREEN_RAM40, >SCREEN_RAM40, `SCREEN_RAM40
 
 ;=======================================================================================
 ; set_screen_mode - Initialize screen mode
@@ -131,6 +132,12 @@ _ssm_text80:
 _ssm_bitmap40:
         lda #40
         sta screen_mode
+        lda #<SCREEN_RAM40
+        sta scrn_base
+        lda #>SCREEN_RAM40
+        sta scrn_base+1
+        lda #`SCREEN_RAM40
+        sta scrn_base+2
 
         lda VIC3_CTRL
         and #%01111111          ; Clear H640
@@ -164,6 +171,12 @@ _ssm_bitmap80:
 
         lda #80
         sta screen_mode
+        lda #<SCREEN_RAM80
+        sta scrn_base
+        lda #>SCREEN_RAM80
+        sta scrn_base+1
+        lda #`SCREEN_RAM80
+        sta scrn_base+2
 
         lda VIC3_CTRL
         and #%01011111          ; Clear H640 and ATTR first
@@ -319,12 +332,12 @@ _ssm_finish_ncm:
 ; Setup screen/color/char pointers (common to all FCM modes)
 ;---------------------------------------------------------------------------------------
 _ssm_setup_pointers:
-        ; Screen RAM pointer
-        lda #<SCREEN_RAM
+        ; Screen RAM pointer ([basic65c] per-mode: scrn_base)
+        lda scrn_base
         sta VIC4_SCRNPTRLSB
-        lda #>SCREEN_RAM
+        lda scrn_base+1
         sta VIC4_SCRNPTRMSB
-        lda #`SCREEN_RAM
+        lda scrn_base+2
         sta VIC4_SCRBPTRBNK
         stz $D063
 

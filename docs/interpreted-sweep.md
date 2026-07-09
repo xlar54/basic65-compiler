@@ -85,6 +85,12 @@ matches the compiled output.
       and DMA-swap dispatch regression check; compiled run verified
       2026-07-08)
 
+- [ ] gfx640.bas       (SCREEN 640,200,8: filled box/circle spanning
+      the 256/512 x-boundaries, full-width line, PIXEL readbacks
+      3/7/0/5 + 640 OK; compiled run verified 2026-07-08 incl. bitmap
+      decode. Divergences: circles are NOT aspect-corrected in 640
+      -- the book says they render as ellipses; graphics programs cap
+      at $c000 because 80-col screen codes live there.)
 - [ ] gfxdbl.bas       (SCREEN DEF/OPEN/SET double buffering across
       attic-backed screens 0-3 + SCREEN CLR; PIXEL readbacks assert
       draw-to-hidden, flip, canvas-preservation and clear (5/5/2/6 +

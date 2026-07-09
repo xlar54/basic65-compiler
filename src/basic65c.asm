@@ -9781,8 +9781,13 @@ emit_generated_tail:
         jsr emit_line_number_tab
         jsr emit_flt_table
         jsr emit_for_storage
-        jsr emit_tmpl_done
+        lda gfx_used            ; 640x200 screen codes live at
+        bne _esg_gfx            ; $c000, so graphics programs stop
+        jsr emit_tmpl_done      ; there; others may run to $d000
         .word out_size_guard
+_esg_gfx:
+        jsr emit_tmpl_done
+        .word out_size_guard_gfx
 
 emit_flt_table:
         ldx backend_mode
@@ -12895,6 +12900,14 @@ out_varheapend_def:
         .byte 0
 .fi
 
+out_size_guard_gfx:
+.if TEXT_EMITTER
+        .text "        .cerror * > $c000, ""program too large: 640-mode screen codes live at $c000"""
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
 out_size_guard:
 .if TEXT_EMITTER
         .text "        .cerror * > $d000, ""program too large: runs into i/o space"""

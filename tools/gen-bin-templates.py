@@ -100,6 +100,7 @@ SPECIALS = {
 # captured separately, and PC-side directives)
 COMMENTS = {
     "out_rem", "out_data_comment", "out_dim_comment", "out_size_guard",
+    "out_size_guard_gfx",
     "out_string_pool_header", "out_strroots_start", "out_data_table_start",
     "out_fltinit_label",
     "out_data_table_end", "out_for_storage_header",

@@ -59,13 +59,8 @@ _cr_loop:
         lda #0
         sta _cr_yh+1
 
-        lda screen_mode
-        cmp #80
-        bne _cr_no_scale
-        asl _cr_xh
-        rol _cr_xh+1
-        asl _cr_yh
-        rol _cr_yh+1
+        ; [basic65c] no 80-col aspect doubling: the book says circles
+        ; on 640x200 render as ellipses (raw pixel radii)
 _cr_no_scale:
 
         lda _cr_fill

@@ -59,9 +59,12 @@ MODE_BITMAP80           = 4
 MODE_NCM40              = 5
 MODE_NCM80              = 6
 
-SCREEN_RAM              = $58000        ; FCM screen codes (bank 5, after
-                                        ; blob $0000 + stash $4000; bank-1
-                                        ; low is C65 KERNAL/DOS territory)
+; FCM screen codes: 40-col at bank 5 $8000 (bank-1 low is C65
+; KERNAL/DOS territory); 80-col at bank 0 $c000 because 640x200 pixel
+; data claims all of banks 4+5 -- graphics programs cap at $c000.
+; scrn_base (in fcm.asm) picks per mode.
+SCREEN_RAM40            = $58000
+SCREEN_RAM80            = $0c000
 CHAR_DATA               = $40000        ; pixel data claims bank 4
 CHAR_CODE_BASE          = $1000         ; $40000/64
 PTR                     = $F7           ; the runtime's varptr slot
@@ -118,9 +121,11 @@ gfx_base4:
         sta gfx_base+2
         rts
 
-; base = attic buffer of screen in A (0-3): $08100000 + s*$10000
+; base = attic buffer of screen in A (0-3): $08100000 + s*$20000
+; (128KB apart: a 640x200 canvas is $1f400 bytes)
 gfx_basea:
         and #3
+        asl a
         clc
         adc #$10
         sta gfx_base+2
@@ -131,18 +136,40 @@ gfx_basea:
         sta gfx_base+3
         rts
 
-; SCREEN w,h,d: the one supported shape is 320x200x256; opens the
-; display with the default palette, black background, white pen
+; SCREEN w,h,d: 320x200 or 640x200 at 256 colours; opens the display
+; with the default palette, black background, white pen
 g_open:
         jsr gfx_rstscr
+        lda dma_args+1          ; w high byte >= 2 selects 640
+        ldx scr_view
+        jsr gfx_setwf
 gopencommon:
+        ldx scr_view
+        lda scr_wf,x
+        bne _goc_80
         lda #MODE_BITMAP40
+        bra _goc_set
+_goc_80:
+        lda #MODE_BITMAP80
+_goc_set:
         jsr set_screen_mode     ; sets pointers, clears codes + bitmap
         jsr restore_default_palette
         lda #0
         sta gf_mode
         lda #1
         sta gfx_pen
+        rts
+
+; A = w high byte, X = screen: record the width flag
+gfx_setwf:
+        cmp #2
+        bcs _gsw_wide
+        lda #0
+        sta scr_wf,x
+        rts
+_gsw_wide:
+        lda #1
+        sta scr_wf,x
         rts
 
 ; SCREEN s,w,h,d: simplified form with an explicit screen number --
@@ -152,6 +179,9 @@ g_simple4:
         and #3
         sta scr_draw
         sta scr_view
+        tax
+        lda dma_args+5          ; w high byte
+        jsr gfx_setwf
         jsr gfx_base4
         bra gopencommon
 
@@ -176,12 +206,16 @@ g_screenopen:
         lda dma_args+0
         and #3
         pha
-        jsr gsddstattic  ; fill attic buffer of screen A
+        jsr gsddstattic         ; fill attic buffer of screen A
+        pla
+        pha
+        tax
         lda #0
         jsr gsdfill
         pla
         cmp scr_view
         bne _gso_done
+        tax
         jsr gsddstb4
         lda #0
         jsr gsdfill
@@ -198,13 +232,32 @@ g_screenset:
         lda scr_view
         jsr gsddstattic
         jsr gsdsrcb4
+        ldx scr_view            ; old view's size
         jsr gsdcopy
 _gss_pick:
         lda dma_args+4          ; show the new view screen
         and #3
         sta scr_view
+        tax                     ; its recorded width may change the mode
+        lda scr_wf,x
+        beq _gss_want40
+        lda screen_mode
+        cmp #80
+        beq _gss_show
+        lda #MODE_BITMAP80
+        jsr set_screen_mode
+        bra _gss_show
+_gss_want40:
+        lda screen_mode
+        cmp #80
+        bne _gss_show
+        lda #MODE_BITMAP40
+        jsr set_screen_mode
+_gss_show:
+        lda scr_view
         jsr gsdsrcattic
         jsr gsddstb4
+        ldx scr_view
         jsr gsdcopy
         lda dma_args+0          ; route drawing
         and #3
@@ -252,9 +305,10 @@ gsddstb4:
         lda #$04
         sta gsddst+2
         rts
-gsdsrcattic:             ; A = screen 0-3
+gsdsrcattic:                    ; A = screen 0-3
         and #3
-        sta gsdsrc+2          ; bank-in-MB nibble 0-3
+        asl a
+        sta gsdsrc+2            ; bank-in-MB nibble: s*2
         lda #$81                ; $0810xxxx >> 20
         sta gsdsmb+1
         lda #0
@@ -263,6 +317,7 @@ gsdsrcattic:             ; A = screen 0-3
         rts
 gsddstattic:
         and #3
+        asl a
         sta gsddst+2
         lda #$81
         sta gsddmb+1
@@ -270,14 +325,39 @@ gsddstattic:
         sta gsddst
         sta gsddst+1
         rts
+; X = screen whose width flag sizes the transfer (bank-4 jobs follow
+; the same screen's geometry)
 gsdcopy:
         lda #0
         bra gsdgo
-gsdfill:                      ; A = fill value (goes in src lo)
+gsdfill:                        ; A = fill value (goes in src lo)
         sta gsdsrc
         lda #3
 gsdgo:
         sta gsdcmd
+        jsr _gsd_trigger
+        lda scr_wf,x            ; wide canvas: second 64000-byte job
+        beq _gsd_done           ; covering base+$fa00 on both sides
+        lda gsdsrc+1
+        pha
+        lda gsddst+1
+        pha
+        lda gsdcmd
+        cmp #3
+        beq _gsd_fill2          ; fills keep src = value
+        lda #$fa
+        sta gsdsrc+1
+_gsd_fill2:
+        lda #$fa
+        sta gsddst+1
+        jsr _gsd_trigger
+        pla
+        sta gsddst+1
+        pla
+        sta gsdsrc+1
+_gsd_done:
+        rts
+_gsd_trigger:
         lda #0
         sta $d702
         sta $d704

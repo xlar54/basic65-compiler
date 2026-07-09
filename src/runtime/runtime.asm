@@ -3236,12 +3236,13 @@ gfxload:
         jsr kernalchrin
         jsr kernalreadst        ; missing file: EOF/error on first reads
         bne _gfxl_err
-        lda #0                  ; far pointer: bank 5 offset 0
-        sta varptr
+        lda #0                  ; far pointer: attic $8180000 (bank 5
+        sta varptr              ; belongs to 640x200 pixel data now)
         sta varptr+1
-        sta varptr+3
-        lda #5
+        lda #$18
         sta varptr+2
+        lda #$08
+        sta varptr+3
         ldz #0
 _gfxl_loop:
         jsr kernalchrin
@@ -3336,24 +3337,25 @@ _rpen_zero:
 
 ; A = function index; arguments pre-staged in dma_args.
 ; The blob executes from real RAM at $8000-$bfff: DMA stashes whatever
-; lives there (program code) to bank 5 $4000, copies the blob in from
-; bank 5 $0000, dispatches, then copies the blob back (it keeps state
-; like the screen mode inside itself) and restores the stash. No MAP:
+; lives there (program code) to attic $8190000, copies the blob in
+; from attic $8180000 (bank 5 belongs to 640x200 pixel data),
+; dispatches, then copies the blob back (it keeps state like the
+; screen mode inside itself) and restores the stash. No MAP:
 ; the KERNAL, its interrupt vectors, and the IRQ engines stay exactly
 ; where the hardware expects them, so interrupts keep running even
 ; through a long PAINT. Four 16KB DMA copies cost ~1ms at 40MHz.
 gfxcall:
         asl a
         sta gfx_fn
-        ldx #0                  ; stash $08000 -> $54000
+        ldx #0                  ; stash $08000 -> attic
         jsr gfxcopy
-        ldx #6                  ; blob $50000 -> $08000
+        ldx #8                  ; blob attic -> $08000
         jsr gfxcopy
         ldx gfx_fn
         jsr _gfx_go
-        ldx #12                 ; blob (and its state) -> $50000
+        ldx #16                 ; blob (and its state) -> attic
         jsr gfxcopy
-        ldx #18                 ; program code $54000 -> $08000
+        ldx #24                 ; program code attic -> $08000
         jsr gfxcopy
         ldz #0                  ; the blob uses Z freely; compiled code
                                 ; relies on the ambient Z=0 convention
@@ -3363,22 +3365,37 @@ gfxcall:
 _gfx_go:
         jmp ($8004,x)          ; table sits after the gfx_base slot
 
-; one 16KB copy per entry: src lo/hi/bank, dst lo/hi/bank
+; one 16KB copy per entry: srcMB, src lo/hi/bank, dstMB, dst lo/hi/bank
+; (blob home $8180000 = MB $81 bank 8; stash $8190000 = MB $81 bank 9)
 gfxcopytab:
-        .byte $00,$80,$00, $00,$40,$05
-        .byte $00,$00,$05, $00,$80,$00
-        .byte $00,$80,$00, $00,$00,$05
-        .byte $00,$40,$05, $00,$80,$00
+        .byte $00, $00,$80,$00, $81, $00,$00,$09
+        .byte $81, $00,$00,$08, $00, $00,$80,$00
+        .byte $00, $00,$80,$00, $81, $00,$00,$08
+        .byte $81, $00,$00,$09, $00, $00,$80,$00
 
 gfxcopy:
+        lda gfxcopytab,x
+        sta gfxdmasmb
+        inx
         ldy #0
-_gfxc_patch:
+_gfxc_src:
         lda gfxcopytab,x
         sta gfxdmasrc,y
         inx
         iny
-        cpy #6
-        bne _gfxc_patch
+        cpy #3
+        bne _gfxc_src
+        lda gfxcopytab,x
+        sta gfxdmadmb
+        inx
+        ldy #0
+_gfxc_dst:
+        lda gfxcopytab,x
+        sta gfxdmadst,y
+        inx
+        iny
+        cpy #3
+        bne _gfxc_dst
         lda #0                  ; list in bank 0, megabyte 0
         sta $d702
         sta $d704
@@ -3390,13 +3407,18 @@ _gfxc_patch:
 
 gfxdmalist:
         .byte $0b               ; F018B 12-byte job format
-        .byte $80, $00          ; source megabyte 0
-        .byte $81, $00          ; target megabyte 0
+        .byte $80               ; source megabyte option
+gfxdmasmb:
+        .byte $00
+        .byte $81               ; target megabyte option
+gfxdmadmb:
+        .byte $00
         .byte $00               ; end of options
         .byte $00               ; command: copy
         .word $4000             ; count: the full 16KB window
 gfxdmasrc:
         .byte $00, $00, $00     ; source lo/hi/bank (patched)
+gfxdmadst:
         .byte $00, $00, $00     ; target lo/hi/bank (patched)
         .byte $00               ; sub command
         .word 0                 ; modulo
