@@ -6823,15 +6823,38 @@ _cpal_scr:
 _cpal_bad:
         jmp compile_env_bad
 
-; SCREEN [screen,] width, height, depth opens the (only) 320x200x256
-; screen; SCREEN CLOSE returns to text. DEF/SET/OPEN/CLR unsupported.
+; SCREEN [screen,]w,h,d / CLR c / DEF s,wf,hf,d / SET d,v / OPEN [s] /
+; CLOSE [s]. Every screen renders 320x200x256 (VIC-IV FCM, not
+; VIC-III bitplanes); screens 0-3 are attic-backed, bank 4 shows the
+; viewed one.
 compile_screen:
         jsr line_skip_spaces
         jsr line_at_end
         bcs _cscr_bad
         jsr line_peek
         cmp #TOK_CLOSE
-        bne _cscr_open
+        beq _cscr_close_kw
+        cmp #$9c                ; CLR: same as SCNCLR colour
+        beq _cscr_clr
+        cmp #$96                ; DEF
+        beq _cscr_def
+        cmp #TOK_OPEN           ; OPEN
+        beq _cscr_sopen
+        cmp #TOK_EXT_FE         ; SET arrives as $fe $2d
+        beq _cscr_set
+        jsr compile_gfxargs     ; numeric: [s,]w,h,d
+        bcs _cscr_bad
+        lda cdma_i
+        cmp #3
+        beq _cscr_simple3
+        cmp #4
+        bne _cscr_bad
+        lda #17                 ; s,w,h,d
+        jmp emit_gfxcall
+_cscr_simple3:
+        lda #10                 ; w,h,d (screen 0)
+        jmp emit_gfxcall
+_cscr_close_kw:
         jsr line_get
         jsr line_skip_spaces
         jsr line_at_end_or_colon
@@ -6841,15 +6864,52 @@ compile_screen:
 _cscr_close:
         lda #1
         jmp emit_gfxcall
-_cscr_open:
+_cscr_clr:
+        jsr line_get
         jsr compile_gfxargs
         bcs _cscr_bad
         lda cdma_i
-        cmp #3
-        bcc _cscr_bad
-        cmp #4+1
+        cmp #1
+        bne _cscr_bad
+        lda #12
+        jmp emit_gfxcall
+_cscr_def:
+        jsr line_get
+        jsr compile_gfxargs
         bcs _cscr_bad
-        lda #10
+        lda cdma_i
+        cmp #4
+        bne _cscr_bad
+        lda #16
+        jmp emit_gfxcall
+_cscr_sopen:
+        jsr line_get
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _cscr_sopen0
+        jsr compile_gfxargs
+        bcs _cscr_bad
+        lda cdma_i
+        cmp #1
+        bne _cscr_bad
+        bra _cscr_sopen_go
+_cscr_sopen0:
+        jsr emit_tmpl           ; bare OPEN: screen 0 (dmarst zeroes)
+        .word out_jsr_dmarst
+_cscr_sopen_go:
+        lda #15
+        jmp emit_gfxcall
+_cscr_set:
+        jsr line_get            ; the $fe prefix
+        jsr line_get
+        cmp #$2d                ; SET
+        bne _cscr_bad
+        jsr compile_gfxargs
+        bcs _cscr_bad
+        lda cdma_i
+        cmp #2
+        bne _cscr_bad
+        lda #14
         jmp emit_gfxcall
 _cscr_bad:
         jmp compile_env_bad

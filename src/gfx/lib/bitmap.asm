@@ -75,24 +75,50 @@ clear_bitmap:
         cmp #80
         beq _cb_80col
 
-        ; 40-col: single DMA, 64000 bytes at $40000
+        ; 40-col: single DMA, 64000 bytes at the current draw base
+        ; ([basic65c] destination parameterized on gfx_base)
         lda _cb_fill
         sta _cb_40_val
+        lda gfx_base
+        sta _cb_40_dst
+        lda gfx_base+1
+        sta _cb_40_dst+1
+        lda gfx_base+2
+        and #$0f
+        sta _cb_40_dst+2
+        lda gfx_base+2
+        lsr
+        lsr
+        lsr
+        lsr
+        sta _cb_tmp
+        lda gfx_base+3
+        asl
+        asl
+        asl
+        asl
+        ora _cb_tmp
+        sta _cb_40_dmb
         lda #$00
         sta $D707
         .byte $80, $00          ; source MB = $00
-        .byte $81, $00          ; dest MB
+        .byte $81               ; dest MB option
+_cb_40_dmb:
+        .byte $00
         .byte $00               ; end options
         .byte $03               ; fill
         .word 64000             ; count
 _cb_40_val:
         .byte $00, $00          ; fill value (self-modified)
         .byte $00               ; src bank
+_cb_40_dst:
         .word $0000             ; dest addr
-        .byte $04               ; dest bank ($40000)
+        .byte $04               ; dest bank-in-MB
         .byte $00               ; cmd high
         .word $0000             ; modulo
         rts
+_cb_tmp:
+        .byte 0
 
 _cb_80col:
         ; 80-col: 128000 bytes = 65536 + 62464 (banks 4+5 only)
@@ -300,17 +326,18 @@ _pp_clip_xok:
 
         ; Result = 24-bit address offset, read MULTOUT
         ; char_base = CHAR_DATA + MULTOUT
-        clc
-        lda MULTOUT           ; MULTOUT byte 0
-        adc #<CHAR_DATA
+        clc                     ; [basic65c] base = gfx_base (bank-4
+        lda MULTOUT             ; canvas or an attic screen buffer)
+        adc gfx_base
         sta PTR
-        lda MULTOUT+1           ; MULTOUT byte 1
-        adc #>CHAR_DATA
+        lda MULTOUT+1
+        adc gfx_base+1
         sta PTR+1
-        lda MULTOUT+2           ; MULTOUT byte 2
-        adc #`CHAR_DATA
+        lda MULTOUT+2
+        adc gfx_base+2
         sta PTR+2
-        lda #0
+        lda gfx_base+3
+        adc #0
         sta PTR+3
         
         ; pixel_offset = pixel_y * 8 + pixel_x
@@ -423,17 +450,18 @@ _gp_clip_xok:
         sta MULTINB+2
         sta MULTINB+3
 
-        clc
+        clc                     ; [basic65c] base = gfx_base
         lda MULTOUT
-        adc #<CHAR_DATA
+        adc gfx_base
         sta PTR
         lda MULTOUT+1
-        adc #>CHAR_DATA
+        adc gfx_base+1
         sta PTR+1
         lda MULTOUT+2
-        adc #`CHAR_DATA
+        adc gfx_base+2
         sta PTR+2
-        lda #0
+        lda gfx_base+3
+        adc #0
         sta PTR+3
         
         lda _gp_pixel_y

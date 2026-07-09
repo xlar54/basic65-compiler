@@ -70,6 +70,12 @@ PTR                     = $F7           ; the runtime's varptr slot
 
         * = $8000
 
+; the drawing base: where plot/get/clear operate. $00040000 (bank 4,
+; the displayed canvas) or an attic screen buffer ($810s0000). Fixed
+; at the blob head so its offset never moves.
+gfx_base:
+        .byte $00, $00, $04, $00
+
         .word g_init            ; 0  GRAPHIC CLR
         .word g_close           ; 1  SCREEN CLOSE
         .word g_line            ; 2  LINE segment
@@ -84,6 +90,10 @@ PTR                     = $F7           ; the runtime's varptr slot
         .word g_palette4        ; 11 PALETTE COLOR c,r,g,b
         .word g_clear           ; 12 SCNCLR colour
         .word g_polygon         ; 13 POLYGON
+        .word g_screenset       ; 14 SCREEN SET d,v
+        .word g_screenopen      ; 15 SCREEN OPEN [s]
+        .word g_screendef       ; 16 SCREEN DEF s,wf,hf,d
+        .word g_simple4         ; 17 SCREEN s,w,h,d
 
 ; GRAPHIC CLR: reset the drawing context; the display is untouched
 ; until SCREEN opens it
@@ -92,11 +102,40 @@ g_init:
         sta gf_mode             ; flat fills
         lda #1                  ; default pen: white
         sta gfx_pen
+        jmp gfx_rstscr
+
+; reset screen state: draw = view = 0, base = the bank-4 canvas
+gfx_rstscr:
+        lda #0
+        sta scr_draw
+        sta scr_view
+gfx_base4:
+        lda #0
+        sta gfx_base
+        sta gfx_base+1
+        sta gfx_base+3
+        lda #$04
+        sta gfx_base+2
         rts
 
-; SCREEN [s,]w,h,d: the one supported shape is 320x200x256; opens the
+; base = attic buffer of screen in A (0-3): $08100000 + s*$10000
+gfx_basea:
+        and #3
+        clc
+        adc #$10
+        sta gfx_base+2
+        lda #0
+        sta gfx_base
+        sta gfx_base+1
+        lda #$08
+        sta gfx_base+3
+        rts
+
+; SCREEN w,h,d: the one supported shape is 320x200x256; opens the
 ; display with the default palette, black background, white pen
 g_open:
+        jsr gfx_rstscr
+gopencommon:
         lda #MODE_BITMAP40
         jsr set_screen_mode     ; sets pointers, clears codes + bitmap
         jsr restore_default_palette
@@ -105,6 +144,154 @@ g_open:
         lda #1
         sta gfx_pen
         rts
+
+; SCREEN s,w,h,d: simplified form with an explicit screen number --
+; that screen becomes both draw and view, on the bank-4 canvas
+g_simple4:
+        lda dma_args+0
+        and #3
+        sta scr_draw
+        sta scr_view
+        jsr gfx_base4
+        bra gopencommon
+
+; SCREEN DEF s,wf,hf,depth: geometry bookkeeping only -- every screen
+; renders as 320x200 FCM here (VIC-IV, not VIC-III bitplanes); depths
+; 1-8 are a semantic superset of 256 colours
+g_screendef:
+        lda dma_args+0
+        and #3
+        tax
+        lda dma_args+4
+        sta scr_wf,x
+        lda dma_args+8
+        sta scr_hf,x
+        lda dma_args+12
+        sta scr_depth,x
+        rts
+
+; SCREEN OPEN [s]: clear the screen's attic buffer; if it is the
+; viewed screen, clear the visible canvas too
+g_screenopen:
+        lda dma_args+0
+        and #3
+        pha
+        jsr gsddstattic  ; fill attic buffer of screen A
+        lda #0
+        jsr gsdfill
+        pla
+        cmp scr_view
+        bne _gso_done
+        jsr gsddstb4
+        lda #0
+        jsr gsdfill
+_gso_done:
+        rts
+
+; SCREEN SET d,v: classic double buffering. The attic buffers hold
+; every screen's canvas; bank 4 is the display mirror of the viewed
+; screen (and the live draw target when draw == view).
+g_screenset:
+        lda scr_draw            ; drawing was live on bank 4? sync it
+        cmp scr_view            ; back to its attic buffer first
+        bne _gss_pick
+        lda scr_view
+        jsr gsddstattic
+        jsr gsdsrcb4
+        jsr gsdcopy
+_gss_pick:
+        lda dma_args+4          ; show the new view screen
+        and #3
+        sta scr_view
+        jsr gsdsrcattic
+        jsr gsddstb4
+        jsr gsdcopy
+        lda dma_args+0          ; route drawing
+        and #3
+        sta scr_draw
+        cmp scr_view
+        bne _gss_attic
+        jmp gfx_base4           ; draw == view: live on the canvas
+_gss_attic:
+        lda scr_draw
+        jmp gfx_basea
+
+; ---- 64000-byte screen DMA between bank 4 and the attic buffers ----
+; enhanced F018B job; the list lives here in the blob (bank-0 RAM
+; while executing)
+gsdlist:
+        .byte $0b
+gsdsmb:
+        .byte $80, $00          ; source megabyte
+gsddmb:
+        .byte $81, $00          ; dest megabyte
+        .byte $00               ; end of options
+gsdcmd:
+        .byte $00               ; 0 copy / 3 fill
+        .word 64000
+gsdsrc:
+        .byte $00, $00, $00
+gsddst:
+        .byte $00, $00, $00
+        .byte $00
+        .word 0
+
+gsdsrcb4:
+        lda #0
+        sta gsdsmb+1
+        sta gsdsrc
+        sta gsdsrc+1
+        lda #$04
+        sta gsdsrc+2
+        rts
+gsddstb4:
+        lda #0
+        sta gsddmb+1
+        sta gsddst
+        sta gsddst+1
+        lda #$04
+        sta gsddst+2
+        rts
+gsdsrcattic:             ; A = screen 0-3
+        and #3
+        sta gsdsrc+2          ; bank-in-MB nibble 0-3
+        lda #$81                ; $0810xxxx >> 20
+        sta gsdsmb+1
+        lda #0
+        sta gsdsrc
+        sta gsdsrc+1
+        rts
+gsddstattic:
+        and #3
+        sta gsddst+2
+        lda #$81
+        sta gsddmb+1
+        lda #0
+        sta gsddst
+        sta gsddst+1
+        rts
+gsdcopy:
+        lda #0
+        bra gsdgo
+gsdfill:                      ; A = fill value (goes in src lo)
+        sta gsdsrc
+        lda #3
+gsdgo:
+        sta gsdcmd
+        lda #0
+        sta $d702
+        sta $d704
+        lda #>gsdlist
+        sta $d701
+        lda #<gsdlist
+        sta $d705
+        rts
+
+scr_draw:  .byte 0
+scr_view:  .byte 0
+scr_wf:    .byte 0,0,0,0
+scr_hf:    .byte 0,0,0,0
+scr_depth: .byte 0,0,0,0
 
 g_close:
         jmp restore_default_screen

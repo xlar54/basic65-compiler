@@ -3361,7 +3361,7 @@ gfxcall:
                                 ; bank-1 invariant back or every later
                                 ; variable store lands in pixel memory
 _gfx_go:
-        jmp ($8000,x)
+        jmp ($8004,x)          ; table sits after the gfx_base slot
 
 ; one 16KB copy per entry: src lo/hi/bank, dst lo/hi/bank
 gfxcopytab:
