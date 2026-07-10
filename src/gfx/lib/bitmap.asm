@@ -508,6 +508,11 @@ line_y1:    .byte 0
 line_col:   .byte 0
 
 draw_line:
+        lda line_y0             ; [basic65c] horizontal spans take the
+        cmp line_y1             ; one-address walk below instead of
+        bne _dl_slow            ; Bresenham + full addressing per pixel
+        jmp fill_hline_fast
+_dl_slow:
         sec
         lda line_x1
         sbc line_x0
@@ -697,4 +702,217 @@ _ln_err:    .word 0
 _ln_x:      .word 0
 _ln_y:      .byte 0
 _ln_steps:  .word 0
+
+;=======================================================================================
+; fill_hline_fast - horizontal span with the cell address computed once
+; Input: line_x0/line_x1 (16-bit signed, either order), line_y0, line_col
+;
+; FCM layout: the 8 pixels of a cell row are consecutive bytes and
+; the next cell is +64, so after one plot_pixel-style address
+; computation the walk is sta [PTR],z / inz with a +64 PTR hop at
+; each cell boundary (~10 cycles/pixel vs ~200 through plot_pixel).
+; Every horizontal reaches this via draw_line's entry check: BOX and
+; shape fills (fill_hline), outlines' top/bottom edges, horizontal
+; LINE statements, polygon edges. Clipped against the viewport here
+; (span-clamped once, not per pixel).
+;=======================================================================================
+fill_hline_fast:
+        lda line_y0             ; y inside the viewport rows
+        cmp vp_y0
+        bcc _hf_done
+        cmp vp_y1
+        beq _hf_yok
+        bcs _hf_done
+_hf_yok:
+        lda line_x0             ; order the endpoints (signed):
+        sta hf_x0               ; hf_x0 <= hf_x1
+        lda line_x0+1
+        sta hf_x0+1
+        lda line_x1
+        sta hf_x1
+        lda line_x1+1
+        sta hf_x1+1
+        lda hf_x0+1
+        eor #$80
+        sta hf_t
+        lda hf_x1+1
+        eor #$80
+        cmp hf_t
+        bcc _hf_swap
+        bne _hf_ordered
+        lda hf_x1
+        cmp hf_x0
+        bcs _hf_ordered
+_hf_swap:
+        ldx hf_x0
+        lda hf_x1
+        sta hf_x0
+        stx hf_x1
+        ldx hf_x0+1
+        lda hf_x1+1
+        sta hf_x0+1
+        stx hf_x1+1
+_hf_ordered:
+        lda hf_x1+1             ; span entirely left of the viewport?
+        bmi _hf_done            ; (x1 negative)
+        cmp vp_x1+1             ; clamp x1 to the right edge
+        bcc _hf_x1ok
+        bne _hf_x1clamp
+        lda hf_x1
+        cmp vp_x1
+        bcc _hf_x1ok
+        beq _hf_x1ok
+_hf_x1clamp:
+        lda vp_x1
+        sta hf_x1
+        lda vp_x1+1
+        sta hf_x1+1
+_hf_x1ok:
+        lda hf_x0+1             ; clamp x0 to the left edge (negative
+        bmi _hf_x0clamp         ; x0 clamps too)
+        cmp vp_x0+1
+        bcc _hf_x0clamp
+        bne _hf_x0ok
+        lda hf_x0
+        cmp vp_x0
+        bcs _hf_x0ok
+_hf_x0clamp:
+        lda vp_x0
+        sta hf_x0
+        lda vp_x0+1
+        sta hf_x0+1
+_hf_x0ok:
+        sec                     ; count = x1 - x0 + 1; empty when the
+        lda hf_x1               ; clamped span inverted
+        sbc hf_x0
+        sta hf_cnt
+        lda hf_x1+1
+        sbc hf_x0+1
+        sta hf_cnt+1
+        bcc _hf_done
+        inc hf_cnt
+        bne +
+        inc hf_cnt+1
++
+        ; --- address of (hf_x0, line_y0), as plot_pixel computes it ---
+        lda hf_x0
+        and #$07
+        sta hf_off              ; pixel offset in the first cell
+        lda hf_x0
+        sta hf_col
+        lda hf_x0+1
+        sta hf_col+1
+        lsr hf_col+1
+        ror hf_col
+        lsr hf_col+1
+        ror hf_col
+        lsr hf_col+1
+        ror hf_col              ; char column
+        lda line_y0
+        lsr a
+        lsr a
+        lsr a
+        sta MULTINA             ; char row * columns
+        lda #0
+        sta MULTINA+1
+        sta MULTINA+2
+        sta MULTINA+3
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        lda screen_mode
+        sta MULTINB
+        clc
+        lda MULTOUT
+        adc hf_col
+        sta hf_col
+        lda MULTOUT+1
+        adc hf_col+1
+        sta hf_col+1            ; cell index
+        lda hf_col
+        sta MULTINA             ; * 64
+        lda hf_col+1
+        sta MULTINA+1
+        lda #0
+        sta MULTINA+2
+        sta MULTINA+3
+        lda #64
+        sta MULTINB
+        clc
+        lda MULTOUT
+        adc gfx_base
+        sta PTR
+        lda MULTOUT+1
+        adc gfx_base+1
+        sta PTR+1
+        lda MULTOUT+2
+        adc gfx_base+2
+        sta PTR+2
+        lda gfx_base+3
+        adc #0
+        sta PTR+3
+        lda line_y0
+        and #$07
+        asl a
+        asl a
+        asl a
+        sta hf_zbase            ; (y & 7) * 8
+        clc
+        adc hf_off
+        taz                     ; z = start pixel in the first cell
+        lda #8
+        sec
+        sbc hf_off
+        sta hf_cell             ; pixels left in the first cell
+
+_hf_cellloop:
+        lda hf_cell             ; n = min(count, pixels in this cell)
+        ldx hf_cnt+1
+        bne _hf_full
+        cmp hf_cnt
+        bcc _hf_full
+        lda hf_cnt
+_hf_full:
+        sta hf_n
+        sec                     ; count -= n
+        lda hf_cnt
+        sbc hf_n
+        sta hf_cnt
+        bcs +
+        dec hf_cnt+1
++       ldx hf_n
+        lda line_col
+_hf_store:
+        sta [PTR],z
+        inz
+        dex
+        bne _hf_store
+        lda hf_cnt
+        ora hf_cnt+1
+        beq _hf_done
+        clc                     ; next cell: +64, back to the row base
+        lda PTR
+        adc #64
+        sta PTR
+        bcc +
+        inc PTR+1
+        bne +
+        inc PTR+2
++       lda hf_zbase
+        taz
+        lda #8
+        sta hf_cell
+        bra _hf_cellloop
+_hf_done:
+        rts
+
+hf_x0:      .word 0
+hf_x1:      .word 0
+hf_cnt:     .word 0
+hf_col:     .word 0
+hf_cell:    .byte 0
+hf_n:       .byte 0
+hf_off:     .byte 0
+hf_zbase:   .byte 0
+hf_t:       .byte 0
 

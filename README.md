@@ -34,11 +34,7 @@ build, run, and test-harness documentation.
 ## Performance
 
 Same program, same MEGA65 at 40MHz, interpreted vs compiled
-(xemu, PAL; timed with CLR TI / PRINT TI). Earlier revisions of this
-table showed compiled times up to 200x faster -- those came from a
-runtime bug that misread the C65 RDTIM clock (it returns BCD
-time-of-day, not jiffies); the figures below are from the corrected
-0.1s-resolution timer:
+(xemu, PAL; timed with CLR TI / PRINT TI). The figures below are from the 0.1s-resolution timer:
 
 | Benchmark | Workload | Interpreted | Compiled | Speedup |
 |---|---|---|---|---|
@@ -46,7 +42,8 @@ time-of-day, not jiffies); the figures below are from the corrected
 | `basic/primes.bas` | integer MOD trial division up to 5000 | 8.20 s | 1.5 s | ~5.5x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 6.8 s | ~3.1x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.4 s | ~2x |
-| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 28.5 s | ~0.4x |
+| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 2.6 s | ~4.2x |
+| `basic/boxes.bas` | graphics (200 filled 40x40 BOXes, 320x200x4) | 16.28 s | 1.0 s | ~16x |
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
@@ -54,10 +51,14 @@ Ahl's accuracy figure: 2.27e-04 compiled vs 3.11e-04 interpreted --
 the compiler's MFLP math lands slightly closer to the true value than
 the ROM's float code.
 
-The circles row is an honest loss: the compiled graphics library
-draws through a per-pixel plotter plus a DMA blob swap per statement,
-while the ROM's CIRCLE uses bitplane span code. Span-based rendering
-in the blob is the known fix if graphics throughput starts to matter.
+The graphics rows had a history: the compiled side originally LOST
+these (28.5 s circles) because the FCM mode switch was silently
+dropping the CPU to 3.5 MHz -- an absolute write to $D054 cleared the
+VFAST bit. With the speed preserved and horizontal spans drawn
+through a one-address cell walk instead of per-pixel addressing,
+compiled graphics now beat the interpreter too. Shape outlines still
+plot per pixel (incremental Bresenham addressing is the next lever if
+needed).
 
 ## Documentation
 

@@ -40,9 +40,18 @@ _ssm_fcm_init:
         lda #$80
         trb $D05D
 
-        ; Enable SEAM mode
-        lda #%00000101
+        ; Enable SEAM mode -- preserving the upper bits: an absolute
+        ; write here cleared bit 6 (VFAST) and silently dropped the
+        ; CPU from 40MHz to 3.5 for the whole graphics session
+        lda VIC4_CTRL
+        and #%11111000
+        ora #%00000101
         sta VIC4_CTRL
+
+        lda #65                 ; and assert full speed outright (the
+        sta $00                 ; user-proven enable_40mhz recipe;
+        lda #%01000000          ; hot registers stay OFF -- legacy
+        tsb VIC3_CTRL           ; writes would clobber VIC-IV state)
 
         ; turn off screen while clearing RAM
         jsr _ssm_screen_off
@@ -407,8 +416,10 @@ restore_default_screen:
         lda #$80
         tsb $D05D
 
-        ; NOW disable FCM/SEAM (with hot registers on, write sticks)
-        lda #$00
+        ; NOW disable FCM/SEAM (with hot registers on, write sticks);
+        ; keep the upper bits -- bit 6 is the 40MHz enable
+        lda VIC4_CTRL
+        and #%11111000
         sta VIC4_CTRL
 
         ; Restore VIC3_CTRL - clear ATTR, set H640
