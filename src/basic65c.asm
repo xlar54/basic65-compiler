@@ -643,7 +643,18 @@ run_size_pass:
         jsr compile_program
         lda compile_error
         bne _run_size_pass_done
+        lda bin_pc              ; artifact block = everything the tail
+        sta seg_art_lo          ; emits (pool, DATA, roots, line tab,
+        lda bin_pc+1            ; floats, FOR slots)
+        sta seg_art_hi
         jsr emit_generated_tail
+        sec
+        lda bin_pc
+        sbc seg_art_lo
+        sta seg_art_lo
+        lda bin_pc+1
+        sbc seg_art_hi
+        sta seg_art_hi
 _run_size_pass_done:
         lda bin_pc
         sta bin_size_end
@@ -1018,8 +1029,37 @@ _rsp_over:
         jsr screen_zstr
         lda seg_plan_result
         jsr out_hex_byte
+        ; segbase = page-aligned progbase + artifacts + trampoline
+        ; allowance ($180) -- where every segment will assemble
+        clc
+        lda seg_art_lo
+        adc #$80
+        tax
+        lda seg_art_hi
+        adc #1
+        adc prog_base_hi
+        cpx #0
+        beq +
+        adc #0                  ; round up to a page
++       sta seg_art_hi          ; (reuse as segbase hi)
+        lda #<msg_overlay_base
+        ldy #>msg_overlay_base
+        jsr screen_zstr
+        lda seg_art_hi
+        jsr out_hex_byte
+        lda #0
+        jsr out_hex_byte
         lda #13
         jsr CC_CHROUT
+        ; v1 gates: constructs the segmented runtime cannot serve yet
+        lda fgoto_used
+        ora trap_used
+        ora def_count
+        beq _rsp_gates_ok
+        lda #<msg_overlay_gate
+        ldy #>msg_overlay_gate
+        jsr screen_zstr
+_rsp_gates_ok:
         lda #1
         sta compile_error
         inc error_count
@@ -13896,6 +13936,12 @@ msg_error_scan_var:
 msg_overlay_plan:
         .text "overlay: $"
         .byte 0
+msg_overlay_base:
+        .text " segs, base $"
+        .byte 0
+msg_overlay_gate:
+        .text "overlay: fgoto/trap/def fn not supported yet"
+        .byte 13, 0
 msg_error_too_large:
         .text "basic65c: program too large for the memory window"
         .byte 13, 0
@@ -17510,6 +17556,8 @@ seg_win_hi:   .byte 0
 seg_has_elig: .byte 0
 seg_count:    .byte 0
 seg_plan_result: .byte 0
+seg_art_lo:   .byte 0
+seg_art_hi:   .byte 0
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_lo:
