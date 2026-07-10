@@ -587,6 +587,10 @@ show_compile_start:
 ; must allocate identical label ids, so both start from a clean slate
 reset_emit_counters:
         lda #0
+        sta seg_has_elig        ; overlay planner state (size pass)
+        sta seg_base_hi         ; hi 0 = not yet started
+        ldx #1
+        stx seg_count
         sta if_label_next_lo
         sta if_label_next_hi
         sta array_label_next_lo
@@ -645,6 +649,8 @@ _run_size_pass_done:
         sta bin_size_end
         lda bin_pc+1
         sta bin_size_end+1
+        lda seg_count           ; preserve the overlay plan across the
+        sta seg_plan_result     ; trailing counter reset
         lda #BK_TEXT
         sta backend_mode
         jsr reset_emit_counters
@@ -1007,6 +1013,13 @@ _rsp_over:
         lda #<msg_error_too_large
         ldy #>msg_error_too_large
         jsr screen_zstr
+        lda #<msg_overlay_plan  ; "overlay: $NN" segments, or $00
+        ldy #>msg_overlay_plan  ; when one structure exceeds the window
+        jsr screen_zstr
+        lda seg_plan_result
+        jsr out_hex_byte
+        lda #13
+        jsr CC_CHROUT
         lda #1
         sta compile_error
         inc error_count
@@ -11244,6 +11257,52 @@ _emit_data_label_next:
 _emit_data_label_done:
         rts
 
+; ---- overlay planner: during the native size pass, track where the
+; program could be cut (line boundaries with no open FOR/DO/BEGIN)
+; and how many window-sized segments it would need. Informational in
+; milestone 1: the plan is reported when a program exceeds the
+; window; emission is unchanged. See docs/overlays.md.
+seg_plan_line:
+        lda seg_base_hi         ; first line: open segment 0, capture
+        bne _spl_run            ; the window (gfx cap $c000 else $d000,
+        lda #$5a                ; minus progbase + resident allowance)
+        ldx gfx_used
+        beq +
+        lda #$4a
++       sta seg_win_hi
+        lda bin_pc
+        sta seg_base_lo
+        lda bin_pc+1
+        sta seg_base_hi
+_spl_run:
+        sec                     ; running segment size (hi vs window)
+        lda bin_pc+1
+        sbc seg_base_hi
+        cmp seg_win_hi
+        bcc _spl_elig
+        lda seg_has_elig        ; cut at the last eligible boundary
+        beq _spl_elig           ; (M2 flags a structure too big here)
+        lda seg_elig_lo
+        sta seg_base_lo
+        lda seg_elig_hi
+        sta seg_base_hi
+        lda #0
+        sta seg_has_elig
+        inc seg_count
+_spl_elig:
+        lda for_sp              ; a legal cut point: no open structure
+        ora do_sp
+        ora begin_sp
+        bne _spl_done
+        lda bin_pc
+        sta seg_elig_lo
+        lda bin_pc+1
+        sta seg_elig_hi
+        lda #1
+        sta seg_has_elig
+_spl_done:
+        rts
+
 emit_line_label:
         ldx backend_mode
         bne _emit_line_label_bin
@@ -11259,7 +11318,11 @@ emit_line_label:
         rts
 
 _emit_line_label_bin:
-        jsr pool_ptr_save
+        lda backend_mode
+        cmp #BK_SIZE
+        bne +
+        jsr seg_plan_line       ; overlay planner rides the size pass
++       jsr pool_ptr_save
         lda lea_base
         sta source_ptr
         lda lea_base+1
@@ -13830,6 +13893,9 @@ msg_error_many_lines:
 msg_error_scan_var:
         .text "cannot resolve variable (out of symbols?)"
         .byte 13, 0
+msg_overlay_plan:
+        .text "overlay: $"
+        .byte 0
 msg_error_too_large:
         .text "basic65c: program too large for the memory window"
         .byte 13, 0
@@ -17436,6 +17502,14 @@ def_stash_lo:
         .fill DEF_MAX, 0
 def_stash_hi:
         .fill DEF_MAX, 0
+seg_base_lo:  .byte 0
+seg_base_hi:  .byte 0
+seg_elig_lo:  .byte 0
+seg_elig_hi:  .byte 0
+seg_win_hi:   .byte 0
+seg_has_elig: .byte 0
+seg_count:    .byte 0
+seg_plan_result: .byte 0
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_lo:
