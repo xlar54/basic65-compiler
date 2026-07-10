@@ -928,6 +928,10 @@ bt_out_jsr_rwindowf:
         .byte 0, 3
         .byte $20, $92, $53
 
+bt_out_jsr_seggoto:
+        .byte 0, 3
+        .byte $20, $42, $72
+
 bt_out_jsr_setbitgo:
         .byte 0, 3
         .byte $20, $1c, $3c
@@ -1396,10 +1400,16 @@ bt_out_seg_hdr4:
 bt_out_seg_here:
         .byte 0, 0
 
+bt_out_seg_hop2:
+        .byte 0, 0
+
 bt_out_seg_log:
         .byte 0, 0
 
 bt_out_seg_log2:
+        .byte 0, 0
+
+bt_out_seg_wordpre:
         .byte 0, 0
 
 bt_out_sign_xor_lhshi_exprhi:
@@ -1769,6 +1779,7 @@ bt_map:
         .word out_jsr_rspset, bt_out_jsr_rspset
         .word out_jsr_rtclr, bt_out_jsr_rtclr
         .word out_jsr_rwindowf, bt_out_jsr_rwindowf
+        .word out_jsr_seggoto, bt_out_jsr_seggoto
         .word out_jsr_setbitgo, bt_out_jsr_setbitgo
         .word out_jsr_sinf, bt_out_jsr_sinf
         .word out_jsr_sleepf, bt_out_jsr_sleepf
@@ -1888,8 +1899,10 @@ bt_map:
         .word out_seg_hdr3, bt_out_seg_hdr3
         .word out_seg_hdr4, bt_out_seg_hdr4
         .word out_seg_here, bt_out_seg_here
+        .word out_seg_hop2, bt_out_seg_hop2
         .word out_seg_log, bt_out_seg_log
         .word out_seg_log2, bt_out_seg_log2
+        .word out_seg_wordpre, bt_out_seg_wordpre
         .word out_sign_xor_lhshi_exprhi, bt_out_sign_xor_lhshi_exprhi
         .word out_size_guard, bt_out_size_guard
         .word out_size_guard_gfx, bt_out_size_guard_gfx

@@ -1084,7 +1084,8 @@ seg_open_text:
 ; a cut at a recorded line, during the text or native emit pass:
 ; close the segment (guard + .here) and open the next one at segbase
 seg_cut_here:
-        ldx backend_mode
+        jsr seg_emit_hop        ; the old segment falls through into
+        ldx backend_mode        ; the new one via the trampoline
         bne _sch_bin
         jsr emit_seg_guard_nt
         jsr emit_tmpl
@@ -1096,6 +1097,31 @@ _sch_bin:
         lda seg_base_page       ; output file here)
         sta bin_pc+1
         rts
+
+; jsr seggoto / .word segbase / .byte new-segment: every segment's
+; first line sits exactly at segbase, so the hop is all constants
+seg_emit_hop:
+        jsr emit_tmpl
+        .word out_jsr_seggoto
+        ldx backend_mode
+        bne _seh_bin
+        jsr emit_tmpl
+        .word out_seg_wordpre
+        lda seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_hop2
+        lda seg_cut_ix          ; the segment being opened
+        jsr out_hex_byte
+        jsr out_cr
+        rts
+_seh_bin:
+        lda #0                  ; .word segbase
+        jsr bin_write_byte
+        lda seg_base_page
+        jsr bin_write_byte
+        lda seg_cut_ix          ; .byte segment
+        jmp bin_write_byte
 
 ; the guard, non-terminally (usable mid-stream)
 emit_seg_guard_nt:
@@ -11657,6 +11683,8 @@ _spl_active:
         lda line_no_hi
         sta seg_cut_line+1,x
         inc seg_cut_n
+        lda #6                  ; the fall-through hop emitted at the
+        jsr bin_add_pc          ; cut: jsr seggoto/.word/.byte
         lda #0                  ; pc restarts at segbase for the next
         sta bin_pc              ; segment (this line opens it)
         lda seg_base_page
@@ -11744,7 +11772,59 @@ emit_line_track:
         jsr emit_tmpl_done
         .word out_sta_curline_1
 
+; segment of the line number in number_lo/hi = how many recorded cut
+; lines are <= it (cut lines ascend with program order); result in A
+seg_of_number:
+        ldy #0
+        ldx #0
+_son_loop:
+        cpy seg_cut_n
+        bcs _son_done
+        tya
+        asl a
+        phx
+        tax
+        lda seg_cut_line+1,x
+        cmp number_hi
+        bcc _son_le             ; cut hi < target hi: cut <= target
+        bne _son_gt
+        lda seg_cut_line,x
+        cmp number_lo
+        bcc _son_le
+        beq _son_le
+_son_gt:
+        plx
+        bra _son_done
+_son_le:
+        plx
+        inx
+        iny
+        bra _son_loop
+_son_done:
+        txa
+        rts
+
 out_label_from_number:
+        pha
+        lda segmented
+        beq _oln_nogate
+        jsr seg_of_number       ; cross-segment reference?
+        ldx backend_mode
+        cpx #BK_SIZE
+        bne +
+        cmp seg_cut_n           ; pass B: current segment = cuts so far
+        beq _oln_nogate
+        bra _oln_cross
++       cmp seg_cut_ix          ; emit passes: cuts consumed
+        beq _oln_nogate
+_oln_cross:
+        pla                     ; cross-segment jump: not yet emitted
+        lda #<msg_seg_cross
+        ldy #>msg_seg_cross
+        jsr fatal_error_zstr
+        rts
+_oln_nogate:
+        pla
         ldx backend_mode
         beq _out_label_number_text
         ; resolve the BASIC line number in number_lo/hi to its binary address
@@ -14272,6 +14352,9 @@ msg_overlay_base:
 msg_overlay_todo:
         .text " segments (not yet runnable)"
         .byte 13, 0
+msg_seg_cross:
+        .text "cross-segment jump (not yet supported)"
+        .byte 13, 0
 msg_overlay_gate:
         .text "overlay: fgoto/trap/def fn not supported yet"
         .byte 13, 0
@@ -14413,6 +14496,29 @@ out_seg_hdr3:
 out_seg_hdr4:
 .if TEXT_EMITTER
         .byte 13, 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_jsr_seggoto:
+.if TEXT_EMITTER
+        .text " jsr seggoto"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_seg_wordpre:
+.if TEXT_EMITTER
+        .text " .word $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hop2:
+.if TEXT_EMITTER
+        .text "00"
+        .byte 13
+        .text " .byte $"
         .byte 0
 .else
         .byte 0
