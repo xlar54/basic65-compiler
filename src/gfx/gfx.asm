@@ -296,6 +296,10 @@ _gss_want40:
         jsr set_screen_mode
 _gss_show:
         jsr gfx_vprst           ; viewport tracks the mode in force
+        lda #0                  ; FCM pixel 0 shows $d021: black it
+        sta BACKCOL             ; like the SCREEN w,h,d forms do, so
+                                ; PALETTE colour 0 owns the background
+                                ; (the DEF/OPEN/SET path skipped this)
         lda scr_view
         jsr gsdsrcattic
         jsr gsddstb4
