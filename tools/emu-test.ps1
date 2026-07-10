@@ -32,7 +32,7 @@ Set-Location $repo
 
 # fixtures that must fail to compile / that need interactive input
 $NegativeFixtures = @("bad_data")
-$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "graphic640")   # interactive
+$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "graphic640", "surface")   # interactive
 
 $d81 = Join-Path $repo "target\basic65c.d81"
 $probe = Join-Path $env:TEMP "basic65c-probe.d81"

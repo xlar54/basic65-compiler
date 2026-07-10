@@ -45,6 +45,7 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 | `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 2.5 s | ~4.3x |
 | `basic/boxes.bas` | graphics (200 filled 40x40 BOXes, 320x200x4) | 16.28 s | 1.1 s | ~15x |
 | `basic/lines.bas` | graphics (300 random LINEs, 320x200x4) | 2.08 s | 1.5 s | ~1.4x |
+| `basic/surface.bas` | 3D hidden-line surface plot (sin(r)/r, 120x100 grid, 640x200) | 44.11 s | 32.3 s | ~1.4x |
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
