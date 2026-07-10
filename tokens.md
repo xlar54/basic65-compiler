@@ -29,7 +29,7 @@ Legend:
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 82 | 7 | 36 |
 | $CE-prefixed functions | 18 | 16 | — | 2 |
-| $FE-prefixed statements | 72 | 48 | 2 (OFF, BIT) | 22 |
+| $FE-prefixed statements | 72 | 49 | 2 (OFF, BIT) | 21 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
 
@@ -262,6 +262,7 @@ Legend:
 | $FE $46 | FONT | ❌ | |
 | $FE $47 | FGOTO | ✅ | computed jump via emitted line table (header vector 7); miss raises UNDEF'D STATEMENT |
 | $FE $48 | FGOSUB | ✅ | computed call, same table |
+| $FE $4C | DOT | ✅ | DOT x,y plots one pixel (blob fn 9); petcat tokenizes it as the DO keyword + 'T' ($EB $54), fixer rewrites to $FE $4C |
 | $FE $4E | (BIT) | 🔧 | second half of SETBIT/CLRBIT; newer ROM token, petcat gap, fixer rewrites |
 | $FE $4B | CHDIR | ✅ | MEGA65 addition; petcat gap |
 

@@ -1731,6 +1731,7 @@ _scan_ext_no_pmode:
         cmp #$34+1              ; VIEWPORT GCOPY ELLIPSE PALETTE)
         bcs _scan_ext_skip
         bra _scan_ext_gfx
+_scan_ext_gfx2:
 _scan_ext_gfx:
         ldx #1
         stx gfx_used
@@ -2212,14 +2213,14 @@ _record_line_find:
         bne _record_line_next
         lda line_table_hi,x
         cmp line_no_hi
-        beq _record_line_fail
+        beq _record_line_dup
 _record_line_next:
         inx
         bra _record_line_find
 
 _record_line_create:
         cpx #LINE_MAX
-        bcs _record_line_fail
+        bcs _record_line_full
         lda line_no_lo
         sta line_table_lo,x
         lda line_no_hi
@@ -2228,9 +2229,15 @@ _record_line_create:
         clc
         rts
 
+_record_line_dup:
+        lda #<msg_error_dup_line
+        ldy #>msg_error_dup_line
+        bra _record_line_fail
+_record_line_full:
+        lda #<msg_error_many_lines
+        ldy #>msg_error_many_lines
 _record_line_fail:
-        lda #1
-        sta compile_error
+        jsr fatal_error_zstr
         sec
         rts
 
@@ -5972,7 +5979,7 @@ _cef_tab:
         .byte $39, $3b, $3c, $06, $07, $08, $13, $37
         .byte $1d, $18, $19, $41, $42, $1a, $40, $47, $48
         .byte $1f, $21, $02, $09, $54, $1b, $16, $2d
-        .byte $2e, $30, $33, $34, $2f, $32, $31
+        .byte $2e, $30, $33, $34, $2f, $32, $31, $4c
 _cef_tab_end:
 _cef_jtab:
         .word compile_filter, compile_play, compile_tempo, compile_envelope
@@ -5988,7 +5995,7 @@ _cef_jtab:
         .word compile_bank, compile_rreg, compile_vsync
         .word compile_boot, compile_sprsav, compile_setbit
         .word compile_screen, compile_ellipse, compile_pen, compile_palette
-        .word compile_polygon, compile_gcopy, compile_viewport
+        .word compile_polygon, compile_gcopy, compile_viewport, compile_dot
 _compile_ext_format:
         lda #3                  ; FORMAT and HEADER are ROM aliases
         jmp compile_cmdname
@@ -7071,6 +7078,7 @@ cgfx_tab:
         .byte 4, 4+1, 20        ; 15: GCOPY
         .byte 2, 2+1, 21        ; 18: PASTE
         .byte 4, 4+1, 23        ; 21: CUT
+        .byte 2, 2+1, 9         ; 24: DOT (single-pixel plot)
 
 ; LINE x,y draws a pixel; each further pair extends the path with a
 ; segment from the previous point (gfxlnext shifts the staged end
@@ -7206,6 +7214,9 @@ compile_paste:
         bra cgfx_stmt_go
 compile_cut:
         ldx #21
+        bra cgfx_stmt_go
+compile_dot:
+        ldx #24
 cgfx_stmt_go:
         jmp cgfx_stmt
 
@@ -13663,6 +13674,12 @@ msg_error_too_many_data:
         .byte 13, 0
 msg_error_line_overflow:
         .text "line too long"
+        .byte 13, 0
+msg_error_dup_line:
+        .text "duplicate line number"
+        .byte 13, 0
+msg_error_many_lines:
+        .text "too many lines"
         .byte 13, 0
 msg_error_scan_var:
         .text "cannot resolve variable (out of symbols?)"

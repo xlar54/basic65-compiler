@@ -126,6 +126,17 @@ foreach ($item in $Path) {
                 $i += 6
                 continue
             }
+            # DOT: petcat greedily matches the DO loop keyword inside
+            # DOT, emitting the DO token ($EB) + literal 'T'. A real DO
+            # is never immediately followed by 'T' with no separator,
+            # so $EB $54 is unambiguously DOT.
+            if ($b -eq 0xeb -and $bytes[$i+1] -eq 0x54) {
+                $bytes[$i] = 0xfe
+                $bytes[$i+1] = 0x4c
+                $changed++
+                $i++
+                continue
+            }
             if ($i + 1 -lt $lineEnd -and $b -eq 0x57) {
                 if ($bytes[$i + 1] -eq 0x97) {
                     $bytes[$i] = 0xfe
