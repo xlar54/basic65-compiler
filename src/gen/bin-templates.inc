@@ -1371,6 +1371,21 @@ bt_out_save_rtptr:
         .byte 0, 10
         .byte $a5, $fb, $8d, $2e, $4c, $a5, $fc, $8d, $2f, $4c
 
+bt_out_seg_fill:
+        .byte 0, 0
+
+bt_out_seg_fill2:
+        .byte 0, 0
+
+bt_out_seg_here:
+        .byte 0, 0
+
+bt_out_seg_log:
+        .byte 0, 0
+
+bt_out_seg_log2:
+        .byte 0, 0
+
 bt_out_sign_xor_lhshi_exprhi:
         .byte 0, 6
         .byte $ad, $22, $4c, $4d, $20, $4c
@@ -1464,6 +1479,9 @@ bt_out_sta_varptr:
 bt_out_sta_varptr_1:
         .byte 0, 2
         .byte $85, $f8
+
+bt_out_start_line:
+        .byte 0, 0
 
 bt_out_string_pool_header:
         .byte 0, 0
@@ -1846,6 +1864,11 @@ bt_map:
         .word out_rts, bt_out_rts
         .word out_save_arrayptr, bt_out_save_arrayptr
         .word out_save_rtptr, bt_out_save_rtptr
+        .word out_seg_fill, bt_out_seg_fill
+        .word out_seg_fill2, bt_out_seg_fill2
+        .word out_seg_here, bt_out_seg_here
+        .word out_seg_log, bt_out_seg_log
+        .word out_seg_log2, bt_out_seg_log2
         .word out_sign_xor_lhshi_exprhi, bt_out_sign_xor_lhshi_exprhi
         .word out_size_guard, bt_out_size_guard
         .word out_size_guard_gfx, bt_out_size_guard_gfx
@@ -1870,6 +1893,7 @@ bt_map:
         .word out_sta_traplo, bt_out_sta_traplo
         .word out_sta_varptr, bt_out_sta_varptr
         .word out_sta_varptr_1, bt_out_sta_varptr_1
+        .word out_start_line, bt_out_start_line
         .word out_string_pool_header, bt_out_string_pool_header
         .word out_strroots_start, bt_out_strroots_start
         .word out_sub_lhs_expr, bt_out_sub_lhs_expr

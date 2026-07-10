@@ -367,12 +367,20 @@ _main_clr_hi:                   ; the zero-init state it expects
 +       jsr select_output
         jsr emit_generated_header
         jsr emit_prg_header_comment
-        jsr show_compile_start
+        lda segmented
+        beq +
+        jsr seg_emit_resident
++       jsr show_compile_start
         jsr init_source_reader
         jsr compile_program
         lda compile_error
         bne _main_output_failed
-        jsr emit_generated_tail
+        lda segmented
+        beq +
+        jsr seg_emit_close
+        bra _main_text_done
++       jsr emit_generated_tail
+_main_text_done:
         lda compile_error
         bne _main_output_failed
 
@@ -611,6 +619,7 @@ reset_emit_counters:
         sta do_sp
         sta if_sp
         sta size_ovf
+        sta seg_cut_ix
         jsr lea_rst
         sta pending_kind
         sta const_state
@@ -648,16 +657,15 @@ run_size_pass:
         lda prog_base_hi
         sta bin_pc+1
         jsr emit_generated_header
-        lda segmented           ; pass B: code sizes from the segment
-        beq +                   ; base, matching the final layout
-        lda #0
-        sta bin_pc
-        lda seg_base_page
-        sta bin_pc+1
+        lda segmented           ; pass B: artifacts first, then the
+        beq +                   ; gap, then code from segbase --
+        jsr seg_emit_resident   ; exactly the emitted layout
 +       jsr init_source_reader
         jsr compile_program
         lda compile_error
         bne _run_size_pass_done
+        lda segmented
+        bne _rsp_seg_end        ; segmented: artifacts already sized
         lda bin_pc              ; artifact block = everything the tail
         sta seg_art_lo          ; emits (pool, DATA, roots, line tab,
         lda bin_pc+1            ; floats, FOR slots)
@@ -670,6 +678,7 @@ run_size_pass:
         lda bin_pc+1
         sbc seg_art_hi
         sta seg_art_hi
+_rsp_seg_end:
 _run_size_pass_done:
         lda bin_pc
         sta bin_size_end
@@ -708,9 +717,15 @@ emit_binary_output:
         jsr reset_emit_counters
         jsr select_output
         jsr emit_generated_header
-        jsr init_source_reader
+        lda segmented
+        beq +
+        jsr seg_emit_resident
++       jsr init_source_reader
         jsr compile_program
+        lda segmented
+        bne _ebo_seg_done       ; artifacts were emitted up front
         jsr emit_generated_tail
+_ebo_seg_done:
         lda #BK_TEXT
         sta backend_mode
         lda backend_error
@@ -999,6 +1014,119 @@ _copy_runtime_fail:
         sec
         rts
 
+; segmented resident block: artifacts (with the FOR/DO totals from
+; the sizing snapshot), zero fill up to the segment base, then open
+; segment 0 (text: .logical + start:)
+seg_emit_resident:
+        lda seg_snap_for
+        sta for_label_next
+        lda seg_snap_do
+        sta do_label_next
+        jsr emit_tail_body
+        lda #0                  ; compile re-allocates from zero
+        sta for_label_next
+        sta do_label_next
+        ldx backend_mode
+        bne _ser_fillbin
+        jsr emit_tmpl           ; .fill $XX00 - *, 0
+        .word out_seg_fill
+        lda seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_fill2
+        jsr seg_open_text
+        jsr emit_tmpl
+        .word out_start_line
+        rts
+_ser_fillbin:
+        lda bin_pc              ; zero (or size) up to segbase
+        bne _ser_fb_go
+        lda bin_pc+1
+        cmp seg_base_page
+        beq _ser_fb_done
+_ser_fb_go:
+        ldx backend_mode
+        cpx #BK_EMIT
+        beq _ser_fb_wr
+        lda #1
+        jsr bin_add_pc
+        bra _ser_fillbin
+_ser_fb_wr:
+        lda #0
+        jsr bin_write_byte
+        bra _ser_fillbin
+_ser_fb_done:
+        rts
+
+; text: .logical $XX00 opening a segment
+seg_open_text:
+        jsr emit_tmpl
+        .word out_seg_log
+        lda seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_log2
+        rts
+
+; a cut at a recorded line, during the text or native emit pass:
+; close the segment (guard + .here) and open the next one at segbase
+seg_cut_here:
+        ldx backend_mode
+        bne _sch_bin
+        jsr emit_seg_guard_nt
+        jsr emit_tmpl
+        .word out_seg_here
+        jmp seg_open_text
+_sch_bin:
+        lda #0                  ; native: the next segment simply
+        sta bin_pc              ; restarts at segbase (M4 splits the
+        lda seg_base_page       ; output file here)
+        sta bin_pc+1
+        rts
+
+; the guard, non-terminally (usable mid-stream)
+emit_seg_guard_nt:
+        lda gfx_used
+        bne +
+        jsr emit_tmpl
+        .word out_size_guard
+        rts
++       jsr emit_tmpl
+        .word out_size_guard_gfx
+        rts
+
+; end of the last segment (text): guard + .here
+seg_emit_close:
+        ldx backend_mode
+        bne _sec_done
+        jsr emit_seg_guard_nt
+        jsr emit_tmpl
+        .word out_seg_here
+_sec_done:
+        rts
+
+; at a line start in the text/native-emit passes: does this line open
+; a new segment? (cut lines were recorded by the segmented size pass)
+seg_cut_check:
+        lda segmented
+        beq _scc_done
+        ldx seg_cut_ix
+        cpx seg_cut_n
+        bcs _scc_done
+        txa
+        asl a
+        tax
+        lda seg_cut_line,x
+        cmp line_no_lo
+        bne _scc_done
+        lda seg_cut_line+1,x
+        cmp line_no_hi
+        bne _scc_done
+        inc seg_cut_ix
+        jmp seg_cut_here
+_scc_done:
+        rts
+
 ; decide segmentation after the plain size pass: over the cap and
 ; not gated -> segmented=1, segbase fixed, per-pass state snapshotted
 seg_decide:
@@ -1086,9 +1214,9 @@ report_size_pass:
 _rsp_over:
         lda segmented
         beq _rsp_plain_over
-        lda #<msg_overlay_plan  ; segmented pass B: the plan is real
-        ldy #>msg_overlay_plan  ; (cut lines recorded); emission is
-        jsr screen_zstr         ; the next milestone
+        lda #<msg_overlay_plan  ; segmented: report the layout and
+        ldy #>msg_overlay_plan  ; emit (M3/M4 make it runnable)
+        jsr screen_zstr
         ldx seg_cut_n
         inx
         txa
@@ -1096,7 +1224,7 @@ _rsp_over:
         lda #<msg_overlay_todo
         ldy #>msg_overlay_todo
         jsr screen_zstr
-        bra _rsp_mark2
+        jmp _rsp_fits
 _rsp_plain_over:
         lda #<msg_error_too_large
         ldy #>msg_error_too_large
@@ -10825,8 +10953,13 @@ _emit_header_text:
         .word out_header_pre
         lda prog_base_hi
         jsr out_hex_byte
-        jsr emit_tmpl_done
+        jsr emit_tmpl
         .word out_header_post
+        lda segmented           ; segmented: start: is emitted at the
+        bne +                   ; top of segment 0 instead
+        jsr emit_tmpl
+        .word out_start_line
++       rts
 
 _emit_generated_header_bin:
         ; program header at progbase: start, varheapend, datastart, dataend,
@@ -10837,10 +10970,19 @@ _emit_generated_header_bin:
         jmp bin_add_pc
 
 _emit_header_vectors:
+        lda segmented
+        bne _ehv_seg
         lda #$10                ; start = progbase + $10
         jsr bin_write_byte
         lda prog_base_hi
         jsr bin_write_byte
+        bra _ehv_rest
+_ehv_seg:
+        lda #$00                ; segmented: start = segment 0 (the
+        jsr bin_write_byte      ; M4 bootstrap will take this over)
+        lda seg_base_page
+        jsr bin_write_byte
+_ehv_rest:
         lda var_heap_next_lo
         jsr bin_write_byte
         lda var_heap_next_hi
@@ -10871,6 +11013,10 @@ _emit_header_vectors:
         jmp bin_write_byte
 
 emit_generated_tail:
+        jsr emit_tail_body
+        jmp emit_seg_guard
+
+emit_tail_body:
         jsr emit_tmpl
         .word out_tail
         jsr emit_varheapend
@@ -10879,7 +11025,10 @@ emit_generated_tail:
         jsr emit_string_roots
         jsr emit_line_number_tab
         jsr emit_flt_table
-        jsr emit_for_storage
+        jmp emit_for_storage
+
+; the window guard, usable mid-stream (per segment) or as the tail
+emit_seg_guard:
         lda gfx_used            ; 640x200 screen codes live at
         bne _esg_gfx            ; $c000, so graphics programs stop
         jsr emit_tmpl_done      ; there; others may run to $d000
@@ -11457,6 +11606,7 @@ _spl_actdone:
 emit_line_label:
         ldx backend_mode
         bne _emit_line_label_bin
+        jsr seg_cut_check       ; recorded cut here? close/open segs
         lda #'l'
         jsr CC_CHROUT
         lda line_no_hi
@@ -11471,9 +11621,13 @@ emit_line_label:
 _emit_line_label_bin:
         lda backend_mode
         cmp #BK_SIZE
-        bne +
+        bne _ell_emit
         jsr seg_plan_line       ; overlay planner rides the size pass
-+       jsr pool_ptr_save
+        bra _ell_rec
+_ell_emit:
+        jsr seg_cut_check       ; native emit: cuts at recorded lines
+_ell_rec:
+        jsr pool_ptr_save
         lda lea_base
         sta source_ptr
         lda lea_base+1
@@ -14055,7 +14209,7 @@ msg_overlay_base:
         .text " segs, base $"
         .byte 0
 msg_overlay_todo:
-        .text " segs planned; emission pending"
+        .text " segments (not yet runnable)"
         .byte 13, 0
 msg_overlay_gate:
         .text "overlay: fgoto/trap/def fn not supported yet"
@@ -14162,7 +14316,51 @@ out_header_post:
         .byte 13
         .text " .word gfxflag"
         .byte 13, 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_start_line:
+.if TEXT_EMITTER
         .text "start:"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_here:
+.if TEXT_EMITTER
+        .text " .here"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_log:
+.if TEXT_EMITTER
+        .text " .logical $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_fill:
+.if TEXT_EMITTER
+        .text " .fill $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_fill2:
+.if TEXT_EMITTER
+        .text "00 - *, 0"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_log2:
+.if TEXT_EMITTER
+        .text "00"
         .byte 13
         .byte 0
 .else
@@ -17685,6 +17883,7 @@ seg_cut_n:    .byte 0
 seg_cut_line: .fill SEG_MAX * 2, 0
 size_ovf:     .byte 0
 seg_ovf_result: .byte 0
+seg_cut_ix:   .byte 0
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_lo:

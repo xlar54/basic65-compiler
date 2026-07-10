@@ -104,6 +104,8 @@ COMMENTS = {
     "out_string_pool_header", "out_strroots_start", "out_data_table_start",
     "out_fltinit_label",
     "out_data_table_end", "out_for_storage_header",
+    "out_start_line", "out_seg_here", "out_seg_log", "out_seg_log2",
+    "out_seg_fill", "out_seg_fill2",
 }
 
 
