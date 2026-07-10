@@ -243,112 +243,122 @@ _pp_xlo_ok:
         beq _pp_clip_xok
         bcs _pp_clip
 _pp_clip_xok:
-        ; char_col = x / 8
+        ; [basic65c] cell address without the hardware multiplier:
+        ; gfx_base + rowtab[y/8] + (x/8)*64, with (x/8)*64 split into
+        ; high = col/4 and low = (col & 3) * 64 from a 4-entry table
+        jsr pixcelladdr
+        lda plot_col
+        sta [PTR],z
+_pp_clip:
+        rts
+
+; PTR/Z = cell address + pixel offset for plot_x/plot_y (in range).
+; Shared by plot_pixel and get_pixel.
+pixcelladdr:
         lda plot_x
-        sta _pp_char_col
+        sta _pca_col
         lda plot_x+1
-        sta _pp_char_col+1
-        
-        lsr _pp_char_col+1
-        ror _pp_char_col
-        lsr _pp_char_col+1
-        ror _pp_char_col
-        lsr _pp_char_col+1
-        ror _pp_char_col
-        
-        ; char_row = y / 8
+        sta _pca_col+1
+        lsr _pca_col+1
+        ror _pca_col
+        lsr _pca_col+1
+        ror _pca_col
+        lsr _pca_col+1
+        ror _pca_col        ; char column 0-79
         lda plot_y
-        lsr
-        lsr
-        lsr
-        sta _pp_char_row
-        
-        ; pixel_x = x AND 7
-        lda plot_x
-        and #$07
-        sta _pp_pixel_x
-        
-        ; pixel_y = y AND 7
-        lda plot_y
-        and #$07
-        sta _pp_pixel_y
-
-        ; --- Hardware multiply: char_row * columns ---
-        ; MULTINA = char_row (32-bit, only low byte used)
-        lda _pp_char_row
-        sta MULTINA           ; MULTINA byte 0
+        lsr a
+        lsr a
+        lsr a
+        tax                     ; char row 0-24
+        lda _pca_col
+        and #$03
+        tay
+        lda _pca_col        ; col/4 = high byte of col*64, staged
+        lsr a                   ; before the adds (lsr clobbers carry)
+        lsr a
+        sta _pca_hi6
+        lda screen_mode
+        cmp #80
+        beq _pca_80
+        clc                     ; offset = rowtab + col/4 : (col&3)*64
+        lda t64lo,y
+        adc rowtab40_lo,x
+        sta _pca_idx
+        lda _pca_hi6
+        adc rowtab40_hi,x
+        sta _pca_idx+1
         lda #0
-        sta MULTINA+1           ; MULTINA byte 1
-        sta MULTINA+2           ; MULTINA byte 2
-        sta MULTINA+3           ; MULTINA byte 3
-
-        ; MULTINB = columns (40 or 80)
-        lda screen_mode         ; 40 or 80
-        sta MULTINB             ; MULTINB byte 0
-        lda #0
-        sta MULTINB+1           ; MULTINB byte 1
-        sta MULTINB+2           ; MULTINB byte 2
-        sta MULTINB+3           ; MULTINB byte 3
-
-        ; Result available in 1 cycle - read MULTOUT (only need low 16 bits)
-        ; char_index = MULTOUT + char_col
+        adc rowtab40_bk,x
+        bra _pca_base
+_pca_80:
         clc
-        lda MULTOUT           ; MULTOUT byte 0
-        adc _pp_char_col
-        sta _pp_char_idx
-        lda MULTOUT+1           ; MULTOUT byte 1
-        adc _pp_char_col+1
-        sta _pp_char_idx+1
-
-        ; --- Hardware multiply: char_index * 64 ---
-        lda _pp_char_idx
-        sta MULTINA           ; MULTINA byte 0
-        lda _pp_char_idx+1
-        sta MULTINA+1           ; MULTINA byte 1
+        lda t64lo,y
+        adc rowtab80_lo,x
+        sta _pca_idx
+        lda _pca_hi6
+        adc rowtab80_hi,x
+        sta _pca_idx+1
         lda #0
-        sta MULTINA+2
-        sta MULTINA+3
-
-        lda #64
-        sta MULTINB           ; MULTINB byte 0
-        lda #0
-        sta MULTINB+1
-        sta MULTINB+2
-        sta MULTINB+3
-
-        ; Result = 24-bit address offset, read MULTOUT
-        ; char_base = CHAR_DATA + MULTOUT
-        clc                     ; [basic65c] base = gfx_base (bank-4
-        lda MULTOUT             ; canvas or an attic screen buffer)
+        adc rowtab80_bk,x
+_pca_base:
+        tax                     ; offset bank byte
+        clc
+        lda _pca_idx
         adc gfx_base
         sta PTR
-        lda MULTOUT+1
+        lda _pca_idx+1
         adc gfx_base+1
         sta PTR+1
-        lda MULTOUT+2
+        txa
         adc gfx_base+2
         sta PTR+2
         lda gfx_base+3
         adc #0
         sta PTR+3
-        
-        ; pixel_offset = pixel_y * 8 + pixel_x
-        lda _pp_pixel_y
-        asl
-        asl
-        asl
+        lda plot_y              ; z = (y & 7) * 8 + (x & 7)
+        and #$07
+        asl a
+        asl a
+        asl a
+        sta _pca_z
+        lda plot_x
+        and #$07
         clc
-        adc _pp_pixel_x
+        adc _pca_z
         taz
-        
-        ; Write pixel
-        lda plot_col
-        sta [PTR],z
-        
         rts
+_pca_col:   .word 0
+_pca_idx:   .word 0
+_pca_hi6:   .byte 0
+_pca_z:     .byte 0
 
-_pp_clip:
-        rts
+t64lo:
+        .byte 0, 64, 128, 192
+rowtab40_lo:
+        .for _r := 0, _r < 32, _r += 1
+        .byte <(_r * 2560)
+        .next
+rowtab40_hi:
+        .for _r := 0, _r < 32, _r += 1
+        .byte >(_r * 2560)
+        .next
+rowtab40_bk:
+        .for _r := 0, _r < 32, _r += 1
+        .byte (_r * 2560) >> 16
+        .next
+rowtab80_lo:
+        .for _r := 0, _r < 32, _r += 1
+        .byte <(_r * 5120)
+        .next
+rowtab80_hi:
+        .for _r := 0, _r < 32, _r += 1
+        .byte >(_r * 5120)
+        .next
+rowtab80_bk:
+        .for _r := 0, _r < 32, _r += 1
+        .byte (_r * 5120) >> 16
+        .next
+
 _pp_clip_t:
         .byte 0
 _pp_clip_t2:
@@ -393,91 +403,7 @@ _gp_clip_b:
         cmp _gp_clip_t2
         bcs _gp_clip
 _gp_clip_xok:
-        lda plot_x
-        sta _gp_char_col
-        lda plot_x+1
-        sta _gp_char_col+1
-        
-        lsr _gp_char_col+1
-        ror _gp_char_col
-        lsr _gp_char_col+1
-        ror _gp_char_col
-        lsr _gp_char_col+1
-        ror _gp_char_col
-        
-        lda plot_y
-        lsr
-        lsr
-        lsr
-        sta _gp_char_row
-        
-        lda plot_x
-        and #$07
-        sta _gp_pixel_x
-        
-        lda plot_y
-        and #$07
-        sta _gp_pixel_y
-
-        ; Hardware multiply: char_row * columns
-        lda _gp_char_row
-        sta MULTINA
-        lda #0
-        sta MULTINA+1
-        sta MULTINA+2
-        sta MULTINA+3
-        lda screen_mode
-        sta MULTINB
-        lda #0
-        sta MULTINB+1
-        sta MULTINB+2
-        sta MULTINB+3
-
-        clc
-        lda MULTOUT
-        adc _gp_char_col
-        sta _gp_char_idx
-        lda MULTOUT+1
-        adc _gp_char_col+1
-        sta _gp_char_idx+1
-
-        ; Hardware multiply: char_index * 64
-        lda _gp_char_idx
-        sta MULTINA
-        lda _gp_char_idx+1
-        sta MULTINA+1
-        lda #0
-        sta MULTINA+2
-        sta MULTINA+3
-        lda #64
-        sta MULTINB
-        lda #0
-        sta MULTINB+1
-        sta MULTINB+2
-        sta MULTINB+3
-
-        clc                     ; [basic65c] base = gfx_base
-        lda MULTOUT
-        adc gfx_base
-        sta PTR
-        lda MULTOUT+1
-        adc gfx_base+1
-        sta PTR+1
-        lda MULTOUT+2
-        adc gfx_base+2
-        sta PTR+2
-        lda gfx_base+3
-        adc #0
-        sta PTR+3
-        
-        lda _gp_pixel_y
-        asl
-        asl
-        asl
-        clc
-        adc _gp_pixel_x
-        taz
-        
+        jsr pixcelladdr         ; [basic65c] shared table-based address
         lda [PTR],z
         rts
 
@@ -568,6 +494,7 @@ _ln_setup:
         sta _ln_x+1
         lda line_y0
         sta _ln_y
+        jsr _ln_addrinit
         
         ; steps = max(dx, dy) + 1
         lda _ln_dx+1
@@ -604,15 +531,12 @@ _ln_err_setup:
         sta _ln_err+1
 
 _ln_loop:
-        lda _ln_x
-        sta plot_x
-        lda _ln_x+1
-        sta plot_x+1
-        lda _ln_y
-        sta plot_y
+        lda _ln_xok             ; store through the maintained cell
+        and _ln_yok             ; address; off-viewport steps keep the
+        beq +                   ; walk consistent but write nothing
         lda line_col
-        sta plot_col
-        jsr plot_pixel
+        sta [PTR],z
++
 
         lda _ln_steps
         bne _ln_dec_steps
@@ -651,16 +575,10 @@ _ln_dec_steps:
         
         lda _ln_sx
         bmi _ln_x_dec
-        inc _ln_x
-        bne _ln_skip_x
-        inc _ln_x+1
+        jsr _ln_xinc
         jmp _ln_skip_x
 _ln_x_dec:
-        lda _ln_x
-        bne _ln_x_dec2
-        dec _ln_x+1
-_ln_x_dec2:
-        dec _ln_x
+        jsr _ln_xdec
 
 _ln_skip_x:
         sec
@@ -683,14 +601,268 @@ _ln_skip_x:
         
         lda _ln_sy
         bmi _ln_y_dec
-        inc _ln_y
+        jsr _ln_yinc
         jmp _ln_loop
 _ln_y_dec:
-        dec _ln_y
+        jsr _ln_ydec
         jmp _ln_loop
 
 _ln_done:
         rts
+
+; ---- incremental address walk: PTR/Z track (_ln_x,_ln_y) on the
+; linear FCM cell grid (consistent even off-canvas; rowtab has 32
+; entries so rows 25-31 stay linear); _ln_xok/_ln_yok gate stores
+_ln_addrinit:
+        ldx #<2560              ; row stride = columns * 64
+        ldy #>2560
+        lda screen_mode
+        cmp #80
+        bne +
+        ldx #<5120
+        ldy #>5120
++       stx _ln_stride
+        sty _ln_stride+1
+        lda _ln_x
+        and #$07
+        sta _ln_xm
+        lda _ln_y
+        and #$07
+        sta _ln_ym
+        asl a
+        asl a
+        asl a
+        clc
+        adc _ln_xm
+        taz                     ; z = (y & 7) * 8 + (x & 7)
+        lda _ln_x               ; col = x >> 3, arithmetic (x signed)
+        sta _ln_col
+        lda _ln_x+1
+        sta _ln_col+1
+        ldx #3
+-       lda _ln_col+1
+        asr a
+        sta _ln_col+1
+        ror _ln_col
+        dex
+        bne -
+        lda _ln_col             ; off = col * 64, sign-extended 24-bit
+        sta _ln_off
+        lda _ln_col+1
+        sta _ln_off+1
+        and #$80
+        beq +
+        lda #$ff
++       sta _ln_off+2
+        ldx #6
+-       asl _ln_off
+        rol _ln_off+1
+        rol _ln_off+2
+        dex
+        bne -
+        lda _ln_y               ; + rowtab[y >> 3]
+        lsr a
+        lsr a
+        lsr a
+        tax
+        lda screen_mode
+        cmp #80
+        beq _ln_ai80
+        clc
+        lda _ln_off
+        adc rowtab40_lo,x
+        sta _ln_off
+        lda _ln_off+1
+        adc rowtab40_hi,x
+        sta _ln_off+1
+        lda _ln_off+2
+        adc rowtab40_bk,x
+        sta _ln_off+2
+        bra _ln_aibase
+_ln_ai80:
+        clc
+        lda _ln_off
+        adc rowtab80_lo,x
+        sta _ln_off
+        lda _ln_off+1
+        adc rowtab80_hi,x
+        sta _ln_off+1
+        lda _ln_off+2
+        adc rowtab80_bk,x
+        sta _ln_off+2
+_ln_aibase:
+        lda _ln_off+2           ; sign byte for the 32-bit base add
+        and #$80
+        beq +
+        lda #$ff
++       tax
+        clc
+        lda _ln_off
+        adc gfx_base
+        sta PTR
+        lda _ln_off+1
+        adc gfx_base+1
+        sta PTR+1
+        lda _ln_off+2
+        adc gfx_base+2
+        sta PTR+2
+        txa
+        adc gfx_base+3
+        sta PTR+3
+        jsr _ln_xflag
+        jmp _ln_yflag
+
+_ln_xinc:
+        inc _ln_x
+        bne +
+        inc _ln_x+1
++       inz
+        inc _ln_xm
+        lda _ln_xm
+        cmp #8
+        bne _ln_xflag
+        lda #0
+        sta _ln_xm
+        tza
+        sec
+        sbc #8
+        taz
+        clc                     ; next cell right
+        lda PTR
+        adc #64
+        sta PTR
+        lda PTR+1
+        adc #0
+        sta PTR+1
+        lda PTR+2
+        adc #0
+        sta PTR+2
+        bra _ln_xflag
+
+_ln_xdec:
+        lda _ln_x
+        bne +
+        dec _ln_x+1
++       dec _ln_x
+        dez
+        dec _ln_xm
+        bpl _ln_xflag
+        lda #7
+        sta _ln_xm
+        tza
+        clc
+        adc #8
+        taz
+        sec                     ; previous cell
+        lda PTR
+        sbc #64
+        sta PTR
+        lda PTR+1
+        sbc #0
+        sta PTR+1
+        lda PTR+2
+        sbc #0
+        sta PTR+2
+_ln_xflag:
+        lda #0
+        sta _ln_xok
+        lda _ln_x+1
+        bmi _ln_xf_done         ; negative x: outside
+        cmp vp_x0+1
+        bcc _ln_xf_done
+        bne _ln_xf_hiok
+        lda _ln_x
+        cmp vp_x0
+        bcc _ln_xf_done
+_ln_xf_hiok:
+        lda _ln_x+1
+        cmp vp_x1+1
+        bcc _ln_xf_in
+        bne _ln_xf_done
+        lda _ln_x
+        cmp vp_x1
+        beq _ln_xf_in
+        bcs _ln_xf_done
+_ln_xf_in:
+        lda #1
+        sta _ln_xok
+_ln_xf_done:
+        rts
+
+_ln_yinc:
+        inc _ln_y
+        tza
+        clc
+        adc #8
+        taz
+        inc _ln_ym
+        lda _ln_ym
+        cmp #8
+        bne _ln_yflag
+        lda #0
+        sta _ln_ym
+        tza
+        sec
+        sbc #64
+        taz
+        clc                     ; next cell row down
+        lda PTR
+        adc _ln_stride
+        sta PTR
+        lda PTR+1
+        adc _ln_stride+1
+        sta PTR+1
+        lda PTR+2
+        adc #0
+        sta PTR+2
+        bra _ln_yflag
+
+_ln_ydec:
+        dec _ln_y
+        tza
+        sec
+        sbc #8
+        taz
+        dec _ln_ym
+        bpl _ln_yflag
+        lda #7
+        sta _ln_ym
+        tza
+        clc
+        adc #64
+        taz
+        sec                     ; previous cell row
+        lda PTR
+        sbc _ln_stride
+        sta PTR
+        lda PTR+1
+        sbc _ln_stride+1
+        sta PTR+1
+        lda PTR+2
+        sbc #0
+        sta PTR+2
+_ln_yflag:
+        lda #0
+        sta _ln_yok
+        lda _ln_y
+        cmp vp_y0
+        bcc _ln_yf_done
+        cmp vp_y1
+        beq _ln_yf_in
+        bcs _ln_yf_done
+_ln_yf_in:
+        lda #1
+        sta _ln_yok
+_ln_yf_done:
+        rts
+
+_ln_xm:     .byte 0
+_ln_ym:     .byte 0
+_ln_xok:    .byte 0
+_ln_yok:    .byte 0
+_ln_stride: .word 0
+_ln_col:    .word 0
+_ln_off:    .byte 0, 0, 0
 
 _ln_e2:     .word 0
 _ln_tmp:    .word 0
