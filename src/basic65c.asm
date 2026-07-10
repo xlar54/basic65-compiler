@@ -13971,9 +13971,9 @@ out_header_pre:
         .byte 13
         .text "; link: 64tass --cbm-prg --m45gs02 runtime.asm out.asm -o out.prg"
         .byte 13
-        .text "        .enc ""none"""
+        .text " .enc ""none"""
         .byte 13, 13
-        .text "        * = $"
+        .text " * = $"
         .byte 0
 .else
         .byte 0
@@ -13982,21 +13982,21 @@ out_header_post:
 .if TEXT_EMITTER
         .text "00"
         .byte 13
-        .text "        .word start"
+        .text " .word start"
         .byte 13
-        .text "        .word varheapend"
+        .text " .word varheapend"
         .byte 13
-        .text "        .word datastart"
+        .text " .word datastart"
         .byte 13
-        .text "        .word dataend"
+        .text " .word dataend"
         .byte 13
-        .text "        .word strroots"
+        .text " .word strroots"
         .byte 13
-        .text "        .word fltlits"
+        .text " .word fltlits"
         .byte 13
-        .text "        .word linetab"
+        .text " .word linetab"
         .byte 13
-        .text "        .word gfxflag"
+        .text " .word gfxflag"
         .byte 13, 13
         .text "start:"
         .byte 13
@@ -14022,7 +14022,7 @@ out_comment_load_addr:
 
 out_tail:
 .if TEXT_EMITTER
-        .text "        jmp rtexit"
+        .text " jmp rtexit"
         .byte 13
         .byte 13
         .byte 0
@@ -14040,7 +14040,7 @@ out_varheapend_def:
 
 out_size_guard_gfx:
 .if TEXT_EMITTER
-        .text "        .cerror * > $c000, ""program too large: 640-mode screen codes live at $c000"""
+        .text " .cerror * > $c000, ""program too large: 640-mode screen codes live at $c000"""
         .byte 13
         .byte 0
 .else
@@ -14048,7 +14048,7 @@ out_size_guard_gfx:
 .fi
 out_size_guard:
 .if TEXT_EMITTER
-        .text "        .cerror * > $d000, ""program too large: runs into i/o space"""
+        .text " .cerror * > $d000, ""program too large: runs into i/o space"""
         .byte 13
         .byte 0
 .else
@@ -14064,7 +14064,7 @@ out_data_table_start:
 .fi
 out_data_byte_prefix:
 .if TEXT_EMITTER
-        .text "        .byte $"
+        .text " .byte $"
         .byte 0
 .else
         .byte 0
@@ -14078,7 +14078,7 @@ out_data_byte_sep:
 .fi
 out_data_word_prefix:
 .if TEXT_EMITTER
-        .text "        .word "
+        .text " .word "
         .byte 0
 .else
         .byte 0
@@ -14128,462 +14128,462 @@ out_for_word_storage:
 
 out_lda_imm_hex:
 .if TEXT_EMITTER
-        .text "        lda #$"
+        .text " lda #$"
         .byte 0
 .else
         .byte 0
 .fi
 out_lda_label_lo_imm:
 .if TEXT_EMITTER
-        .text "        lda #<"
+        .text " lda #<"
         .byte 0
 .else
         .byte 0
 .fi
 out_lda_label_hi_imm:
 .if TEXT_EMITTER
-        .text "        lda #>"
+        .text " lda #>"
         .byte 0
 .else
         .byte 0
 .fi
 out_adc_imm_hex:
 .if TEXT_EMITTER
-        .text "        adc #$"
+        .text " adc #$"
         .byte 0
 .else
         .byte 0
 .fi
 out_cmp_imm_hex:
 .if TEXT_EMITTER
-        .text "        cmp #$"
+        .text " cmp #$"
         .byte 0
 .else
         .byte 0
 .fi
 out_jsr_chout:
 .if TEXT_EMITTER
-        .text "        jsr printch"
+        .text " jsr printch"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_printuint:
 .if TEXT_EMITTER
-        .text "        jsr printuint"
+        .text " jsr printuint"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_printstr:
 .if TEXT_EMITTER
-        .text "        jsr printstr"
+        .text " jsr printstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_printheapstr:
 .if TEXT_EMITTER
-        .text "        jsr printheapstr"
+        .text " jsr printheapstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strfromlit:
 .if TEXT_EMITTER
-        .text "        jsr strfromlit"
+        .text " jsr strfromlit"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strcopyexpr:
 .if TEXT_EMITTER
-        .text "        jsr strcopyexpr"
+        .text " jsr strcopyexpr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_concatstr:
 .if TEXT_EMITTER
-        .text "        jsr concatstr"
+        .text " jsr concatstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strlenexpr:
 .if TEXT_EMITTER
-        .text "        jsr strlenexpr"
+        .text " jsr strlenexpr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strfromint:
 .if TEXT_EMITTER
-        .text "        jsr strfromint"
+        .text " jsr strfromint"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_valstr:
 .if TEXT_EMITTER
-        .text "        jsr valstr"
+        .text " jsr valstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strmark:
 .if TEXT_EMITTER
-        .text "        jsr strmark"
+        .text " jsr strmark"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrelease:
 .if TEXT_EMITTER
-        .text "        jsr strrelease"
+        .text " jsr strrelease"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strsub:
 .if TEXT_EMITTER
-        .text "        jsr strsub"
+        .text " jsr strsub"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strright:
 .if TEXT_EMITTER
-        .text "        jsr strright"
+        .text " jsr strright"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_streq:
 .if TEXT_EMITTER
-        .text "        jsr streq"
+        .text " jsr streq"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strne:
 .if TEXT_EMITTER
-        .text "        jsr strne"
+        .text " jsr strne"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strlt:
 .if TEXT_EMITTER
-        .text "        jsr strlt"
+        .text " jsr strlt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strle:
 .if TEXT_EMITTER
-        .text "        jsr strle"
+        .text " jsr strle"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strgt:
 .if TEXT_EMITTER
-        .text "        jsr strgt"
+        .text " jsr strgt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strge:
 .if TEXT_EMITTER
-        .text "        jsr strge"
+        .text " jsr strge"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrefeq:
 .if TEXT_EMITTER
-        .text "        jsr strrefeq"
+        .text " jsr strrefeq"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrefne:
 .if TEXT_EMITTER
-        .text "        jsr strrefne"
+        .text " jsr strrefne"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strreflt:
 .if TEXT_EMITTER
-        .text "        jsr strreflt"
+        .text " jsr strreflt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrefle:
 .if TEXT_EMITTER
-        .text "        jsr strrefle"
+        .text " jsr strrefle"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrefgt:
 .if TEXT_EMITTER
-        .text "        jsr strrefgt"
+        .text " jsr strrefgt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strrefge:
 .if TEXT_EMITTER
-        .text "        jsr strrefge"
+        .text " jsr strrefge"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_printcomma:
 .if TEXT_EMITTER
-        .text "        jsr printcomma"
+        .text " jsr printcomma"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_loadintvar:
 .if TEXT_EMITTER
-        .text "        jsr loadintvar"
+        .text " jsr loadintvar"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_storeintvar:
 .if TEXT_EMITTER
-        .text "        jsr storeintvar"
+        .text " jsr storeintvar"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_floadvar:
 .if TEXT_EMITTER
-        .text "        jsr floadvar"
+        .text " jsr floadvar"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fstorevar:
 .if TEXT_EMITTER
-        .text "        jsr fstorevar"
+        .text " jsr fstorevar"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_float16:
 .if TEXT_EMITTER
-        .text "        jsr float16"
+        .text " jsr float16"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_qint:
 .if TEXT_EMITTER
-        .text "        jsr qint"
+        .text " jsr qint"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_printflt:
 .if TEXT_EMITTER
-        .text "        jsr printflt"
+        .text " jsr printflt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fpush:
 .if TEXT_EMITTER
-        .text "        jsr fpush"
+        .text " jsr fpush"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fpoparg:
 .if TEXT_EMITTER
-        .text "        jsr fpoparg"
+        .text " jsr fpoparg"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fadd:
 .if TEXT_EMITTER
-        .text "        jsr fadd"
+        .text " jsr fadd"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fsub:
 .if TEXT_EMITTER
-        .text "        jsr fsub"
+        .text " jsr fsub"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fmul:
 .if TEXT_EMITTER
-        .text "        jsr fmul"
+        .text " jsr fmul"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fdiv:
 .if TEXT_EMITTER
-        .text "        jsr fdiv"
+        .text " jsr fdiv"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fneg:
 .if TEXT_EMITTER
-        .text "        jsr fneg"
+        .text " jsr fneg"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fabsf:
 .if TEXT_EMITTER
-        .text "        jsr fabsf"
+        .text " jsr fabsf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fsgnf:
 .if TEXT_EMITTER
-        .text "        jsr fsgnf"
+        .text " jsr fsgnf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fintf:
 .if TEXT_EMITTER
-        .text "        jsr fintf"
+        .text " jsr fintf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_ftruth:
 .if TEXT_EMITTER
-        .text "        jsr ftruth"
+        .text " jsr ftruth"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fpromotelhs:
 .if TEXT_EMITTER
-        .text "        jsr fpromotelhs"
+        .text " jsr fpromotelhs"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpeqb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpeqb"
+        .text " jsr fcmpeqb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpneb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpneb"
+        .text " jsr fcmpneb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpltb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpltb"
+        .text " jsr fcmpltb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpleb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpleb"
+        .text " jsr fcmpleb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpgtb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpgtb"
+        .text " jsr fcmpgtb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fcmpgeb:
 .if TEXT_EMITTER
-        .text "        jsr fcmpgeb"
+        .text " jsr fcmpgeb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetv:
 .if TEXT_EMITTER
-        .text "        jsr sndsetv"
+        .text " jsr sndsetv"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetf:
 .if TEXT_EMITTER
-        .text "        jsr sndsetf"
+        .text " jsr sndsetf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetd:
 .if TEXT_EMITTER
-        .text "        jsr sndsetd"
+        .text " jsr sndsetd"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sinf:
 .if TEXT_EMITTER
-        .text "        jsr sinf"
+        .text " jsr sinf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cosf:
 .if TEXT_EMITTER
-        .text "        jsr cosf"
+        .text " jsr cosf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tanf:
 .if TEXT_EMITTER
-        .text "        jsr tanf"
+        .text " jsr tanf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_atnf:
 .if TEXT_EMITTER
-        .text "        jsr atnf"
+        .text " jsr atnf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_logf:
 .if TEXT_EMITTER
-        .text "        jsr logf"
+        .text " jsr logf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_expf:
 .if TEXT_EMITTER
-        .text "        jsr expf"
+        .text " jsr expf"
         .byte 13, 0
 .else
         .byte 0
@@ -14605,721 +14605,721 @@ out_rtpb_post:
 .fi
 out_jsr_log10f:
 .if TEXT_EMITTER
-        .text "        jsr log10f"
+        .text " jsr log10f"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_log2f:
 .if TEXT_EMITTER
-        .text "        jsr log2f"
+        .text " jsr log2f"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_modseta:
 .if TEXT_EMITTER
-        .text "        jsr modseta"
+        .text " jsr modseta"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_modf:
 .if TEXT_EMITTER
-        .text "        jsr modf"
+        .text " jsr modf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sleepf:
 .if TEXT_EMITTER
-        .text "        jsr sleepf"
+        .text " jsr sleepf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_waitseta:
 .if TEXT_EMITTER
-        .text "        jsr waitseta"
+        .text " jsr waitseta"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_waitsetm:
 .if TEXT_EMITTER
-        .text "        jsr waitsetm"
+        .text " jsr waitsetm"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_waitsetx:
 .if TEXT_EMITTER
-        .text "        jsr waitsetx"
+        .text " jsr waitsetx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_waitgo:
 .if TEXT_EMITTER
-        .text "        jsr waitgo"
+        .text " jsr waitgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fref:
 .if TEXT_EMITTER
-        .text "        jsr fref"
+        .text " jsr fref"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_errstrf:
 .if TEXT_EMITTER
-        .text "        jsr errstrf"
+        .text " jsr errstrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_potf:
 .if TEXT_EMITTER
-        .text "        jsr potf"
+        .text " jsr potf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_lpenf:
 .if TEXT_EMITTER
-        .text "        jsr lpenf"
+        .text " jsr lpenf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rspset:
 .if TEXT_EMITTER
-        .text "        jsr rspset"
+        .text " jsr rspset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rspposf:
 .if TEXT_EMITTER
-        .text "        jsr rspposf"
+        .text " jsr rspposf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rspritef:
 .if TEXT_EMITTER
-        .text "        jsr rspritef"
+        .text " jsr rspritef"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rspcolorf:
 .if TEXT_EMITTER
-        .text "        jsr rspcolorf"
+        .text " jsr rspcolorf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_xor_lhs_expr:
 .if TEXT_EMITTER
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        eor exprlo"
+        .text " eor exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        eor exprhi"
+        .text " eor exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsetn:
 .if TEXT_EMITTER
-        .text "        jsr fltsetn"
+        .text " jsr fltsetn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsetf:
 .if TEXT_EMITTER
-        .text "        jsr fltsetf"
+        .text " jsr fltsetf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsetlp:
 .if TEXT_EMITTER
-        .text "        jsr fltsetlp"
+        .text " jsr fltsetlp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsetbp:
 .if TEXT_EMITTER
-        .text "        jsr fltsetbp"
+        .text " jsr fltsetbp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsethp:
 .if TEXT_EMITTER
-        .text "        jsr fltsethp"
+        .text " jsr fltsethp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fltsetres:
 .if TEXT_EMITTER
-        .text "        jsr fltsetres"
+        .text " jsr fltsetres"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tempof:
 .if TEXT_EMITTER
-        .text "        jsr tempof"
+        .text " jsr tempof"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetn:
 .if TEXT_EMITTER
-        .text "        jsr envsetn"
+        .text " jsr envsetn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envseta:
 .if TEXT_EMITTER
-        .text "        jsr envseta"
+        .text " jsr envseta"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetd:
 .if TEXT_EMITTER
-        .text "        jsr envsetd"
+        .text " jsr envsetd"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetss:
 .if TEXT_EMITTER
-        .text "        jsr envsetss"
+        .text " jsr envsetss"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetr:
 .if TEXT_EMITTER
-        .text "        jsr envsetr"
+        .text " jsr envsetr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetw:
 .if TEXT_EMITTER
-        .text "        jsr envsetw"
+        .text " jsr envsetw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_envsetpw:
 .if TEXT_EMITTER
-        .text "        jsr envsetpw"
+        .text " jsr envsetpw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rplayf:
 .if TEXT_EMITTER
-        .text "        jsr rplayf"
+        .text " jsr rplayf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_playarg:
 .if TEXT_EMITTER
-        .text "        sta playarg"
+        .text " sta playarg"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_playtrk:
 .if TEXT_EMITTER
-        .text "        jsr playtrk"
+        .text " jsr playtrk"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_playoff:
 .if TEXT_EMITTER
-        .text "        jsr playoff"
+        .text " jsr playoff"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetn:
 .if TEXT_EMITTER
-        .text "        jsr sprsetn"
+        .text " jsr sprsetn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprswitch:
 .if TEXT_EMITTER
-        .text "        jsr sprswitch"
+        .text " jsr sprswitch"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetfg:
 .if TEXT_EMITTER
-        .text "        jsr sprsetfg"
+        .text " jsr sprsetfg"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetprio:
 .if TEXT_EMITTER
-        .text "        jsr sprsetprio"
+        .text " jsr sprsetprio"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetexpx:
 .if TEXT_EMITTER
-        .text "        jsr sprsetexpx"
+        .text " jsr sprsetexpx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetexpy:
 .if TEXT_EMITTER
-        .text "        jsr sprsetexpy"
+        .text " jsr sprsetexpy"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetmode:
 .if TEXT_EMITTER
-        .text "        jsr sprsetmode"
+        .text " jsr sprsetmode"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetx:
 .if TEXT_EMITTER
-        .text "        jsr sprsetx"
+        .text " jsr sprsetx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_movsprgo:
 .if TEXT_EMITTER
-        .text "        jsr movsprgo"
+        .text " jsr movsprgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprmc1:
 .if TEXT_EMITTER
-        .text "        jsr sprmc1"
+        .text " jsr sprmc1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprmc2:
 .if TEXT_EMITTER
-        .text "        jsr sprmc2"
+        .text " jsr sprmc2"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_joyf:
 .if TEXT_EMITTER
-        .text "        jsr joyf"
+        .text " jsr joyf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bumpf:
 .if TEXT_EMITTER
-        .text "        jsr bumpf"
+        .text " jsr bumpf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetdr:
 .if TEXT_EMITTER
-        .text "        jsr sndsetdr"
+        .text " jsr sndsetdr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetm:
 .if TEXT_EMITTER
-        .text "        jsr sndsetm"
+        .text " jsr sndsetm"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsets:
 .if TEXT_EMITTER
-        .text "        jsr sndsets"
+        .text " jsr sndsets"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetw:
 .if TEXT_EMITTER
-        .text "        jsr sndsetw"
+        .text " jsr sndsetw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndsetp:
 .if TEXT_EMITTER
-        .text "        jsr sndsetp"
+        .text " jsr sndsetp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sndgo:
 .if TEXT_EMITTER
-        .text "        jsr sndgo"
+        .text " jsr sndgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_volsnd:
 .if TEXT_EMITTER
-        .text "        jsr volsnd"
+        .text " jsr volsnd"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_traplo:
 .if TEXT_EMITTER
-        .text "        sta traplo"
+        .text " sta traplo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_traphi:
 .if TEXT_EMITTER
-        .text "        sta traphi"
+        .text " sta traphi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_curline:
 .if TEXT_EMITTER
-        .text "        sta curline"
+        .text " sta curline"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_curline_1:
 .if TEXT_EMITTER
-        .text "        sta curline+1"
+        .text " sta curline+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_trapoff:
 .if TEXT_EMITTER
-        .text "        jsr trapoff"
+        .text " jsr trapoff"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_trapresume:
 .if TEXT_EMITTER
-        .text "        jsr trapresume"
+        .text " jsr trapresume"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rder:
 .if TEXT_EMITTER
-        .text "        jsr rder"
+        .text " jsr rder"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rdel:
 .if TEXT_EMITTER
-        .text "        jsr rdel"
+        .text " jsr rdel"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiodefaults:
 .if TEXT_EMITTER
-        .text "        jsr fiodefaults"
+        .text " jsr fiodefaults"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiosetlf:
 .if TEXT_EMITTER
-        .text "        jsr fiosetlf"
+        .text " jsr fiosetlf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiosetdev:
 .if TEXT_EMITTER
-        .text "        jsr fiosetdev"
+        .text " jsr fiosetdev"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiosetsa:
 .if TEXT_EMITTER
-        .text "        jsr fiosetsa"
+        .text " jsr fiosetsa"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiosetname:
 .if TEXT_EMITTER
-        .text "        jsr fiosetname"
+        .text " jsr fiosetname"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fopen:
 .if TEXT_EMITTER
-        .text "        jsr fopen"
+        .text " jsr fopen"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fclose:
 .if TEXT_EMITTER
-        .text "        jsr fclose"
+        .text " jsr fclose"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiochkout:
 .if TEXT_EMITTER
-        .text "        jsr fiochkout"
+        .text " jsr fiochkout"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiochkin:
 .if TEXT_EMITTER
-        .text "        jsr fiochkin"
+        .text " jsr fiochkin"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiodone:
 .if TEXT_EMITTER
-        .text "        jsr fiodone"
+        .text " jsr fiodone"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fioreadline:
 .if TEXT_EMITTER
-        .text "        jsr fioreadline"
+        .text " jsr fioreadline"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiogetbyte:
 .if TEXT_EMITTER
-        .text "        jsr fiogetbyte"
+        .text " jsr fiogetbyte"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fiogetstr:
 .if TEXT_EMITTER
-        .text "        jsr fiogetstr"
+        .text " jsr fiogetstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rdst:
 .if TEXT_EMITTER
-        .text "        jsr rdst"
+        .text " jsr rdst"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fpowi:
 .if TEXT_EMITTER
-        .text "        jsr fpowi"
+        .text " jsr fpowi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rdti:
 .if TEXT_EMITTER
-        .text "        jsr rdti"
+        .text " jsr rdti"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mousetp:
 .if TEXT_EMITTER
-        .text "        jsr mousetp"
+        .text " jsr mousetp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mousets:
 .if TEXT_EMITTER
-        .text "        jsr mousets"
+        .text " jsr mousets"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mousetx:
 .if TEXT_EMITTER
-        .text "        jsr mousetx"
+        .text " jsr mousetx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mousety:
 .if TEXT_EMITTER
-        .text "        jsr mousety"
+        .text " jsr mousety"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mouseon:
 .if TEXT_EMITTER
-        .text "        jsr mouseon"
+        .text " jsr mouseon"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mouseoff:
 .if TEXT_EMITTER
-        .text "        jsr mouseoff"
+        .text " jsr mouseoff"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rmousef:
 .if TEXT_EMITTER
-        .text "        jsr rmousef"
+        .text " jsr rmousef"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_ld_mourx:
 .if TEXT_EMITTER
-        .text "        lda mourx"
+        .text " lda mourx"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda mourx+1"
+        .text " lda mourx+1"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_ld_moury:
 .if TEXT_EMITTER
-        .text "        lda moury"
+        .text " lda moury"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda moury+1"
+        .text " lda moury+1"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_ld_mourb:
 .if TEXT_EMITTER
-        .text "        lda mourb"
+        .text " lda mourb"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda mourb+1"
+        .text " lda mourb+1"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdpre:
 .if TEXT_EMITTER
-        .text "        jsr cmdpre"
+        .text " jsr cmdpre"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdstr:
 .if TEXT_EMITTER
-        .text "        jsr cmdstr"
+        .text " jsr cmdstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdeq:
 .if TEXT_EMITTER
-        .text "        jsr cmdeq"
+        .text " jsr cmdeq"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_curinit:
 .if TEXT_EMITTER
-        .text "        jsr curinit"
+        .text " jsr curinit"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cursetc:
 .if TEXT_EMITTER
-        .text "        jsr cursetc"
+        .text " jsr cursetc"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cursetr:
 .if TEXT_EMITTER
-        .text "        jsr cursetr"
+        .text " jsr cursetr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_curgo:
 .if TEXT_EMITTER
-        .text "        jsr curgo"
+        .text " jsr curgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_curcolf:
 .if TEXT_EMITTER
-        .text "        jsr curcolf"
+        .text " jsr curcolf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_currowf:
 .if TEXT_EMITTER
-        .text "        jsr currowf"
+        .text " jsr currowf"
         .byte 13, 0
 .else
         .byte 0
@@ -15334,7 +15334,7 @@ out_linetab_label:
 .fi
 out_word_pre:
 .if TEXT_EMITTER
-        .text "        .word $"
+        .text " .word $"
         .byte 0
 .else
         .byte 0
@@ -15355,27 +15355,27 @@ out_gfxflag_pre:
 .fi
 out_jsr_gfxlnext:
 .if TEXT_EMITTER
-        .text "        jsr gfxlnext"
+        .text " jsr gfxlnext"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rpenf:
 .if TEXT_EMITTER
-        .text "        jsr rpenf"
+        .text " jsr rpenf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_pixel_res:
 .if TEXT_EMITTER
-        .text "        lda gfxres"
+        .text " lda gfxres"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda #0"
+        .text " lda #0"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13
         .byte 0
 .else
@@ -15383,63 +15383,63 @@ out_pixel_res:
 .fi
 out_jsr_rcolorf:
 .if TEXT_EMITTER
-        .text "        jsr rcolorf"
+        .text " jsr rcolorf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_getkeyw:
 .if TEXT_EMITTER
-        .text "        jsr getkeyw"
+        .text " jsr getkeyw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_getstrw:
 .if TEXT_EMITTER
-        .text "        jsr getstrw"
+        .text " jsr getstrw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_charstage:
 .if TEXT_EMITTER
-        .text "        jsr charstage"
+        .text " jsr charstage"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_hasbitf:
 .if TEXT_EMITTER
-        .text "        jsr hasbitf"
+        .text " jsr hasbitf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rwindowf:
 .if TEXT_EMITTER
-        .text "        jsr rwindowf"
+        .text " jsr rwindowf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rptf:
 .if TEXT_EMITTER
-        .text "        jsr rptf"
+        .text " jsr rptf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fnsave:
 .if TEXT_EMITTER
-        .text "        jsr fnsave"
+        .text " jsr fnsave"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fnrest:
 .if TEXT_EMITTER
-        .text "        jsr fnrest"
+        .text " jsr fnrest"
         .byte 13, 0
 .else
         .byte 0
@@ -15453,602 +15453,602 @@ out_fnlab_prefix:
 .fi
 out_jsr_penset:
 .if TEXT_EMITTER
-        .text "        jsr penset"
+        .text " jsr penset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_gfxcall:
 .if TEXT_EMITTER
-        .text "        jsr gfxcall"
+        .text " jsr gfxcall"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strtpush:
 .if TEXT_EMITTER
-        .text "        jsr strtpush"
+        .text " jsr strtpush"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strtpop:
 .if TEXT_EMITTER
-        .text "        jsr strtpop"
+        .text " jsr strtpop"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bitadr16:
 .if TEXT_EMITTER
-        .text "        jsr bitadr16"
+        .text " jsr bitadr16"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bitadr32:
 .if TEXT_EMITTER
-        .text "        jsr bitadr32"
+        .text " jsr bitadr32"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_setbitgo:
 .if TEXT_EMITTER
-        .text "        jsr setbitgo"
+        .text " jsr setbitgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_clrbitgo:
 .if TEXT_EMITTER
-        .text "        jsr clrbitgo"
+        .text " jsr clrbitgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsava:
 .if TEXT_EMITTER
-        .text "        jsr sprsava"
+        .text " jsr sprsava"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsavs:
 .if TEXT_EMITTER
-        .text "        jsr sprsavs"
+        .text " jsr sprsavs"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsavdn:
 .if TEXT_EMITTER
-        .text "        jsr sprsavdn"
+        .text " jsr sprsavdn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsavstr:
 .if TEXT_EMITTER
-        .text "        jsr sprsavstr"
+        .text " jsr sprsavstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bootgo:
 .if TEXT_EMITTER
-        .text "        jsr bootgo"
+        .text " jsr bootgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_vsync:
 .if TEXT_EMITTER
-        .text "        jsr vsync"
+        .text " jsr vsync"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bankset:
 .if TEXT_EMITTER
-        .text "        jsr bankset"
+        .text " jsr bankset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_pokebk:
 .if TEXT_EMITTER
-        .text "        jsr pokebk"
+        .text " jsr pokebk"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_wpokebk:
 .if TEXT_EMITTER
-        .text "        jsr wpokebk"
+        .text " jsr wpokebk"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_peekbk:
 .if TEXT_EMITTER
-        .text "        jsr peekbk"
+        .text " jsr peekbk"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_wpeekbk:
 .if TEXT_EMITTER
-        .text "        jsr wpeekbk"
+        .text " jsr wpeekbk"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sysregsave:
 .if TEXT_EMITTER
-        .text "        jsr sysregsave"
+        .text " jsr sysregsave"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rregn:
 .if TEXT_EMITTER
-        .text "        jsr rregn"
+        .text " jsr rregn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dmarst:
 .if TEXT_EMITTER
-        .text "        jsr dmarst"
+        .text " jsr dmarst"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dmaa16:
 .if TEXT_EMITTER
-        .text "        jsr dmaa16"
+        .text " jsr dmaa16"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dmaa32:
 .if TEXT_EMITTER
-        .text "        jsr dmaa32"
+        .text " jsr dmaa32"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dmago:
 .if TEXT_EMITTER
-        .text "        jsr dmago"
+        .text " jsr dmago"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_edmago:
 .if TEXT_EMITTER
-        .text "        jsr edmago"
+        .text " jsr edmago"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fgoto:
 .if TEXT_EMITTER
-        .text "        jsr fgoto"
+        .text " jsr fgoto"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fgosub:
 .if TEXT_EMITTER
-        .text "        jsr fgosub"
+        .text " jsr fgosub"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_pif:
 .if TEXT_EMITTER
-        .text "        jsr pif"
+        .text " jsr pif"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dskst:
 .if TEXT_EMITTER
-        .text "        jsr dskst"
+        .text " jsr dskst"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_chrstrf:
 .if TEXT_EMITTER
-        .text "        jsr chrstrf"
+        .text " jsr chrstrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_keysetn:
 .if TEXT_EMITTER
-        .text "        jsr keysetn"
+        .text " jsr keysetn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_keysetgo:
 .if TEXT_EMITTER
-        .text "        jsr keysetgo"
+        .text " jsr keysetgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_winrst:
 .if TEXT_EMITTER
-        .text "        jsr winrst"
+        .text " jsr winrst"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_winarg:
 .if TEXT_EMITTER
-        .text "        jsr winarg"
+        .text " jsr winarg"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_wingo:
 .if TEXT_EMITTER
-        .text "        jsr wingo"
+        .text " jsr wingo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdcat:
 .if TEXT_EMITTER
-        .text "        jsr cmdcat"
+        .text " jsr cmdcat"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdstash:
 .if TEXT_EMITTER
-        .text "        jsr cmdstash"
+        .text " jsr cmdstash"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdstashout:
 .if TEXT_EMITTER
-        .text "        jsr cmdstashout"
+        .text " jsr cmdstashout"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmdgo:
 .if TEXT_EMITTER
-        .text "        jsr cmdgo"
+        .text " jsr cmdgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rdds:
 .if TEXT_EMITTER
-        .text "        jsr rdds"
+        .text " jsr rdds"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dsstrf:
 .if TEXT_EMITTER
-        .text "        jsr dsstrf"
+        .text " jsr dsstrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bladdr:
 .if TEXT_EMITTER
-        .text "        jsr bladdr"
+        .text " jsr bladdr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_blend:
 .if TEXT_EMITTER
-        .text "        jsr blend"
+        .text " jsr blend"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bloadgo:
 .if TEXT_EMITTER
-        .text "        jsr bloadgo"
+        .text " jsr bloadgo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bsavego:
 .if TEXT_EMITTER
-        .text "        jsr bsavego"
+        .text " jsr bsavego"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dopmode:
 .if TEXT_EMITTER
-        .text "        jsr dopmode"
+        .text " jsr dopmode"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_dclosech:
 .if TEXT_EMITTER
-        .text "        jsr dclosech"
+        .text " jsr dclosech"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_decbinf:
 .if TEXT_EMITTER
-        .text "        jsr decbinf"
+        .text " jsr decbinf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_strbinf:
 .if TEXT_EMITTER
-        .text "        jsr strbinf"
+        .text " jsr strbinf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetxr:
 .if TEXT_EMITTER
-        .text "        jsr sprsetxr"
+        .text " jsr sprsetxr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetyr:
 .if TEXT_EMITTER
-        .text "        jsr sprsetyr"
+        .text " jsr sprsetyr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsettx:
 .if TEXT_EMITTER
-        .text "        jsr sprsettx"
+        .text " jsr sprsettx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprsetty:
 .if TEXT_EMITTER
-        .text "        jsr sprsetty"
+        .text " jsr sprsetty"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprgoto:
 .if TEXT_EMITTER
-        .text "        jsr sprgoto"
+        .text " jsr sprgoto"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sprgoang:
 .if TEXT_EMITTER
-        .text "        jsr sprgoang"
+        .text " jsr sprgoang"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bdrset:
 .if TEXT_EMITTER
-        .text "        jsr bdrset"
+        .text " jsr bdrset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_bkgset:
 .if TEXT_EMITTER
-        .text "        jsr bkgset"
+        .text " jsr bkgset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_fgset:
 .if TEXT_EMITTER
-        .text "        jsr fgset"
+        .text " jsr fgset"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_chsetidx:
 .if TEXT_EMITTER
-        .text "        jsr chsetidx"
+        .text " jsr chsetidx"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_chputb:
 .if TEXT_EMITTER
-        .text "        jsr chputb"
+        .text " jsr chputb"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tcsetc:
 .if TEXT_EMITTER
-        .text "        jsr tcsetc"
+        .text " jsr tcsetc"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tcsetr:
 .if TEXT_EMITTER
-        .text "        jsr tcsetr"
+        .text " jsr tcsetr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tscrf:
 .if TEXT_EMITTER
-        .text "        jsr tscrf"
+        .text " jsr tscrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tscrw:
 .if TEXT_EMITTER
-        .text "        jsr tscrw"
+        .text " jsr tscrw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cscrf:
 .if TEXT_EMITTER
-        .text "        jsr cscrf"
+        .text " jsr cscrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cscrw:
 .if TEXT_EMITTER
-        .text "        jsr cscrw"
+        .text " jsr cscrw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_colsett:
 .if TEXT_EMITTER
-        .text "        jsr colsett"
+        .text " jsr colsett"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_colarm:
 .if TEXT_EMITTER
-        .text "        jsr colarm"
+        .text " jsr colarm"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_coloff:
 .if TEXT_EMITTER
-        .text "        jsr coloff"
+        .text " jsr coloff"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_colcheck:
 .if TEXT_EMITTER
-        .text "        jsr colcheck"
+        .text " jsr colcheck"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_coltmp:
 .if TEXT_EMITTER
-        .text "        sta coltmp"
+        .text " sta coltmp"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_coltmp1:
 .if TEXT_EMITTER
-        .text "        sta coltmp+1"
+        .text " sta coltmp+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_usrf:
 .if TEXT_EMITTER
-        .text "        jsr usrf"
+        .text " jsr usrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tistr:
 .if TEXT_EMITTER
-        .text "        jsr tistr"
+        .text " jsr tistr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_clrti:
 .if TEXT_EMITTER
-        .text "        jsr clrti"
+        .text " jsr clrti"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rtclr:
 .if TEXT_EMITTER
-        .text "        jsr rtclr"
+        .text " jsr rtclr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_hexstr:
 .if TEXT_EMITTER
-        .text "        jsr hexstr"
+        .text " jsr hexstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_decstr:
 .if TEXT_EMITTER
-        .text "        jsr decstr"
+        .text " jsr decstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_instrf:
 .if TEXT_EMITTER
-        .text "        jsr instrf"
+        .text " jsr instrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_rndf:
 .if TEXT_EMITTER
-        .text "        jsr rndf"
+        .text " jsr rndf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_sqrf:
 .if TEXT_EMITTER
-        .text "        jsr sqrf"
+        .text " jsr sqrf"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_ascstr:
 .if TEXT_EMITTER
-        .text "        jsr ascstr"
+        .text " jsr ascstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_tabto:
 .if TEXT_EMITTER
-        .text "        jsr tabto"
+        .text " jsr tabto"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_spcn:
 .if TEXT_EMITTER
-        .text "        jsr spcn"
+        .text " jsr spcn"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_posf:
 .if TEXT_EMITTER
-        .text "        jsr posf"
+        .text " jsr posf"
         .byte 13, 0
 .else
         .byte 0
@@ -16064,281 +16064,281 @@ out_fltinit_label:
 .fi
 out_word_hex_prefix:
 .if TEXT_EMITTER
-        .text "        .word $"
+        .text " .word $"
         .byte 0
 .else
         .byte 0
 .fi
 out_jsr_readint:
 .if TEXT_EMITTER
-        .text "        jsr readint"
+        .text " jsr readint"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_readstr:
 .if TEXT_EMITTER
-        .text "        jsr readstr"
+        .text " jsr readstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputline:
 .if TEXT_EMITTER
-        .text "        jsr inputline"
+        .text " jsr inputline"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputlinenq:
 .if TEXT_EMITTER
-        .text "        jsr inputlinenq"
+        .text " jsr inputlinenq"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputline2q:
 .if TEXT_EMITTER
-        .text "        jsr inputline2q"
+        .text " jsr inputline2q"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputraw:
 .if TEXT_EMITTER
-        .text "        jsr inputraw"
+        .text " jsr inputraw"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputint:
 .if TEXT_EMITTER
-        .text "        jsr inputint"
+        .text " jsr inputint"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_inputstr:
 .if TEXT_EMITTER
-        .text "        jsr inputstr"
+        .text " jsr inputstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_getkey:
 .if TEXT_EMITTER
-        .text "        jsr getkey"
+        .text " jsr getkey"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_getstr:
 .if TEXT_EMITTER
-        .text "        jsr getstr"
+        .text " jsr getstr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_datainit:
 .if TEXT_EMITTER
-        .text "        jsr datainit"
+        .text " jsr datainit"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmpeq:
 .if TEXT_EMITTER
-        .text "        jsr cmpeq"
+        .text " jsr cmpeq"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmpne:
 .if TEXT_EMITTER
-        .text "        jsr cmpne"
+        .text " jsr cmpne"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmplt:
 .if TEXT_EMITTER
-        .text "        jsr cmplt"
+        .text " jsr cmplt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmple:
 .if TEXT_EMITTER
-        .text "        jsr cmple"
+        .text " jsr cmple"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmpgt:
 .if TEXT_EMITTER
-        .text "        jsr cmpgt"
+        .text " jsr cmpgt"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_cmpge:
 .if TEXT_EMITTER
-        .text "        jsr cmpge"
+        .text " jsr cmpge"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_varptr:
 .if TEXT_EMITTER
-        .text "        sta varptr"
+        .text " sta varptr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_varptr_1:
 .if TEXT_EMITTER
-        .text "        sta varptr+1"
+        .text " sta varptr+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_exprlo:
 .if TEXT_EMITTER
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_exprhi:
 .if TEXT_EMITTER
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_dataptrlo:
 .if TEXT_EMITTER
-        .text "        sta dataptrlo"
+        .text " sta dataptrlo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_dataptrhi:
 .if TEXT_EMITTER
-        .text "        sta dataptrhi"
+        .text " sta dataptrhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_rtptr:
 .if TEXT_EMITTER
-        .text "        sta rtptr"
+        .text " sta rtptr"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_rtptr_1:
 .if TEXT_EMITTER
-        .text "        sta rtptr+1"
+        .text " sta rtptr+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_strarg1lo:
 .if TEXT_EMITTER
-        .text "        sta strarg1lo"
+        .text " sta strarg1lo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_strarg1hi:
 .if TEXT_EMITTER
-        .text "        sta strarg1hi"
+        .text " sta strarg1hi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_lda_exprlo:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_lda_exprhi:
 .if TEXT_EMITTER
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_array_check_start:
 .if TEXT_EMITTER
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        bpl "
+        .text " bpl "
         .byte 0
 .else
         .byte 0
 .fi
 out_cmp_exprhi_imm:
 .if TEXT_EMITTER
-        .text "        cmp #$"
+        .text " cmp #$"
         .byte 0
 .else
         .byte 0
 .fi
 out_cmp_exprlo_imm:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        cmp #$"
+        .text " cmp #$"
         .byte 0
 .else
         .byte 0
 .fi
 out_jmp_arraybounds:
 .if TEXT_EMITTER
-        .text "        jmp arraybounds"
+        .text " jmp arraybounds"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_array_index_shift5:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        sta lhslo"
+        .text " sta lhslo"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta lhshi"
+        .text " sta lhshi"
         .byte 13
-        .text "        asl exprlo"
+        .text " asl exprlo"
         .byte 13
-        .text "        rol exprhi"
+        .text " rol exprhi"
         .byte 13
-        .text "        asl exprlo"
+        .text " asl exprlo"
         .byte 13
-        .text "        rol exprhi"
+        .text " rol exprhi"
         .byte 13
-        .text "        clc"
+        .text " clc"
         .byte 13
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        adc lhslo"
+        .text " adc lhslo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        adc lhshi"
+        .text " adc lhshi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13
-        .text "        clc"
+        .text " clc"
         .byte 13
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13, 0
 .else
         .byte 0
@@ -16346,53 +16346,53 @@ out_array_index_shift5:
 
 out_array_index_shift:
 .if TEXT_EMITTER
-        .text "        asl exprlo"
+        .text " asl exprlo"
         .byte 13
-        .text "        rol exprhi"
+        .text " rol exprhi"
         .byte 13
-        .text "        clc"
+        .text " clc"
         .byte 13
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_save_arrayptr:
 .if TEXT_EMITTER
-        .text "        lda varptr"
+        .text " lda varptr"
         .byte 13
-        .text "        sta arrptrlo"
+        .text " sta arrptrlo"
         .byte 13
-        .text "        lda varptr+1"
+        .text " lda varptr+1"
         .byte 13
-        .text "        sta arrptrhi"
+        .text " sta arrptrhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_restore_arrayptr:
 .if TEXT_EMITTER
-        .text "        lda arrptrlo"
+        .text " lda arrptrlo"
         .byte 13
-        .text "        sta varptr"
+        .text " sta varptr"
         .byte 13
-        .text "        lda arrptrhi"
+        .text " lda arrptrhi"
         .byte 13
-        .text "        sta varptr+1"
+        .text " sta varptr+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_lda_label:
 .if TEXT_EMITTER
-        .text "        lda "
+        .text " lda "
         .byte 0
 .else
         .byte 0
 .fi
 out_sta_label:
 .if TEXT_EMITTER
-        .text "        sta "
+        .text " sta "
         .byte 0
 .else
         .byte 0
@@ -16532,433 +16532,433 @@ out_ondone_prefix:
 .fi
 out_push_expr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        pha"
+        .text " pha"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        pha"
+        .text " pha"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_pop_lhs:
 .if TEXT_EMITTER
-        .text "        pla"
+        .text " pla"
         .byte 13
-        .text "        sta lhshi"
+        .text " sta lhshi"
         .byte 13
-        .text "        pla"
+        .text " pla"
         .byte 13
-        .text "        sta lhslo"
+        .text " sta lhslo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_and_lhs_expr:
 .if TEXT_EMITTER
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        and exprlo"
+        .text " and exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        and exprhi"
+        .text " and exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_or_lhs_expr:
 .if TEXT_EMITTER
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        ora exprlo"
+        .text " ora exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        ora exprhi"
+        .text " ora exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_move_expr_to_lhs:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        sta lhslo"
+        .text " sta lhslo"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta lhshi"
+        .text " sta lhshi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_lhslo:
 .if TEXT_EMITTER
-        .text "        sta lhslo"
+        .text " sta lhslo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sta_lhshi:
 .if TEXT_EMITTER
-        .text "        sta lhshi"
+        .text " sta lhshi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_add_lhs_expr:
 .if TEXT_EMITTER
-        .text "        clc"
+        .text " clc"
         .byte 13
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        adc exprlo"
+        .text " adc exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        adc exprhi"
+        .text " adc exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sub_lhs_expr:
 .if TEXT_EMITTER
-        .text "        sec"
+        .text " sec"
         .byte 13
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        sbc exprlo"
+        .text " sbc exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        sbc exprhi"
+        .text " sbc exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_mul16:
 .if TEXT_EMITTER
-        .text "        jsr mul16"
+        .text " jsr mul16"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jsr_div16:
 .if TEXT_EMITTER
-        .text "        jsr div16"
+        .text " jsr div16"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_neg_expr:
 .if TEXT_EMITTER
-        .text "        sec"
+        .text " sec"
         .byte 13
-        .text "        lda #0"
+        .text " lda #0"
         .byte 13
-        .text "        sbc exprlo"
+        .text " sbc exprlo"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda #0"
+        .text " lda #0"
         .byte 13
-        .text "        sbc exprhi"
+        .text " sbc exprhi"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_expr_to_rtptr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        sta rtptr"
+        .text " sta rtptr"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta rtptr+1"
+        .text " sta rtptr+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_save_rtptr:
 .if TEXT_EMITTER
-        .text "        lda rtptr"
+        .text " lda rtptr"
         .byte 13
-        .text "        sta arrptrlo"
+        .text " sta arrptrlo"
         .byte 13
-        .text "        lda rtptr+1"
+        .text " lda rtptr+1"
         .byte 13
-        .text "        sta arrptrhi"
+        .text " sta arrptrhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_restore_rtptr:
 .if TEXT_EMITTER
-        .text "        lda arrptrlo"
+        .text " lda arrptrlo"
         .byte 13
-        .text "        sta rtptr"
+        .text " sta rtptr"
         .byte 13
-        .text "        lda arrptrhi"
+        .text " lda arrptrhi"
         .byte 13
-        .text "        sta rtptr+1"
+        .text " sta rtptr+1"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_poke_expr_to_rtptr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        ldy #0"
+        .text " ldy #0"
         .byte 13
-        .text "        sta (rtptr),y"
+        .text " sta (rtptr),y"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_wpoke_expr_to_rtptr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        ldy #0"
+        .text " ldy #0"
         .byte 13
-        .text "        sta (rtptr),y"
+        .text " sta (rtptr),y"
         .byte 13
-        .text "        iny"
+        .text " iny"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta (rtptr),y"
+        .text " sta (rtptr),y"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_peek_expr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        sta rtptr"
+        .text " sta rtptr"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta rtptr+1"
+        .text " sta rtptr+1"
         .byte 13
-        .text "        ldy #0"
+        .text " ldy #0"
         .byte 13
-        .text "        lda (rtptr),y"
+        .text " lda (rtptr),y"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        lda #0"
+        .text " lda #0"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_wpeek_expr:
 .if TEXT_EMITTER
-        .text "        lda exprlo"
+        .text " lda exprlo"
         .byte 13
-        .text "        sta rtptr"
+        .text " sta rtptr"
         .byte 13
-        .text "        lda exprhi"
+        .text " lda exprhi"
         .byte 13
-        .text "        sta rtptr+1"
+        .text " sta rtptr+1"
         .byte 13
-        .text "        ldy #0"
+        .text " ldy #0"
         .byte 13
-        .text "        lda (rtptr),y"
+        .text " lda (rtptr),y"
         .byte 13
-        .text "        sta exprlo"
+        .text " sta exprlo"
         .byte 13
-        .text "        iny"
+        .text " iny"
         .byte 13
-        .text "        lda (rtptr),y"
+        .text " lda (rtptr),y"
         .byte 13
-        .text "        sta exprhi"
+        .text " sta exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_cmp_lhshi_exprhi:
 .if TEXT_EMITTER
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        cmp exprhi"
+        .text " cmp exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_cmp_lhslo_exprlo:
 .if TEXT_EMITTER
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13
-        .text "        cmp exprlo"
+        .text " cmp exprlo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_sign_xor_lhshi_exprhi:
 .if TEXT_EMITTER
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13
-        .text "        eor exprhi"
+        .text " eor exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_lda_lhshi:
 .if TEXT_EMITTER
-        .text "        lda lhshi"
+        .text " lda lhshi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_lda_lhslo:
 .if TEXT_EMITTER
-        .text "        lda lhslo"
+        .text " lda lhslo"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_ora_lhshi:
 .if TEXT_EMITTER
-        .text "        ora lhshi"
+        .text " ora lhshi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_ora_exprhi:
 .if TEXT_EMITTER
-        .text "        ora exprhi"
+        .text " ora exprhi"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jmp_label:
 .if TEXT_EMITTER
-        .text "        jmp "
+        .text " jmp "
         .byte 0
 .else
         .byte 0
 .fi
 out_jsr_label:
 .if TEXT_EMITTER
-        .text "        jsr "
+        .text " jsr "
         .byte 0
 .else
         .byte 0
 .fi
 out_bne_label:
 .if TEXT_EMITTER
-        .text "        bne "
+        .text " bne "
         .byte 0
 .else
         .byte 0
 .fi
 out_beq_label:
 .if TEXT_EMITTER
-        .text "        beq "
+        .text " beq "
         .byte 0
 .else
         .byte 0
 .fi
 out_bcc_label:
 .if TEXT_EMITTER
-        .text "        bcc "
+        .text " bcc "
         .byte 0
 .else
         .byte 0
 .fi
 out_bcs_label:
 .if TEXT_EMITTER
-        .text "        bcs "
+        .text " bcs "
         .byte 0
 .else
         .byte 0
 .fi
 out_bpl_label:
 .if TEXT_EMITTER
-        .text "        bpl "
+        .text " bpl "
         .byte 0
 .else
         .byte 0
 .fi
 out_bmi_label:
 .if TEXT_EMITTER
-        .text "        bmi "
+        .text " bmi "
         .byte 0
 .else
         .byte 0
 .fi
 out_jsr_abs:
 .if TEXT_EMITTER
-        .text "        jsr $"
+        .text " jsr $"
         .byte 0
 .else
         .byte 0
 .fi
 out_sta_abs:
 .if TEXT_EMITTER
-        .text "        sta $"
+        .text " sta $"
         .byte 0
 .else
         .byte 0
 .fi
 out_rts:
 .if TEXT_EMITTER
-        .text "        rts"
+        .text " rts"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_jmp_rtexit:
 .if TEXT_EMITTER
-        .text "        jmp rtexit"
+        .text " jmp rtexit"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_rem:
 .if TEXT_EMITTER
-        .text "        ; rem"
+        .text " ; rem"
         .byte 0
 .else
         .byte 0
 .fi
 out_data_comment:
 .if TEXT_EMITTER
-        .text "        ; data skipped"
+        .text " ; data skipped"
         .byte 13, 0
 .else
         .byte 0
 .fi
 out_dim_comment:
 .if TEXT_EMITTER
-        .text "        ; dim allocated in variable heap"
+        .text " ; dim allocated in variable heap"
         .byte 13, 0
 .else
         .byte 0
