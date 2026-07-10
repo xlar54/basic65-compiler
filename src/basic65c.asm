@@ -42,6 +42,7 @@ source_ptr              = $F7
 str_ptr                 = $FB
 POOL_BANK               = $04
 POOL_BASE               = $C000 ; above any realistic tokenized source
+LINETAB_B4              = $F400 ; line records, bank 4 ($e000 = LBLTAB, $f000-$f3ff = string/branch tables; $f400+ is free)
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
@@ -173,9 +174,9 @@ LINE_BUF_MAX            = 240
 DEF_MAX                 = 16
 FILENAME_MAX            = 31
 .if TEXT_EMITTER
-LINE_MAX                = 240   ; checked build: tables extend past $c000
+LINE_MAX                = 400   ; checked build: tables extend past $c000
 .else
-LINE_MAX                = 240
+LINE_MAX                = 400
 .fi
 BRANCH_MAX              = 128
 FOR_STACK_MAX           = 16
@@ -277,6 +278,7 @@ _main_clr_hi:                   ; the zero-init state it expects
         sta error_count
         sta sym_count
         sta line_count
+        sta line_count+1
         sta branch_count
         sta data_count
         sta data_line_count
@@ -389,6 +391,16 @@ _main_clr_hi:                   ; the zero-init state it expects
         lda #<msg_bin_write_fail
         ldy #>msg_bin_write_fail
         jsr screen_zstr
+        lda backend_error       ; code + context for diagnosis
+        jsr out_hex_byte
+        lda #' '+0
+        jsr CC_CHROUT
+        lda backend_error_ptr+1
+        jsr out_hex_byte
+        lda backend_error_ptr
+        jsr out_hex_byte
+        lda #13
+        jsr CC_CHROUT
         bra _main_done_ok
 
 _main_prg_ok:
@@ -586,7 +598,7 @@ reset_emit_counters:
         sta for_sp
         sta do_sp
         sta if_sp
-        sta line_emit_idx
+        jsr lea_rst
         sta pending_kind
         sta const_state
         sta expr_type
@@ -2204,29 +2216,30 @@ _scan_skip_decimal_done:
         rts
 
 record_line_number:
-        ldx #0
-_record_line_find:
-        cpx line_count
-        beq _record_line_create
-        lda line_table_lo,x
-        cmp line_no_lo
-        bne _record_line_next
-        lda line_table_hi,x
-        cmp line_no_hi
-        beq _record_line_dup
-_record_line_next:
-        inx
-        bra _record_line_find
-
-_record_line_create:
-        cpx #LINE_MAX
-        bcs _record_line_full
         lda line_no_lo
-        sta line_table_lo,x
+        sta lsrch_lo
         lda line_no_hi
-        sta line_table_hi,x
+        sta lsrch_hi
+        jsr linefind
+        bcs _record_line_dup
+        lda line_count+1        ; room? (16-bit against LINE_MAX)
+        cmp #>LINE_MAX
+        bcc _record_line_room
+        bne _record_line_full
+        lda line_count
+        cmp #<LINE_MAX
+        bcs _record_line_full
+_record_line_room:
+        lda #0                  ; linefind left the walker at the
+        ldy line_no_lo          ; append slot
+        jsr lf_write
+        lda #1
+        ldy line_no_hi
+        jsr lf_write
         inc line_count
-        clc
+        bne +
+        inc line_count+1
++       clc
         rts
 
 _record_line_dup:
@@ -2240,6 +2253,109 @@ _record_line_fail:
         jsr fatal_error_zstr
         sec
         rts
+
+; ---- 16-bit line-record walker: 4-byte records (number lo/hi,
+; address lo/hi) at LINETAB_B4 in bank 4, so programs can exceed 255
+; lines without costing bank-0 image space. lf_base is the bank-4
+; address of the current record.
+lf_rst:
+        lda #<LINETAB_B4
+        sta lf_base
+        lda #>LINETAB_B4
+        sta lf_base+1
+        lda #0
+        sta lf_i
+        sta lf_i+1
+        rts
+
+; A = field offset 0-3 -> A = that byte of the current record
+; (records live in bank 4; the source pointer is borrowed around the
+; access, same discipline as the string pool)
+lf_read:
+        pha
+        jsr pool_ptr_save
+        pla
+        clc
+        adc lf_base
+        sta source_ptr
+        lda lf_base+1
+        adc #0
+        sta source_ptr+1
+        ldz #0
+        lda [source_ptr],z
+        jmp pool_ptr_restore    ; A survives
+
+; A = field offset, Y = value: write into the current record
+lf_write:
+        pha
+        jsr pool_ptr_save
+        pla
+        clc
+        adc lf_base
+        sta source_ptr
+        lda lf_base+1
+        adc #0
+        sta source_ptr+1
+        ldz #0
+        tya
+        sta [source_ptr],z
+        jmp pool_ptr_restore
+
+lf_next:
+        clc
+        lda lf_base
+        adc #4
+        sta lf_base
+        bcc +
+        inc lf_base+1
++       inc lf_i
+        bne +
+        inc lf_i+1
++       rts
+
+; Z set when the walker sits at line_count (one past the last record)
+lf_atend:
+        lda lf_i
+        cmp line_count
+        bne _lfa_done
+        lda lf_i+1
+        cmp line_count+1
+_lfa_done:
+        rts
+
+; search for lsrch_lo/hi; C set = found (walker at the record),
+; C clear = missing (walker at the append slot)
+linefind:
+        jsr lf_rst
+_lf_loop:
+        jsr lf_atend
+        beq _lf_miss
+        lda #0
+        jsr lf_read
+        cmp lsrch_lo
+        bne _lf_next2
+        lda #1
+        jsr lf_read
+        cmp lsrch_hi
+        beq _lf_hit
+_lf_next2:
+        jsr lf_next
+        bra _lf_loop
+_lf_hit:
+        sec
+        rts
+_lf_miss:
+        clc
+        rts
+
+lf_base:
+        .byte 0, 0
+lf_i:
+        .byte 0, 0
+lsrch_lo:
+        .byte 0
+lsrch_hi:
+        .byte 0
 
 record_branch_target:
         ldx #0
@@ -2296,26 +2412,16 @@ _validate_branch_done:
         rts
 
 line_number_exists:
-        ldx #0
-_line_exists_loop:
-        cpx line_count
-        beq _line_exists_no
-        lda line_table_lo,x
-        cmp number_lo
-        bne _line_exists_next
-        lda line_table_hi,x
-        cmp number_hi
-        beq _line_exists_yes
-_line_exists_next:
-        inx
-        bra _line_exists_loop
-
+        lda number_lo
+        sta lsrch_lo
+        lda number_hi
+        sta lsrch_hi
+        jsr linefind
+        bcs _line_exists_yes
+        sec
+        rts
 _line_exists_yes:
         clc
-        rts
-
-_line_exists_no:
-        sec
         rts
 
 data_line_number_exists:
@@ -10822,13 +10928,21 @@ emit_line_number_tab:
         jsr bin_add_pc
         lda fgoto_used
         beq _elt_done
-        ldx line_count          ; ...plus four bytes per line
+        lda line_count          ; ...plus four bytes per line
+        sta elt_i
+        lda line_count+1
+        sta elt_i+1
 _elt_size_loop:
+        lda elt_i
+        ora elt_i+1
         beq _elt_done
         lda #4
         jsr bin_add_pc
-        dex
-        bne _elt_size_loop
+        lda elt_i
+        bne +
+        dec elt_i+1
++       dec elt_i
+        bra _elt_size_loop
 _elt_done:
         rts
 _elt_emit:
@@ -10840,21 +10954,25 @@ _elt_emit:
         jmp bin_write_byte
 +       lda line_count
         jsr bin_write_byte
-        lda #0
+        lda line_count+1
         jsr bin_write_byte
-        ldx #0
+        jsr lf_rst
 _elt_emit_loop:
-        cpx line_count
-        bcs _elt_done
-        lda line_table_lo,x
+        jsr lf_atend
+        beq _elt_done
+        lda #0
+        jsr lf_read
         jsr bin_write_byte
-        lda line_table_hi,x
+        lda #1
+        jsr lf_read
         jsr bin_write_byte
-        lda line_addr_lo,x
+        lda #2
+        jsr lf_read
         jsr bin_write_byte
-        lda line_addr_hi,x
+        lda #3
+        jsr lf_read
         jsr bin_write_byte
-        inx
+        jsr lf_next
         bra _elt_emit_loop
 _elt_text:
         jsr emit_tmpl
@@ -10870,41 +10988,39 @@ _elt_text:
         jmp out_cr
 +       jsr emit_tmpl
         .word out_word_pre
-        lda #0
+        lda line_count+1
         jsr out_hex_byte
         lda line_count
         jsr out_hex_byte
         jsr out_cr
-        lda #0
-        sta elt_i
+        jsr lf_rst
 _elt_text_loop:
-        ldx elt_i
-        cpx line_count
-        bcs _elt_text_done
+        jsr lf_atend
+        beq _elt_text_done
         jsr emit_tmpl
         .word out_word_pre
-        ldx elt_i
-        lda line_table_hi,x
+        lda #1
+        jsr lf_read
         jsr out_hex_byte
-        ldx elt_i
-        lda line_table_lo,x
+        lda #0
+        jsr lf_read
         jsr out_hex_byte
         jsr emit_tmpl
         .word out_lineref_sep
-        ldx elt_i
-        lda line_table_hi,x
+        lda #1
+        jsr lf_read
         jsr out_hex_byte
-        ldx elt_i
-        lda line_table_lo,x
+        lda #0
+        jsr lf_read
         jsr out_hex_byte
         jsr out_cr
-        inc elt_i
+        jsr lf_next
         bra _elt_text_loop
 _elt_text_done:
         rts
 
 elt_i:
-        .byte 0
+        .byte 0, 0
 
 emit_string_roots:
         ldx backend_mode
@@ -11133,13 +11249,39 @@ emit_line_label:
         rts
 
 _emit_line_label_bin:
-        ldx line_emit_idx
+        jsr pool_ptr_save
+        lda lea_base
+        sta source_ptr
+        lda lea_base+1
+        sta source_ptr+1
+        ldz #2                  ; record fields 2/3 = binary address
         lda bin_pc
-        sta line_addr_lo,x
+        sta [source_ptr],z
+        inz
         lda bin_pc+1
-        sta line_addr_hi,x
-        inc line_emit_idx
+        sta [source_ptr],z
+        ldz #0                  ; ambient-Z convention: the native
+        jsr pool_ptr_restore    ; emitter far-reads depend on Z = 0
+        clc                     ; advance one record
+        lda lea_base
+        adc #4
+        sta lea_base
+        bcc +
+        inc lea_base+1
++       rts
+
+; reset the address-append walker (per pass); returns with A = 0 for
+; the reset chain it sits in
+lea_rst:
+        lda #<LINETAB_B4
+        sta lea_base
+        lda #>LINETAB_B4
+        sta lea_base+1
+        lda #0
         rts
+
+lea_base:
+        .byte 0, 0
 
 ; keep curline current for EL when any TRAP exists in the program;
 ; also run the collision dispatcher at line starts when armed anywhere
@@ -11167,23 +11309,17 @@ out_label_from_number:
         ldx backend_mode
         beq _out_label_number_text
         ; resolve the BASIC line number in number_lo/hi to its binary address
-        ldx #0
-_out_label_number_scan:
-        cpx line_count
-        beq _out_label_number_bad
-        lda line_table_lo,x
-        cmp number_lo
-        bne _out_label_number_next
-        lda line_table_hi,x
-        cmp number_hi
-        beq _out_label_number_found
-_out_label_number_next:
-        inx
-        bra _out_label_number_scan
-_out_label_number_found:
-        lda line_addr_lo,x
+        lda number_lo
+        sta lsrch_lo
+        lda number_hi
+        sta lsrch_hi
+        jsr linefind
+        bcc _out_label_number_bad
+        lda #2
+        jsr lf_read
         sta pending_value
-        lda line_addr_hi,x
+        lda #3
+        jsr lf_read
         sta pending_value+1
         rts
 _out_label_number_bad:
@@ -16833,7 +16969,7 @@ var_heap_next_hi:
 sym_count:
         .byte 0
 line_count:
-        .byte 0
+        .byte 0, 0
 branch_count:
         .byte 0
 cond_op:
@@ -17182,8 +17318,6 @@ flt_lit_addr_lo:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_hi:
         .fill FLT_LIT_MAX, 0
-line_emit_idx:
-        .byte 0
 datastart_addr:
         .word 0
 dataend_addr:
@@ -17295,16 +17429,8 @@ string_addr_lo:  .fill STRING_MAX, 0
 string_addr_hi:  .fill STRING_MAX, 0
 data_line_addr_lo: .fill DATA_LINE_MAX, 0
 data_line_addr_hi: .fill DATA_LINE_MAX, 0
-line_addr_lo:
-        .fill LINE_MAX, 0
-line_addr_hi:
-        .fill LINE_MAX, 0
 line_buf:
         .fill LINE_BUF_MAX, 0
-line_table_lo:
-        .fill LINE_MAX, 0
-line_table_hi:
-        .fill LINE_MAX, 0
 for_stack_id:
         .fill FOR_STACK_MAX, 0
 for_stack_var_data_lo:
