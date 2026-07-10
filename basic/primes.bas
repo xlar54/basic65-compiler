@@ -14,5 +14,5 @@
 140 print "limit:";lm%
 150 print "primes:";ct%;" expect 669"
 160 print "check:";ck%;" expect 23136"
-170 print "jiffies:";t
+170 print "seconds:";t
 180 if ct%=669 and ck%=23136 then print "prime ok" : else print "prime fail"

@@ -66,7 +66,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $7100            ; standalone-assembly cap; generated programs compute rtpb
+progbase     = $7200            ; standalone-assembly cap; generated programs compute rtpb
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -1812,34 +1812,139 @@ usrf:
 _usrjmp:
         jmp ($02f8)
 
-; TI: seconds since CLR TI as a float (BASIC65 semantics; jiffy
-; granularity here, not the ROM timer's microseconds)
+; TI: seconds since CLR TI as a float, 0.1s resolution. The C65
+; KERNAL RDTIM returns the CIA #1 TOD clock as BCD h/m/s -- NOT a
+; jiffy count -- so read the TOD registers directly: hours first
+; (latches the set), tenths last (releases the latch), convert
+; 12-hour BCD to tenths-since-midnight, delta against the CLR TI
+; base (a midnight crossing adds 24 hours).
 rdti:
-        jsr kernalrdtim         ; A = low, X = mid, Y = high
+        jsr todtenths
         sec
+        lda ti_j
         sbc ti_base
         sta ti_j
-        txa
+        lda ti_j+1
         sbc ti_base+1
         sta ti_j+1
-        tya
+        lda ti_j+2
         sbc ti_base+2
-        tay
+        sta ti_j+2
+        bcs +
+        clc                     ; wrapped past midnight: + 864000
         lda ti_j
+        adc #$00
+        sta ti_j
+        lda ti_j+1
+        adc #$2f
+        sta ti_j+1
+        lda ti_j+2
+        adc #$0d
+        sta ti_j+2
++       lda ti_j
         ldx ti_j+1
-        jsr rdti24              ; FAC = jiffy delta from A/X/Y
+        ldy ti_j+2
+        jsr rdti24              ; FAC = tenths delta from A/X/Y
         jsr fpush
-        lda #50                 ; PAL 50 jiffies/second, NTSC 60
+        lda #10
         sta exprlo
-        lda $d06f
-        bpl +
-        lda #60
-        sta exprlo
-+       lda #0
+        lda #0
         sta exprhi
         jsr float16
         jsr fpoparg
-        jmp fdiv                ; seconds = jiffies / rate
+        jmp fdiv                ; seconds = tenths / 10
+
+; CIA #1 TOD -> ti_j (24-bit tenths since midnight). Reading hours
+; latches the TOD output, reading tenths releases it; hours are
+; 12-hour BCD with bit 7 = PM and 12 reading as 0.
+todtenths:
+        lda $dc0b
+        pha
+        and #$1f
+        jsr bcd2bin
+        cmp #12
+        bne +
+        lda #0
++       sta ti_t
+        pla
+        bpl +
+        lda ti_t
+        clc
+        adc #12
+        sta ti_t
++       lda $dc0a               ; minutes
+        jsr bcd2bin
+        pha
+        lda ti_t                ; h * 60
+        sta MULTINA
+        lda #0
+        sta MULTINA+1
+        sta MULTINA+2
+        sta MULTINA+3
+        sta MULTINB+1
+        sta MULTINB+2
+        sta MULTINB+3
+        lda #60
+        sta MULTINB
+        lda MULTOUT             ; stage the product before touching
+        sta ti_j                ; MULTINA again (MULTOUT recomputes
+        lda MULTOUT+1           ; combinationally on every write)
+        sta ti_j+1
+        pla                     ; t1 = h*60 + m
+        clc
+        adc ti_j
+        sta MULTINA
+        lda ti_j+1
+        adc #0
+        sta MULTINA+1           ; * 60 (B still holds 60)
+        lda $dc09               ; seconds
+        jsr bcd2bin
+        pha
+        lda MULTOUT
+        sta ti_j
+        lda MULTOUT+1
+        sta ti_j+1
+        lda MULTOUT+2
+        sta ti_j+2
+        pla                     ; t2 = (h*60+m)*60 + s
+        clc
+        adc ti_j
+        sta MULTINA
+        lda ti_j+1
+        adc #0
+        sta MULTINA+1
+        lda ti_j+2
+        adc #0
+        sta MULTINA+2
+        lda #10                 ; * 10
+        sta MULTINB
+        lda $dc08               ; tenths (releases the TOD latch)
+        and #$0f
+        clc                     ; ti_j = t2*10 + tenths
+        adc MULTOUT
+        sta ti_j
+        lda MULTOUT+1
+        adc #0
+        sta ti_j+1
+        lda MULTOUT+2
+        adc #0
+        sta ti_j+2
+        rts
+
+bcd2bin:
+        pha
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        tay
+        pla
+        and #$0f
+        clc
+        adc bcdtens,y
+        rts
+bcdtens:
+        .byte 0, 10, 20, 30, 40, 50, 60, 70, 80, 90
 
 ; TI$: read the RTC at $ffd7110 (BCD ss,mm,hh) into "hh:mm:ss" on the
 ; string heap; varptr's bank-1 invariant is saved around the far read
@@ -1907,10 +2012,13 @@ _tistr_bcd:
         rts
 
 clrti:
-        jsr kernalrdtim
+        jsr todtenths
+        lda ti_j
         sta ti_base
-        stx ti_base+1
-        sty ti_base+2
+        lda ti_j+1
+        sta ti_base+1
+        lda ti_j+2
+        sta ti_base+2
         rts
 
 rdti24:
@@ -5470,7 +5578,8 @@ bl_end:       .byte 0,0
 ti_ss:        .byte 0
 ti_mm:        .byte 0
 ti_hh:        .byte 0
-ti_j:         .byte 0,0
+ti_j:         .byte 0,0,0
+ti_t:         .byte 0
 rtpbhi:       .byte >rtpb       ; native writer patches this during copy
 mthbuf:       .fill 21, 0
 mth_ptr:      .byte 0,0
