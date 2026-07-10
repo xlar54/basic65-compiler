@@ -46,7 +46,7 @@ time-of-day, not jiffies); the figures below are from the corrected
 | `basic/primes.bas` | integer MOD trial division up to 5000 | 8.20 s | 1.5 s | ~5.5x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 6.8 s | ~3.1x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.4 s | ~2x |
-| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | — | 28.5 s | — |
+| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 28.5 s | ~0.4x |
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
@@ -54,11 +54,10 @@ Ahl's accuracy figure: 2.27e-04 compiled vs 3.11e-04 interpreted --
 the compiler's MFLP math lands slightly closer to the true value than
 the ROM's float code.
 
-The circles row is an honest loss (interpreted figures pending): the
-compiled graphics library draws through a per-pixel plotter plus a
-DMA blob swap per statement, while the ROM's CIRCLE uses bitplane
-span code. Span-based rendering in the blob is the known fix if
-graphics throughput starts to matter.
+The circles row is an honest loss: the compiled graphics library
+draws through a per-pixel plotter plus a DMA blob swap per statement,
+while the ROM's CIRCLE uses bitplane span code. Span-based rendering
+in the blob is the known fix if graphics throughput starts to matter.
 
 ## Documentation
 
