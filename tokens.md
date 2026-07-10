@@ -28,7 +28,7 @@ Legend:
 | Group | Total tokens | ✅/⚠️ supported | 🔧 syntax | ❌/✖ unsupported |
 |---|---|---|---|---|
 | Single-byte $80–$FF | 125 (+3 prefix bytes) | 82 | 7 | 36 |
-| $CE-prefixed functions | 18 | 16 | — | 2 |
+| $CE-prefixed functions | 19 | 17 | — | 2 |
 | $FE-prefixed statements | 72 | 49 | 2 (OFF, BIT) | 21 |
 | $E0-prefixed (CHAR family) | 1 (CHARDEF) | 1 | — | bare CHAR ❌ |
 | Reserved-variable keywords | 9 | 9 | — | — |
@@ -187,8 +187,9 @@ Legend:
 | $CE $10 | WPEEK | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
 | $CE $11 | DECBIN | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
 | $CE $12 | STRBIN$ | ✅ | MEGA65 addition; petcat gap, fixer rewrites |
-| $CE $13 | HASBIT | ⚠️ | -1/0 bit test with SETBIT address rules; flat (>= $10000) addresses affected by KNOWN-ISSUES #6 |
+| $CE $13 | HASBIT | ✅ | -1/0 bit test with SETBIT address rules |
 | $CE $14 | RPT$ | ✅ | repeat string; >255 chars = STRING TOO LONG; petcat gap, fixer rewrites |
+| $CE $16 | LOG2 | ✅ | ln(x)/ln(2) via MFLP; exact-power results carry a ~1e-9 epsilon (ROM prints clean integers); petcat gap (LOG token + '2'), fixer rewrites |
 
 ## $FE-prefixed extended statements
 
