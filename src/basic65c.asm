@@ -172,6 +172,7 @@ ASCII_LOWER_F           = $66
 
 LINE_BUF_MAX            = 240
 DEF_MAX                 = 16
+SEG_MAX                 = 24    ; overlay segments per program
 FILENAME_MAX            = 31
 .if TEXT_EMITTER
 LINE_MAX                = 400   ; checked build: tables extend past $c000
@@ -297,6 +298,7 @@ _main_clr_hi:                   ; the zero-init state it expects
         sta bank_used
         sta gfx_used
         sta def_count
+        sta segmented
         lda #>RT_PROGBASE
         sta prog_base_hi
         jsr reset_emit_counters
@@ -340,7 +342,13 @@ _main_clr_hi:                   ; the zero-init state it expects
         jsr run_size_pass
         lda compile_error
         bne _main_compile_failed
-        jsr report_size_pass
+        jsr seg_decide          ; over the window? enter segmented
+        lda segmented           ; mode and re-run the size pass with
+        beq +                   ; the real base and recorded cuts
+        jsr run_size_pass
+        lda compile_error
+        bne _main_compile_failed
++       jsr report_size_pass
         lda compile_error       ; the size report enforces the window
         bne _main_compile_failed
 
@@ -602,6 +610,7 @@ reset_emit_counters:
         sta for_sp
         sta do_sp
         sta if_sp
+        sta size_ovf
         jsr lea_rst
         sta pending_kind
         sta const_state
@@ -639,7 +648,13 @@ run_size_pass:
         lda prog_base_hi
         sta bin_pc+1
         jsr emit_generated_header
-        jsr init_source_reader
+        lda segmented           ; pass B: code sizes from the segment
+        beq +                   ; base, matching the final layout
+        lda #0
+        sta bin_pc
+        lda seg_base_page
+        sta bin_pc+1
++       jsr init_source_reader
         jsr compile_program
         lda compile_error
         bne _run_size_pass_done
@@ -660,8 +675,14 @@ _run_size_pass_done:
         sta bin_size_end
         lda bin_pc+1
         sta bin_size_end+1
-        lda seg_count           ; preserve the overlay plan across the
+        lda seg_count           ; preserve pass results across the
         sta seg_plan_result     ; trailing counter reset
+        lda size_ovf
+        sta seg_ovf_result
+        lda for_label_next      ; the tail-first emission replays the
+        sta seg_snap_for        ; FOR/DO storage totals
+        lda do_label_next
+        sta seg_snap_do
         lda #BK_TEXT
         sta backend_mode
         jsr reset_emit_counters
@@ -978,6 +999,44 @@ _copy_runtime_fail:
         sec
         rts
 
+; decide segmentation after the plain size pass: over the cap and
+; not gated -> segmented=1, segbase fixed, per-pass state snapshotted
+seg_decide:
+        lda #0
+        sta segmented
+        ldx #$d0                ; cap: graphics programs stop at $c000
+        lda gfx_used
+        beq +
+        ldx #$c0
++       stx seg_cap_hi
+        lda seg_ovf_result      ; wrapped $ffff: definitely over
+        bne _sgd_over
+        lda bin_size_end+1      ; fits? nothing to do
+        cmp seg_cap_hi
+        bcc _sgd_done
+        bne _sgd_over
+        lda bin_size_end
+        beq _sgd_done
+_sgd_over:
+        lda fgoto_used          ; gated constructs cannot segment yet;
+        ora trap_used           ; report_size_pass will halt with the
+        ora def_count           ; gate message
+        bne _sgd_done
+        clc                     ; segbase = page after progbase +
+        lda seg_art_lo          ; artifacts + $200 trampoline reserve
+        adc #$ff                ; (round artifacts up to a page)
+        lda seg_art_hi
+        adc prog_base_hi
+        clc
+        adc #2
+        sta seg_base_page
+        lda #0
+        sta seg_cut_n
+        lda #1
+        sta segmented
+_sgd_done:
+        rts
+
 report_size_pass:
         lda backend_error
         beq +
@@ -1009,7 +1068,11 @@ report_size_pass:
         ; .cerror only protects PC-side links, and an on-device
         ; compile must not silently write an image that runs into
         ; the i/o space (or the $c000 screen codes in gfx programs)
-        ldx #$d0
+        lda segmented           ; segmented pass B always lands here:
+        bne _rsp_over           ; per-segment sizes are enforced by
+        lda seg_ovf_result      ; a wrapped pc is over any cap
+        bne _rsp_over
+        ldx #$d0                ; the recorded cuts, not the final pc
         lda gfx_used
         beq +
         ldx #$c0
@@ -1021,6 +1084,20 @@ report_size_pass:
         lda bin_pc              ; exactly at the cap is still legal
         beq _rsp_fits
 _rsp_over:
+        lda segmented
+        beq _rsp_plain_over
+        lda #<msg_overlay_plan  ; segmented pass B: the plan is real
+        ldy #>msg_overlay_plan  ; (cut lines recorded); emission is
+        jsr screen_zstr         ; the next milestone
+        ldx seg_cut_n
+        inx
+        txa
+        jsr out_hex_byte
+        lda #<msg_overlay_todo
+        ldy #>msg_overlay_todo
+        jsr screen_zstr
+        bra _rsp_mark2
+_rsp_plain_over:
         lda #<msg_error_too_large
         ldy #>msg_error_too_large
         jsr screen_zstr
@@ -1060,6 +1137,7 @@ _rsp_over:
         ldy #>msg_overlay_gate
         jsr screen_zstr
 _rsp_gates_ok:
+_rsp_mark2:
         lda #1
         sta compile_error
         inc error_count
@@ -11303,6 +11381,8 @@ _emit_data_label_done:
 ; milestone 1: the plan is reported when a program exceeds the
 ; window; emission is unchanged. See docs/overlays.md.
 seg_plan_line:
+        lda segmented
+        bne _spl_active
         lda seg_base_hi         ; first line: open segment 0, capture
         bne _spl_run            ; the window (gfx cap $c000 else $d000,
         lda #$5a                ; minus progbase + resident allowance)
@@ -11341,6 +11421,37 @@ _spl_elig:
         lda #1
         sta seg_has_elig
 _spl_done:
+        rts
+
+; segmented pass B: cut eagerly at an eligible line boundary once the
+; running pc is within the slack zone below the cap; record the cut
+; line number so the emit passes reproduce it exactly
+_spl_active:
+        sec
+        lda seg_cap_hi
+        sbc #$06                ; slack: cut when within ~1.5KB of the
+        cmp bin_pc+1            ; cap (largest line emission fits)
+        bcs _spl_done           ; comfortably below: keep going
+        lda for_sp
+        ora do_sp
+        ora begin_sp
+        bne _spl_actdone        ; not eligible here; hope for the next
+        ldx seg_cut_n           ; record the cut at THIS line
+        cpx #SEG_MAX
+        bcs _spl_actdone
+        txa
+        asl a
+        tax
+        lda line_no_lo
+        sta seg_cut_line,x
+        lda line_no_hi
+        sta seg_cut_line+1,x
+        inc seg_cut_n
+        lda #0                  ; pc restarts at segbase for the next
+        sta bin_pc              ; segment (this line opens it)
+        lda seg_base_page
+        sta bin_pc+1
+_spl_actdone:
         rts
 
 emit_line_label:
@@ -13607,6 +13718,8 @@ bin_add_pc:
         sta bin_pc
         bcc +
         inc bin_pc+1
+        bne +
+        inc size_ovf            ; pc wrapped $ffff: program is huge
 +       rts
 
 bin_fin_emit:
@@ -13677,6 +13790,8 @@ bin_write_byte:
         inc bin_pc
         bne +
         inc bin_pc+1
+        bne +
+        inc size_ovf
 +       rts
 
 ; A = label table id, X/Y = label id lo/hi. With no patch pending this is a
@@ -13939,6 +14054,9 @@ msg_overlay_plan:
 msg_overlay_base:
         .text " segs, base $"
         .byte 0
+msg_overlay_todo:
+        .text " segs planned; emission pending"
+        .byte 13, 0
 msg_overlay_gate:
         .text "overlay: fgoto/trap/def fn not supported yet"
         .byte 13, 0
@@ -17558,6 +17676,15 @@ seg_count:    .byte 0
 seg_plan_result: .byte 0
 seg_art_lo:   .byte 0
 seg_art_hi:   .byte 0
+segmented:    .byte 0
+seg_cap_hi:   .byte 0
+seg_base_page: .byte 0
+seg_snap_for: .byte 0
+seg_snap_do:  .byte 0
+seg_cut_n:    .byte 0
+seg_cut_line: .fill SEG_MAX * 2, 0
+size_ovf:     .byte 0
+seg_ovf_result: .byte 0
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_lo:
