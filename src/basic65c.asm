@@ -645,6 +645,9 @@ run_size_pass:
 +       lda snd_used
         beq +
         ldx #3
++       lda segmented           ; segmented programs carry the overlay
+        beq +                   ; section: full runtime, level 4
+        ldx #4
 +       stx rt_level
         lda rtpbtab,x
         sta prog_base_hi
@@ -652,7 +655,17 @@ run_size_pass:
         sta rt_trunc
         lda rttrunchi,x
         sta rt_trunc+1
-        lda #0
+        lda segmented           ; segbase = level-4 progbase +
+        beq +                   ; artifacts (page-rounded) + $200
+        clc                     ; trampoline reserve
+        lda seg_art_lo
+        adc #$ff
+        lda seg_art_hi
+        adc prog_base_hi
+        clc
+        adc #2
+        sta seg_base_page
++       lda #0
         sta bin_pc
         lda prog_base_hi
         sta bin_pc+1
@@ -1150,14 +1163,6 @@ _sgd_over:
         ora trap_used           ; report_size_pass will halt with the
         ora def_count           ; gate message
         bne _sgd_done
-        clc                     ; segbase = page after progbase +
-        lda seg_art_lo          ; artifacts + $200 trampoline reserve
-        adc #$ff                ; (round artifacts up to a page)
-        lda seg_art_hi
-        adc prog_base_hi
-        clc
-        adc #2
-        sta seg_base_page
         lda #0
         sta seg_cut_n
         lda #1
@@ -10955,18 +10960,49 @@ _emit_header_text:
         jsr out_hex_byte
         jsr emit_tmpl
         .word out_header_post
-        lda segmented           ; segmented: start: is emitted at the
-        bne +                   ; top of segment 0 instead
+        lda segmented
+        beq _ehd_plain
+        jsr emit_tmpl           ; extended header: .byte segs, base
+        .word out_seg_hdr       ; page, .word window length
+        ldx seg_cut_n
+        inx
+        txa
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_hdr2
+        lda seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_hdr3
+        ldx gfx_used
+        beq +
+        lda #$c0
+        bra _ehd_len
++       lda #$d0
+_ehd_len:
+        sec
+        sbc seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_hdr4
+        rts
+_ehd_plain:
+        jsr emit_tmpl           ; the plain pad byte after gfxflag
+        .word out_seg_hdr0
         jsr emit_tmpl
         .word out_start_line
-+       rts
+        rts
 
 _emit_generated_header_bin:
         ; program header at progbase: start, varheapend, datastart, dataend,
         ; strroots, fltinit vectors (6 words); start label follows them
         cpx #BK_EMIT
         beq _emit_header_vectors
-        lda #16
+        ldx segmented
+        beq +
+        lda #20
+        jmp bin_add_pc
++       lda #16
         jmp bin_add_pc
 
 _emit_header_vectors:
@@ -11009,7 +11045,32 @@ _ehv_rest:
         jsr bin_write_byte
         lda gfx_used
         jsr bin_write_byte
+        lda segmented           ; flag byte doubles as "extended
+        jsr bin_write_byte      ; header follows"
+        ldx segmented
+        bne +
+        rts
++       ldx seg_cut_n           ; segment count
+        inx
+        txa
+        jsr bin_write_byte
+        lda seg_base_page       ; window base page
+        jsr bin_write_byte
+        sec                     ; window length = cap - segbase
         lda #0
+        sbc #0
+        ldx gfx_used
+        beq +
+        lda #$c0
+        bra _ehx_len
++       lda #$d0
+_ehx_len:
+        sec
+        sbc seg_base_page
+        pha
+        lda #0                  ; length lo (both page-aligned)
+        jsr bin_write_byte
+        pla
         jmp bin_write_byte
 
 emit_generated_tail:
@@ -14314,7 +14375,43 @@ out_header_post:
         .byte 13
         .text " .word linetab"
         .byte 13
-        .text " .word gfxflag"
+        .text " .byte gfxflag"
+        .byte 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hdr0:
+.if TEXT_EMITTER
+        .text " .byte 0"
+        .byte 13, 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hdr:
+.if TEXT_EMITTER
+        .text " .byte 1, $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hdr2:
+.if TEXT_EMITTER
+        .text ", $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hdr3:
+.if TEXT_EMITTER
+        .text ", $00, $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_seg_hdr4:
+.if TEXT_EMITTER
         .byte 13, 13
         .byte 0
 .else
@@ -17707,10 +17804,11 @@ rtpbtab:
         .byte >((RT_END_FIO + $00ff) & $ff00)
         .byte >((RT_END_MATH + $00ff) & $ff00)
         .byte >((RT_END_SOUND + $00ff) & $ff00)
+        .byte >((RT_END_OVL + $00ff) & $ff00)
 rttrunclo:
-        .byte <RT_END_CORE, <RT_END_FIO, <RT_END_MATH, <RT_END_SOUND
+        .byte <RT_END_CORE, <RT_END_FIO, <RT_END_MATH, <RT_END_SOUND, <RT_END_OVL
 rttrunchi:
-        .byte >RT_END_CORE, >RT_END_FIO, >RT_END_MATH, >RT_END_SOUND
+        .byte >RT_END_CORE, >RT_END_FIO, >RT_END_MATH, >RT_END_SOUND, >RT_END_OVL
 
 if_begin_taken:
         .byte 0

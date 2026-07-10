@@ -66,7 +66,7 @@ varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
 
-progbase     = $7200            ; standalone-assembly cap; generated programs compute rtpb
+progbase     = $7600            ; standalone-assembly cap; generated programs compute rtpb
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -7929,7 +7929,7 @@ rtendmath:
 
 
 .weak
-RTLEVEL = 3                     ; 0 core, 1 +fio, 2 +math, 3 +sound
+RTLEVEL = 4                     ; 0 core, 1 +fio, 2 +math, 3 +sound, 4 +overlays
 rtpb = $5400                    ; overridden by each generated OUT.ASM                    ; OUT.ASM sets 0 when the program uses no sound
 .endweak
 
@@ -10064,5 +10064,152 @@ spr_x:        .byte 0,0
 .fi
 
 rtendsound:
+
+.if RTLEVEL >= 4
+;=======================================================================================
+; Overlay section: segment swap and cross-segment control flow for
+; programs larger than the window. Segments live in attic RAM at
+; $81B0000 + seg*$8000 and DMA-swap into the window at ovl_base<<8
+; (length ovl_wlen); rtinit loads the state from the extended header.
+; seggoto/seggosub consume inline operands: .word target, .byte seg.
+;=======================================================================================
+
+; A = segment id: swap it into the window
+ovlswap:
+        sta ovl_cur
+        and #1
+        beq +
+        lda #$80
++       sta ovl_src+1           ; $8000 within the attic bank pair
+        lda ovl_cur
+        lsr a
+        clc
+        adc #$0b                ; attic $81B0000 + seg*$8000
+        sta ovl_src+2
+        lda #0
+        sta ovl_src
+        sta ovl_dst
+        lda ovl_base
+        sta ovl_dst+1
+        lda ovl_wlen
+        sta ovl_len
+        lda ovl_wlen+1
+        sta ovl_len+1
+        lda #0
+        sta $d702
+        sta $d704
+        lda #>ovl_list
+        sta $d701
+        lda #<ovl_list
+        sta $d705               ; enhanced-mode trigger
+        rts
+
+; cross-segment GOTO: jsr seggoto / .word addr / .byte seg
+seggoto:
+        pla                     ; varptr lo/hi are free scratch
+        sta varptr              ; between statements (the bank bytes
+        pla                     ; stay bank 1)
+        sta varptr+1
+        ldy #1
+        lda (varptr),y
+        sta ovl_tgt
+        iny
+        lda (varptr),y
+        sta ovl_tgt+1
+        iny
+        lda (varptr),y
+        cmp ovl_cur
+        beq +
+        jsr ovlswap
++       jmp (ovl_tgt)
+
+; cross-segment GOSUB: jsr seggosub / .word addr / .byte seg
+; frame: the callee's plain RETURN rts unwinds back here; we restore
+; the caller's segment and resume past the operands
+seggosub:
+        pla
+        sta varptr
+        pla
+        sta varptr+1
+        ldy #1
+        lda (varptr),y
+        sta ovl_tgt
+        iny
+        lda (varptr),y
+        sta ovl_tgt+1
+        iny
+        lda (varptr),y
+        sta ovl_new
+        clc
+        lda varptr              ; resume = operand pointer + 4
+        adc #4
+        sta ovl_res
+        lda varptr+1
+        adc #0
+        sta ovl_res+1
+        ldx ovl_sp
+        cpx #24                 ; 8 nested cross-segment gosubs
+        bcs _sgs_ovf
+        lda ovl_cur
+        sta ovl_stk,x
+        lda ovl_res
+        sta ovl_stk+1,x
+        lda ovl_res+1
+        sta ovl_stk+2,x
+        inx
+        inx
+        inx
+        stx ovl_sp
+        lda ovl_new
+        cmp ovl_cur
+        beq +
+        jsr ovlswap
++       jsr _sgs_call
+        ldx ovl_sp              ; callee returned: caller segment back
+        dex
+        dex
+        dex
+        stx ovl_sp
+        lda ovl_stk,x
+        cmp ovl_cur
+        beq +
+        jsr ovlswap
++       lda ovl_stk+1,x
+        sta ovl_tgt
+        lda ovl_stk+2,x
+        sta ovl_tgt+1
+        jmp (ovl_tgt)
+_sgs_call:
+        jmp (ovl_tgt)
+_sgs_ovf:
+        lda #8                  ; OUT OF MEMORY: gosub nesting
+        jmp rterror
+
+ovl_list:
+        .byte $0b               ; F018B enhanced
+        .byte $80, $81          ; source MB $81 (attic)
+        .byte $81, $00          ; dest MB $00
+        .byte $00               ; end of options
+        .byte $00               ; copy
+ovl_len:
+        .word 0
+ovl_src:
+        .byte 0, 0, 0
+ovl_dst:
+        .byte 0, 0, 0
+        .byte $00
+        .word $0000
+
+ovl_cur:   .byte 0
+ovl_sp:    .byte 0
+ovl_stk:   .fill 24, 0
+ovl_tgt:   .byte 0, 0
+ovl_res:   .byte 0, 0
+ovl_new:   .byte 0
+ovl_base:  .byte 0              ; window page (extended header)
+ovl_wlen:  .byte 0, 0           ; window length
+.fi
+
+rtendovl:
 
         .cerror * > progbase, "runtime overflows into program area at progbase"

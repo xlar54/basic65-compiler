@@ -3,6 +3,7 @@ RT_END_CORE = $55be
 RT_END_FIO = $5a2a
 RT_END_MATH = $5dd3
 RT_END_SOUND = $71ff
+RT_END_OVL = $7317
 RT_PROGBASE = $7200
 
 RT_PBHI = $4b32
@@ -1377,6 +1378,21 @@ bt_out_seg_fill:
 bt_out_seg_fill2:
         .byte 0, 0
 
+bt_out_seg_hdr:
+        .byte 0, 0
+
+bt_out_seg_hdr0:
+        .byte 0, 0
+
+bt_out_seg_hdr2:
+        .byte 0, 0
+
+bt_out_seg_hdr3:
+        .byte 0, 0
+
+bt_out_seg_hdr4:
+        .byte 0, 0
+
 bt_out_seg_here:
         .byte 0, 0
 
@@ -1866,6 +1882,11 @@ bt_map:
         .word out_save_rtptr, bt_out_save_rtptr
         .word out_seg_fill, bt_out_seg_fill
         .word out_seg_fill2, bt_out_seg_fill2
+        .word out_seg_hdr, bt_out_seg_hdr
+        .word out_seg_hdr0, bt_out_seg_hdr0
+        .word out_seg_hdr2, bt_out_seg_hdr2
+        .word out_seg_hdr3, bt_out_seg_hdr3
+        .word out_seg_hdr4, bt_out_seg_hdr4
         .word out_seg_here, bt_out_seg_here
         .word out_seg_log, bt_out_seg_log
         .word out_seg_log2, bt_out_seg_log2
