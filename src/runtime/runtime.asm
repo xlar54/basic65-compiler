@@ -5945,6 +5945,8 @@ cone:
 ; 1/ln(10) and the PAL jiffy rate, packed MFLP
 c1oln10:
         .byte $7f, $5e, $5b, $d8, $a9
+c1oln2:
+        .byte $81, $38, $aa, $3b, $29
 c65536:
         .byte $91, $00, $00, $00, $00
 cfifty:
@@ -7910,6 +7912,14 @@ log10f:
         jsr logf
         lda #<c1oln10
         ldy #>c1oln10
+        jsr fldca
+        jmp fmul
+
+; LOG2(x) = ln(x) * (1/ln 2)
+log2f:
+        jsr logf
+        lda #<c1oln2
+        ldy #>c1oln2
         jsr fldca
         jmp fmul
 

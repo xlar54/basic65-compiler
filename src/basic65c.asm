@@ -1767,7 +1767,10 @@ _scan_ext_ce:
         stx gfx_used
         bra _scan_ext_skip
 +       cmp #$08                ; LOG10
+        beq _scan_ext_math
+        cmp #$16                ; LOG2
         bne +
+_scan_ext_math:
         ldx #1
         stx math_used
         bra _scan_ext_skip
@@ -5339,6 +5342,8 @@ _factor_ext_ce:
         beq _factor_rplay
         cmp #$08                ; LOG10
         beq _factor_log10
+        cmp #$16                ; LOG2
+        beq _factor_log2
         cmp #$0b                ; MOD
         beq _factor_mod
         cmp #$02                ; POT
@@ -5382,6 +5387,11 @@ _factor_wpeek:
 _factor_log10:
         lda #<out_jsr_log10f
         ldy #>out_jsr_log10f
+        jmp _factor_ffn_arg
+
+_factor_log2:
+        lda #<out_jsr_log2f
+        ldy #>out_jsr_log2f
         jmp _factor_ffn_arg
 
 _factor_mod:
@@ -14534,6 +14544,13 @@ out_jsr_log10f:
 .else
         .byte 0
 .fi
+out_jsr_log2f:
+.if TEXT_EMITTER
+        .text "        jsr log2f"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
 out_jsr_modseta:
 .if TEXT_EMITTER
         .text "        jsr modseta"
@@ -17312,12 +17329,6 @@ flt_lit_count:
 fltinit_addr:
         .word 0
 FLT_LIT_MAX = 64
-flt_lit_sid:
-        .fill FLT_LIT_MAX, 0
-flt_lit_addr_lo:
-        .fill FLT_LIT_MAX, 0
-flt_lit_addr_hi:
-        .fill FLT_LIT_MAX, 0
 datastart_addr:
         .word 0
 dataend_addr:
@@ -17425,6 +17436,12 @@ def_stash_lo:
         .fill DEF_MAX, 0
 def_stash_hi:
         .fill DEF_MAX, 0
+flt_lit_sid:
+        .fill FLT_LIT_MAX, 0
+flt_lit_addr_lo:
+        .fill FLT_LIT_MAX, 0
+flt_lit_addr_hi:
+        .fill FLT_LIT_MAX, 0
 string_addr_lo:  .fill STRING_MAX, 0
 string_addr_hi:  .fill STRING_MAX, 0
 data_line_addr_lo: .fill DATA_LINE_MAX, 0

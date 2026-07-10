@@ -126,6 +126,17 @@ foreach ($item in $Path) {
                 $i += 6
                 continue
             }
+            # LOG2: petcat greedily matches LOG inside LOG2, emitting
+            # the LOG token ($BC) + literal '2'; require the '(' so a
+            # malformed "LOG 2..." never rewrites
+            if ($i + 2 -lt $lineEnd -and $b -eq 0xbc -and
+                $bytes[$i+1] -eq 0x32 -and $bytes[$i+2] -eq 0x28) {
+                $bytes[$i] = 0xce
+                $bytes[$i+1] = 0x16
+                $changed++
+                $i++
+                continue
+            }
             # DOT: petcat greedily matches the DO loop keyword inside
             # DOT, emitting the DO token ($EB) + literal 'T'. A real DO
             # is never immediately followed by 'T' with no separator,
