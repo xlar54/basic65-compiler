@@ -98,8 +98,11 @@ _ssm_text40:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         jmp _ssm_finish_text
 
@@ -130,8 +133,11 @@ _ssm_text80:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         jmp _ssm_finish_text
 
@@ -168,8 +174,11 @@ _ssm_bitmap40:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         jmp _ssm_finish_bitmap
 
@@ -207,8 +216,11 @@ _ssm_bitmap80:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         jmp _ssm_finish_bitmap
 
@@ -238,8 +250,11 @@ _ssm_ncm40:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         ; Enable FCLRHI (bit 2) for FCM on screen codes 256+
         ; Enable CHR16 (bit 0) for 16-pixel wide characters
@@ -277,8 +292,11 @@ _ssm_ncm80:
         sta VIC4_TEXTXPOS
         lda #0
         sta VIC4_TEXTXPOS+1
-        lda #$69
-        sta VIC4_TEXTYPOS
+        lda VIC4_TBDRPOS        ; char raster start = top border edge
+        sta VIC4_TEXTYPOS       ; ($69 hardcoded left a 1-line gap that
+                                ; rendered the background color: a black
+                                ; stripe over graphics; the ROM keeps
+                                ; TEXTYPOS = TBDRPOS, PAL and NTSC)
 
         ; Enable FCLRHI (bit 2) for FCM on screen codes 256+
         ; Enable CHR16 (bit 0) for 16-pixel wide characters

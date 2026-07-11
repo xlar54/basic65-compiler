@@ -42,6 +42,7 @@ VIC4_COLPTRLSB          = $D064
 VIC4_COLPTRMSB          = $D065
 VIC4_TEXTXPOS           = $D04C
 VIC4_TEXTYPOS           = $D04E
+VIC4_TBDRPOS            = $D048
 VIC4_CHRCOUNT           = $D05E
 VIC4_DISPROWS           = $D07B
 
