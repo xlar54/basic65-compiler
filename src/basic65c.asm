@@ -678,7 +678,10 @@ run_size_pass:
         lda compile_error
         bne _run_size_pass_done
         lda segmented
-        bne _rsp_seg_end        ; segmented: artifacts already sized
+        beq +
+        jsr seg_emit_close      ; the last segment's closing jmp rtexit
+        bra _rsp_seg_end        ; (artifacts were sized up front)
++
         lda bin_pc              ; artifact block = everything the tail
         sta seg_art_lo          ; emits (pool, DATA, roots, line tab,
         lda bin_pc+1            ; floats, FOR slots)
@@ -736,8 +739,10 @@ emit_binary_output:
 +       jsr init_source_reader
         jsr compile_program
         lda segmented
-        bne _ebo_seg_done       ; artifacts were emitted up front
-        jsr emit_generated_tail
+        beq +
+        jsr seg_emit_close      ; closing jmp rtexit (artifacts were
+        bra _ebo_seg_done       ; emitted up front)
++       jsr emit_generated_tail
 _ebo_seg_done:
         lda #BK_TEXT
         sta backend_mode
@@ -1031,6 +1036,11 @@ _copy_runtime_fail:
 ; the sizing snapshot), zero fill up to the segment base, then open
 ; segment 0 (text: .logical + start:)
 seg_emit_resident:
+        ldx backend_mode        ; text: the start label opens the stub
+        bne +
+        jsr emit_tmpl
+        .word out_start_line
++       jsr seg_emit_stub
         lda seg_snap_for
         sta for_label_next
         lda seg_snap_do
@@ -1047,10 +1057,8 @@ seg_emit_resident:
         jsr out_hex_byte
         jsr emit_tmpl
         .word out_seg_fill2
-        jsr seg_open_text
-        jsr emit_tmpl
-        .word out_start_line
-        rts
+        jsr seg_open_text       ; segment 0 opens unlabelled: the stub
+        rts                     ; jumps to $XX00 directly
 _ser_fillbin:
         lda bin_pc              ; zero (or size) up to segbase
         bne _ser_fb_go
@@ -1069,7 +1077,63 @@ _ser_fb_wr:
         jsr bin_write_byte
         bra _ser_fillbin
 _ser_fb_done:
+        ldx backend_mode        ; native emit: segment code goes to
+        cpx #BK_EMIT            ; its own file from here (OUT.S00)
+        bne +
+        lda #0
+        jsr seg_next_file
++       rts
+
+; the segmented startup: set the overlay state from constants the
+; compiler knows, load the segment files, run segment 0
+seg_emit_stub:
+        lda seg_base_page
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_sta_ovlbase
+        ldx gfx_used            ; window length hi = cap - segbase
+        beq +
+        lda #$c0
+        bra _ses_len
++       lda #$d0
+_ses_len:
+        sec
+        sbc seg_base_page
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_sta_ovlwhi
+        lda #0
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_sta_ovlwlo
+        ldx seg_cut_n
+        inx
+        txa
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_sta_ovlnseg
+        jsr emit_tmpl
+        .word out_jsr_ovlinit
+        ldx backend_mode
+        bne _ses_bin
+        jsr emit_tmpl           ; jmp $XX00 (segment 0's first line)
+        .word out_seg_jmp
+        lda seg_base_page
+        jsr out_hex_byte
+        jsr emit_tmpl
+        .word out_seg_log2
         rts
+_ses_bin:
+        cpx #BK_EMIT
+        beq +
+        lda #3
+        jmp bin_add_pc
++       lda #$4c                ; jmp abs
+        jsr bin_write_byte
+        lda #0
+        jsr bin_write_byte
+        lda seg_base_page
+        jmp bin_write_byte
 
 ; text: .logical $XX00 opening a segment
 seg_open_text:
@@ -1092,11 +1156,74 @@ seg_cut_here:
         .word out_seg_here
         jmp seg_open_text
 _sch_bin:
-        lda #0                  ; native: the next segment simply
-        sta bin_pc              ; restarts at segbase (M4 splits the
-        lda seg_base_page       ; output file here)
+        lda backend_mode
+        cmp #BK_EMIT
+        bne +
+        lda seg_cut_ix          ; new segment -> its own file
+        jsr seg_next_file
++       lda #0
+        sta bin_pc
+        lda seg_base_page
         sta bin_pc+1
         rts
+
+; A = segment id: close the current output file and open OUT.S0<id>
+; (scratch first, same discipline as the main outputs)
+seg_next_file:
+        pha
+        jsr CC_CLRCHN
+        lda #LFN_OUT
+        jsr CC_CLOSE
+        pla
+        ldx #'0'                ; digits
+        cmp #20
+        bcc +
+        sbc #20
+        inx
+        inx
+        bra _snf_dig
++       cmp #10
+        bcc _snf_dig
+        sbc #10
+        inx
+_snf_dig:
+        stx seg_fname+7
+        stx seg_sname+8
+        clc
+        adc #'0'
+        sta seg_fname+8
+        sta seg_sname+9
+        lda #<seg_sname
+        ldy #>seg_sname
+        ldx #seg_sname_end - seg_sname
+        jsr disk_command
+        lda #LFN_OUT
+        ldx #DEVICE_DISK
+        ldy #1
+        jsr CC_SETLFS
+        lda #0
+        ldx #0
+        jsr CC_SETBNK
+        lda #seg_fname_end - seg_fname
+        ldx #<seg_fname
+        ldy #>seg_fname
+        jsr CC_SETNAM
+        jsr CC_OPEN
+        bcs _snf_fail
+        jsr CC_READST
+        bne _snf_fail
+        jmp select_output
+_snf_fail:
+        lda #6                  ; segment file open failed
+        sta backend_error
+        rts
+
+seg_fname:
+        .text "0:out.s00,p,w"
+seg_fname_end:
+seg_sname:
+        .text "s0:out.s00"
+seg_sname_end:
 
 ; jsr seggoto / .word segbase / .byte new-segment: every segment's
 ; first line sits exactly at segbase, so the hop is all constants
@@ -1134,8 +1261,12 @@ emit_seg_guard_nt:
         .word out_size_guard_gfx
         rts
 
-; end of the last segment (text): guard + .here
+; end of the last segment: falling off the last line must exit the
+; program (the tail body with its jmp rtexit lives in the resident
+; block, not here), then text closes with guard + .here
 seg_emit_close:
+        jsr emit_tmpl
+        .word out_jmp_rtexit
         ldx backend_mode
         bne _sec_done
         jsr emit_seg_guard_nt
@@ -11040,9 +11171,9 @@ _emit_header_vectors:
         jsr bin_write_byte
         bra _ehv_rest
 _ehv_seg:
-        lda #$00                ; segmented: start = segment 0 (the
-        jsr bin_write_byte      ; M4 bootstrap will take this over)
-        lda seg_base_page
+        lda #$14                ; segmented: start = the startup stub
+        jsr bin_write_byte      ; right after this 20-byte header
+        lda prog_base_hi
         jsr bin_write_byte
 _ehv_rest:
         lda var_heap_next_lo
@@ -14496,6 +14627,48 @@ out_seg_hdr3:
 out_seg_hdr4:
 .if TEXT_EMITTER
         .byte 13, 13
+        .byte 0
+.else
+        .byte 0
+.fi
+out_sta_ovlbase:
+.if TEXT_EMITTER
+        .text " sta ovlbase"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_ovlwhi:
+.if TEXT_EMITTER
+        .text " sta ovlwlen+1"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_ovlwlo:
+.if TEXT_EMITTER
+        .text " sta ovlwlen"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_ovlnseg:
+.if TEXT_EMITTER
+        .text " sta ovlnseg"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_ovlinit:
+.if TEXT_EMITTER
+        .text " jsr ovlinit"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_seg_jmp:
+.if TEXT_EMITTER
+        .text " jmp $"
         .byte 0
 .else
         .byte 0

@@ -3,7 +3,7 @@ RT_END_CORE = $55be
 RT_END_FIO = $5a2a
 RT_END_MATH = $5dd3
 RT_END_SOUND = $71ff
-RT_END_OVL = $7317
+RT_END_OVL = $7523
 RT_PROGBASE = $7200
 
 RT_PBHI = $4b32
@@ -792,6 +792,10 @@ bt_out_jsr_mul16:
         .byte 0, 3
         .byte $20, $bb, $30
 
+bt_out_jsr_ovlinit:
+        .byte 0, 3
+        .byte $20, $f5, $72
+
 bt_out_jsr_peekbk:
         .byte 0, 3
         .byte $20, $98, $3d
@@ -1403,6 +1407,9 @@ bt_out_seg_here:
 bt_out_seg_hop2:
         .byte 0, 0
 
+bt_out_seg_jmp:
+        .byte 0, 0
+
 bt_out_seg_log:
         .byte 0, 0
 
@@ -1469,6 +1476,22 @@ bt_out_sta_lhshi:
 bt_out_sta_lhslo:
         .byte 0, 3
         .byte $8d, $21, $4c
+
+bt_out_sta_ovlbase:
+        .byte 0, 3
+        .byte $8d, $1b, $74
+
+bt_out_sta_ovlnseg:
+        .byte 0, 3
+        .byte $8d, $fb, $73
+
+bt_out_sta_ovlwhi:
+        .byte 0, 3
+        .byte $8d, $1d, $74
+
+bt_out_sta_ovlwlo:
+        .byte 0, 3
+        .byte $8d, $1c, $74
 
 bt_out_sta_playarg:
         .byte 0, 3
@@ -1745,6 +1768,7 @@ bt_map:
         .word out_jsr_mousety, bt_out_jsr_mousety
         .word out_jsr_movsprgo, bt_out_jsr_movsprgo
         .word out_jsr_mul16, bt_out_jsr_mul16
+        .word out_jsr_ovlinit, bt_out_jsr_ovlinit
         .word out_jsr_peekbk, bt_out_jsr_peekbk
         .word out_jsr_penset, bt_out_jsr_penset
         .word out_jsr_pif, bt_out_jsr_pif
@@ -1900,6 +1924,7 @@ bt_map:
         .word out_seg_hdr4, bt_out_seg_hdr4
         .word out_seg_here, bt_out_seg_here
         .word out_seg_hop2, bt_out_seg_hop2
+        .word out_seg_jmp, bt_out_seg_jmp
         .word out_seg_log, bt_out_seg_log
         .word out_seg_log2, bt_out_seg_log2
         .word out_seg_wordpre, bt_out_seg_wordpre
@@ -1918,6 +1943,10 @@ bt_map:
         .word out_sta_label, bt_out_sta_label
         .word out_sta_lhshi, bt_out_sta_lhshi
         .word out_sta_lhslo, bt_out_sta_lhslo
+        .word out_sta_ovlbase, bt_out_sta_ovlbase
+        .word out_sta_ovlnseg, bt_out_sta_ovlnseg
+        .word out_sta_ovlwhi, bt_out_sta_ovlwhi
+        .word out_sta_ovlwlo, bt_out_sta_ovlwlo
         .word out_sta_playarg, bt_out_sta_playarg
         .word out_sta_rtptr, bt_out_sta_rtptr
         .word out_sta_rtptr_1, bt_out_sta_rtptr_1

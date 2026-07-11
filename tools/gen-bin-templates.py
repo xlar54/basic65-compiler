@@ -107,7 +107,7 @@ COMMENTS = {
     "out_start_line", "out_seg_here", "out_seg_log", "out_seg_log2",
     "out_seg_fill", "out_seg_fill2",
     "out_seg_hdr0", "out_seg_hdr", "out_seg_hdr2", "out_seg_hdr3",
-    "out_seg_hdr4", "out_seg_wordpre", "out_seg_hop2",
+    "out_seg_hdr4", "out_seg_wordpre", "out_seg_hop2", "out_seg_jmp",
 }
 
 

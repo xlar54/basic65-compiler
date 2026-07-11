@@ -10069,8 +10069,8 @@ rtendsound:
 ;=======================================================================================
 ; Overlay section: segment swap and cross-segment control flow for
 ; programs larger than the window. Segments live in attic RAM at
-; $81B0000 + seg*$8000 and DMA-swap into the window at ovl_base<<8
-; (length ovl_wlen); rtinit loads the state from the extended header.
+; $81B0000 + seg*$8000 and DMA-swap into the window at ovlbase<<8
+; (length ovlwlen); rtinit loads the state from the extended header.
 ; seggoto/seggosub consume inline operands: .word target, .byte seg.
 ;=======================================================================================
 
@@ -10089,11 +10089,11 @@ ovlswap:
         lda #0
         sta ovl_src
         sta ovl_dst
-        lda ovl_base
+        lda ovlbase
         sta ovl_dst+1
-        lda ovl_wlen
+        lda ovlwlen
         sta ovl_len
-        lda ovl_wlen+1
+        lda ovlwlen+1
         sta ovl_len+1
         lda #0
         sta $d702
@@ -10200,14 +10200,158 @@ ovl_dst:
         .byte $00
         .word $0000
 
+; load OUT.S00..OUT.S0(n-1) into attic ($81B0000 + k*$8000), then
+; swap segment 0 in. Reads go through BOOT's channel (lfn 4, raw
+; secondary 4, kernalchrin2) into a page buffer, so no zero-page
+; pointer is ever live across a KERNAL call (the C65 KERNAL owns
+; $f7-$fe); each full page is far-copied to the attic afterwards.
+; The emitted startup stub sets ovlbase/ovlwlen/ovlnseg first.
+ovlinit:
+        lda #0
+        sta ovl_k
+_ovi_loop:
+        lda ovl_k
+        cmp ovlnseg
+        bcc _ovi_file
+        jmp _ovi_go
+_ovi_file:
+        ldx #'0'                ; filename digits (segments <= 24)
+        cmp #20
+        bcc +
+        sbc #20
+        inx
+        inx
+        bra _ovi_dig
++       cmp #10
+        bcc _ovi_dig
+        sbc #10
+        inx
+_ovi_dig:
+        stx _ovi_name+5
+        clc
+        adc #'0'
+        sta _ovi_name+6
+        lda #0                  ; attic cursor: $81B0000 + k*$8000
+        sta ovl_fdst
+        lda ovl_k
+        and #1
+        beq +
+        lda #$80
++       sta ovl_fdst+1
+        lda ovl_k
+        lsr a
+        clc
+        adc #$1b
+        sta ovl_fdst+2
+        lda #$08
+        sta ovl_fdst+3
+        jsr fio_rom_on
+        lda #4
+        jsr kernalclose
+        lda #0
+        ldx #0
+        jsr kernalsetbnk
+        lda #7
+        ldx #<_ovi_name
+        ldy #>_ovi_name
+        jsr kernalsetnam
+        lda #4
+        ldx #8
+        ldy #4                  ; raw file read (BOOT's channel)
+        jsr kernalsetlfs
+        jsr kernalopen
+        bcs _ovi_err
+        ldx #4
+        jsr kernalchkin
+        bcs _ovi_err
+        jsr kernalchrin2        ; probe the first byte: a missing file
+        sta ovlfbuf             ; shows as instant EOF/error
+        jsr kernalreadst
+        and #$82
+        bne _ovi_err
+        ldx #1
+_ovi_rd:
+        jsr kernalreadst
+        bne _ovi_tail
+        jsr kernalchrin2
+        sta ovlfbuf,x
+        inx
+        bne _ovi_rd
+        jsr _ovi_flush          ; full page (X=0 -> 256 bytes)
+        ldx #0
+        bra _ovi_rd
+_ovi_tail:
+        cpx #0                  ; partial page at EOF (X=0: none)
+        beq _ovi_close
+        jsr _ovi_flush
+_ovi_close:
+        jsr kernalclrchn
+        lda #4
+        jsr kernalclose
+        jsr fio_rom_off
+        inc ovl_k
+        jmp _ovi_loop
+_ovi_go:
+        lda #0                  ; runtime far-pointer convention back
+        sta varptr+3            ; (bank 1 heap), then segment 0 into
+        lda #1                  ; the window
+        sta varptr+2
+        lda #0
+        jmp ovlswap
+_ovi_err:
+        lda #4                  ; FILE NOT FOUND
+        jmp rterror
+
+; X bytes of ovlfbuf (0 = 256) -> attic at ovl_fdst, cursor bumped.
+; varptr is only borrowed between KERNAL calls, never across them.
+_ovi_flush:
+        stx ovl_fcnt
+        ldx #3
+-       lda ovl_fdst,x
+        sta varptr,x
+        dex
+        bpl -
+        ldx #0
+        ldz #0
+_ovf_cp:
+        lda ovlfbuf,x
+        sta [varptr],z
+        inz
+        inx
+        cpx ovl_fcnt
+        bne _ovf_cp
+        ldz #0
+        lda ovl_fcnt
+        beq _ovf_page           ; 256: high byte bumps, low unchanged
+        clc
+        adc ovl_fdst
+        sta ovl_fdst
+        bcc _ovf_done
+_ovf_page:
+        inc ovl_fdst+1
+        bne _ovf_done
+        inc ovl_fdst+2
+_ovf_done:
+        rts
+_ovi_name:
+        .text "OUT.S00"        ; uppercase = PETSCII letter codes under
+                               ; .enc none, matching the directory bytes
+                               ; the compiler's SETNAM wrote (same trick
+                               ; as _gfx_name)
+
+ovl_k:     .byte 0
+ovlnseg:  .byte 0
 ovl_cur:   .byte 0
 ovl_sp:    .byte 0
 ovl_stk:   .fill 24, 0
 ovl_tgt:   .byte 0, 0
 ovl_res:   .byte 0, 0
 ovl_new:   .byte 0
-ovl_base:  .byte 0              ; window page (extended header)
-ovl_wlen:  .byte 0, 0           ; window length
+ovlbase:  .byte 0              ; window page (extended header)
+ovlwlen:  .byte 0, 0           ; window length
+ovl_fdst: .byte 0, 0, 0, 0     ; loader attic cursor
+ovl_fcnt: .byte 0              ; loader flush count (0 = 256)
+ovlfbuf:  .fill 256, 0         ; loader page buffer
 .fi
 
 rtendovl:
