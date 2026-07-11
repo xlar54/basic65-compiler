@@ -12966,6 +12966,12 @@ _emit_empty_cmp_fail:
         rts
 
 emit_store_a_to_expr_bool:
+        lda #0                  ; the comparison result is an INT in
+        sta expr_type           ; expr: a stale float mark here made
+                                ; AND/OR/NOT emit qint, which reads the
+                                ; FAC and destroyed the result (string
+                                ; compares inside compound conditions
+                                ; passed or failed on leftover FAC state)
         jsr emit_tmpl
         .word out_sta_exprlo
         jsr emit_tmpl
