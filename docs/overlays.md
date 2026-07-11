@@ -82,13 +82,35 @@ emitted FGOTO table format is extended only in segmented mode).
 - **ON GOTO/GOSUB:** each arm is an ordinary line reference and takes
   the same-seg/cross-seg form independently.
 
+## Cross-segment control flow (working)
+
+Every line-number transfer in a segmented program (GOTO, GOSUB, THEN,
+ELSE, ON..GOTO/GOSUB, RESUME line) emits `jsr seglgoto`/`jsr
+seglgosub` with the **line number** as the inline operand. The runtime
+resolves address + segment through the emitted line table — segmented
+tables always exist and carry 5-byte records (line, addr, segment) —
+and swaps segments when needed; `seglgosub` shares `seggosub`'s frame
+so the callee's plain RETURN restores the caller's segment. Same-
+segment transfers use the identical path: one deterministic size plan,
+no per-reference classification (a sticky-bit optimizer for hot
+same-segment jumps is sketched in-tree, inert). FGOTO/FGOSUB dispatch
+through core pointers (`fgdptr`/`fgsptr`) that the startup stub
+repoints at the overlay-aware forms, keeping core runtime bytes
+level-invariant for the byte-diff discipline.
+
+Hazard notes earned during bring-up: never probe the DOS status
+channel while an output file is open (closing the command channel
+closes every file on the unit), and the segment base must add the
+segmented line-table growth to the plain-pass artifact measurement.
+
 ## v1 restrictions (loud compile errors, lifted later)
 
-- FGOTO/FGOSUB in a segmented program (needs the seg-aware runtime
-  table walker).
-- TRAP in a segmented program (the trap vector must learn segments).
+- TRAP in a segmented program (the trap vector must learn segments;
+  same line-table resolution as seglgoto would lift it).
 - DEF FN in a segmented program (FN bodies are non-line labels; the
   clean lift is forcing DEF bodies into the resident block).
+- COLLISION with a handler line (the armed handler address is jumped
+  between statements regardless of the current segment).
 
 ## Runtime cost: zero bytes
 
