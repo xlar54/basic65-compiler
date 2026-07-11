@@ -1,11 +1,14 @@
 # BASIC65C
 
 A MEGA65-native BASIC65 compiler. It runs on the MEGA65 itself, reads
-a tokenized BASIC PRG from disk, and produces both 64tass-compatible
-45GS02 assembly (`OUT.ASM`) and a ready-to-run machine-language
-program (`OUT.PRG`) — the native binary is generated without any
-assembler and is byte-identical to what 64tass produces from the
-emitted source, which the test harness verifies on every run.
+a tokenized BASIC PRG from disk, and produces a ready-to-run
+machine-language program named exactly what you choose (plus
+`<output>.NN` overlay segments for programs larger than one memory
+window, and optional 64tass-compatible 45GS02 assembly as
+`<output>.ASM` for inspection or PC-side verification).
+The native binary is generated without any assembler and is
+byte-identical to what 64tass produces from the emitted source, which
+the test harness verifies on every run.
 
 Compiled programs stand on their own: a self-contained runtime
 (integer and decimal-float math, strings with a compacting GC,
@@ -26,9 +29,13 @@ builds `target\basic65c.d81`. Boot it and:
 RUN"BASIC65C"
 ```
 
-Answer the source-file prompt (RETURN compiles the bundled
-`SOURCE.PRG`), and the compiler writes `OUT.ASM` and `OUT.PRG` back
-to the same disk. See [TECHNICAL.md](TECHNICAL.md) for the full
+Enter the input filename, output filename, and whether to generate
+the ASM file. For example, `SOURCE.PRG`, `GAME`, and `Y` write the
+runnable program `GAME` and its assembly `GAME.ASM` back to the same
+disk; choosing `N` skips the ASM file. Output names are capped at 12
+characters so every derived name fits the DOS 16-character limit; a
+program too large for one memory window also writes overlay segments
+`GAME.00`, `GAME.01`, ... which must accompany the program on disk. See [TECHNICAL.md](TECHNICAL.md) for the full
 build, run, and test-harness documentation.
 
 ## Performance
@@ -42,10 +49,11 @@ Same program, same MEGA65 at 40MHz, interpreted vs compiled
 | `basic/primes.bas` | integer MOD trial division up to 5000 | 8.20 s | 1.5 s | ~5.5x |
 | `basic/sieve.bas` | integer + array (Byte Sieve, 3x8191 flags) | 21.13 s | 6.8 s | ~3.1x |
 | `basic/ahl.bas` | SQR and ^ (Ahl's Simple Benchmark) | 0.78 s | 0.4 s | ~2x |
-| `basic/circles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 2.5 s | ~4.3x |
-| `basic/boxes.bas` | graphics (200 filled 40x40 BOXes, 320x200x4) | 16.28 s | 1.1 s | ~15x |
-| `basic/lines.bas` | graphics (300 random LINEs, 320x200x4) | 2.08 s | 1.5 s | ~1.4x |
-| `basic/surface.bas` | 3D hidden-line surface plot (sin(r)/r, 120x100 grid, 640x200) | 44.11 s | 32.3 s | ~1.4x |
+| `basic/gfxcircles.bas` | graphics (500 random CIRCLEs, 320x200x4) | 10.83 s | 2.5 s | ~4.3x |
+| `basic/gfxboxes.bas` | graphics (200 filled 40x40 BOXes, 320x200x4) | 16.28 s | 1.1 s | ~15x |
+| `basic/gfxlines.bas` | graphics (300 random LINEs, 320x200x4) | 2.08 s | 1.5 s | ~1.4x |
+| `basic/gfxmandel.bas` | graphics + float (Mandelbrot, 320x200) | 752.7 s | 272.3 s | ~2.8x |
+| `basic/gfxsurface.bas` | 3D hidden-line surface plot (sin(r)/r, 120x100 grid, 640x200) | 44.11 s | 32.3 s | ~1.4x |
 
 Prime benchmark check values: 669 primes up to 5000, checksum 23136.
 
@@ -77,4 +85,4 @@ matters.
 - [KNOWN-ISSUES.md](KNOWN-ISSUES.md) — open defects and current
   capacity limits
 - [docs/native-backend.md](docs/native-backend.md) — how the
-  assembler-less native OUT.PRG generation works
+  assembler-less native PRG generation works

@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 set BASIC_SOURCE=basic\source.bas
 if not "%~1"=="" set BASIC_SOURCE=%~1
@@ -35,9 +35,7 @@ if %ERRORLEVEL%==0 (
     echo Warning: python not found; skipping bin-template generation
 )
 
-.\64tass.exe --cbm-prg -a -D TEXT_EMITTER=0 src\basic65c.asm -o target\basic65c
-if errorlevel 1 exit /b 1
-.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65cc
+.\64tass.exe --cbm-prg -a src\basic65c.asm -l target\basic65c.lbl -L target\basic65c.lst -o target\basic65c
 if errorlevel 1 exit /b 1
 
 rem banked graphics blob: assembled at $8000, read into bank 5 by rtinit
@@ -52,6 +50,7 @@ if errorlevel 1 exit /b 1
 .\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas
 if errorlevel 1 exit /b 1
 
+rem Builds every BASIC fixture, including graphics demos named basic\gfx*.bas.
 for %%F in (basic\*.bas) do (
     .\petcat.exe -w65 -l 2001 -o "target\%%~nF.prg" -- "%%F"
     if errorlevel 1 exit /b 1
@@ -86,7 +85,6 @@ cd target
 ..\c1541.exe -format "basic65c,01" d81 basic65c.d81
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write basic65c basic65c
-..\c1541.exe -attach basic65c.d81 -write basic65cc basic65cc
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write runtime.prg runtime.prg
 if errorlevel 1 exit /b 1
@@ -94,7 +92,10 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 for %%F in (*.prg) do (
     if /I not "%%F"=="out.prg" if /I not "%%F"=="runtime.prg" if /I not "%%F"=="gfx.prg" (
-        ..\c1541.exe -attach basic65c.d81 -write "%%F" "%%F"
+        set "DISKNAME=%%F"
+        if /I "!DISKNAME:~0,3!"=="gfx" if not "!DISKNAME:~16!"=="" set "DISKNAME=%%~nF"
+        if not "!DISKNAME:~16!"=="" set "DISKNAME=!DISKNAME:~0,16!"
+        ..\c1541.exe -attach basic65c.d81 -write "%%F" "!DISKNAME!"
         if errorlevel 1 exit /b 1
     )
 )
@@ -103,6 +104,6 @@ rem own native OUT.PRG there during compilation
 cd ..
 
 echo Built target\basic65c.d81
-echo Built BASIC test PRGs from basic\*.bas
+echo Built BASIC test PRGs from basic\*.bas, including basic\gfx*.bas
 if /I not "%BASIC_SOURCE%"=="basic\source.bas" echo Built SOURCE.PRG from %BASIC_SOURCE%
 if "%HAVE_OUT_PRG%"=="1" echo Built target\out.prg and added it to the D81

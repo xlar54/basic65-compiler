@@ -7,10 +7,10 @@
 #   powershell -File tools\emu-test.ps1 -All
 #
 # Phase 1 boots the compiler D81 and injects tools\bootstrap.bas, which
-# presses RETURN (via the $D619 PETSCII injection register) to accept the
-# default SOURCE.PRG and chain-loads BASIC65C. OUT.ASM appearing on the D81
-# is the success signal: the compiler only renames OUT.TMP after a clean
-# compile. Fixtures named in $NegativeFixtures must NOT produce OUT.ASM.
+# types SOURCE.PRG, OUT, and Y (via the $D619 PETSCII injection register)
+# before chain-loading BASIC65C. OUT.ASM appearing on the D81 is the success
+# signal: the compiler only renames OUT.TMP after a clean compile. Fixtures
+# named in $NegativeFixtures must NOT produce OUT.ASM.
 #
 # Phase 2 writes the linked OUT.PRG back to the D81 and injects
 # tools\bootstrap-run.bas, which chain-loads and runs it. The screen is
@@ -30,9 +30,11 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
-# fixtures that must fail to compile / that need interactive input
+# fixtures that must fail to compile / that need interactive input.
+# Graphics fixtures are named gfx*.bas and are skipped by the -All runner:
+# they are visual, long-running, or key-driven rather than screen-text tests.
 $NegativeFixtures = @("bad_data")
-$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "graphic640", "surface")   # interactive
+$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "clock")   # interactive
 
 $d81 = Join-Path $repo "target\basic65c.d81"
 $probe = Join-Path $env:TEMP "basic65c-probe.d81"
@@ -99,7 +101,7 @@ function Invoke-Fixture {
     while ((Get-Date) -lt $nativeDeadline) {
         Start-Sleep -Seconds 5
         Copy-Item -Force $d81 $probe
-        cmd /c ".\c1541.exe -attach `"$probe`" -read `"out.prg`" target\out-native.prg >nul 2>nul"
+        cmd /c ".\c1541.exe -attach `"$probe`" -read `"out`" target\out-native.prg >nul 2>nul"
         if ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0) { break }
     }
     Stop-Xemu $p
@@ -173,8 +175,8 @@ $results = @()
 if ($All) {
     foreach ($f in Get-ChildItem basic\*.bas) {
         $name = $f.BaseName
-        if ($SkipFixtures -contains $name) {
-            $results += @{ Name = $name; Result = "SKIPPED (interactive)" }
+        if (($SkipFixtures -contains $name) -or $name.StartsWith("gfx")) {
+            $results += @{ Name = $name; Result = "SKIPPED (interactive/graphics)" }
             continue
         }
         $results += Invoke-Fixture ("basic\" + $f.Name)

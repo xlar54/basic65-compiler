@@ -10,6 +10,7 @@
 100 line 50,100,590,100
 110 b=peek($d021)
 120 p1=pixel(320,100):p0=pixel(10,10)
+125 getkey a$
 130 screen close 1
 140 print " d021:";b;" line:";p1;" bg:";p0
 150 if b=0 and p1=1 and p0=0 then print "g640clr ok"

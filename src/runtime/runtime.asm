@@ -65,8 +65,9 @@ kernalreadst = $ffb7
 varptr = $f7
 rtptr  = $fb
 rtfltptr = $fd
+editcursor = $cc
 
-progbase     = $7600            ; standalone-assembly cap; generated programs compute rtpb
+progbase     = $7700            ; standalone-assembly cap; generated programs compute rtpb
 varheapstart = $2000
 strheaptop   = $f800
 
@@ -97,6 +98,10 @@ _rtinit_zpsave:                 ; $f7-$fe, which the runtime borrows
         sta edzpsave,x          ; bytes back at rtexit (READY text
         dex                     ; went black without this)
         bpl _rtinit_zpsave
+        lda editcursor          ; editor cursor IRQ also uses $f7-$fe.
+        sta rtccsave
+        lda #1
+        sta editcursor
         lda #0                  ; the program header lives at rtpbhi<<8
         sta rtptr
         lda rtpbhi
@@ -178,6 +183,8 @@ rtexit:
         txs
         lda rtd030save
         sta $d030
+        lda rtccsave
+        sta editcursor
         ldx #7
 _rtexit_zprest:
         lda edzpsave,x
@@ -3076,13 +3083,13 @@ arraybounds:
 ;=======================================================================================
 
 getkey:
-        jsr kernalgetin
+        jsr safegetin
         sta exprlo
         lda #0
         sta exprhi
         rts
 getstr:
-        jsr kernalgetin
+        jsr safegetin
         sta digit
         bne getstrgot
         sta exprlo
@@ -3090,17 +3097,44 @@ getstr:
         rts
 ; GETKEY: the blocking forms wait for a key
 getkeyw:
-        jsr kernalgetin
+        jsr safegetin
         beq getkeyw
         sta exprlo
         lda #0
         sta exprhi
         rts
 getstrw:
-        jsr kernalgetin
+        jsr safegetin
         beq getstrw
         sta digit
         jmp getstrgot
+
+; KERNAL GETIN uses the screen editor's $f7-$fe workspace. The runtime
+; owns those bytes for far pointers, so swap the editor state in only
+; for the ROM call, then restore the runtime pointers.
+safegetin:
+        ldx #7
+_sgi_save:
+        lda varptr,x
+        sta inputzpsave,x
+        lda edzpsave,x
+        sta varptr,x
+        dex
+        bpl _sgi_save
+        jsr fio_rom_on
+        jsr kernalgetin
+        pha
+        jsr fio_rom_off
+        ldx #7
+_sgi_restore:
+        lda varptr,x
+        sta edzpsave,x
+        lda inputzpsave,x
+        sta varptr,x
+        dex
+        bpl _sgi_restore
+        pla
+        rts
 ; FAC -> unsigned 32-bit in exprlo/exprhi/exprb2/exprb3 (DMA addresses)
 fq32:
         lda #0
@@ -4138,9 +4172,22 @@ sa1:
         bcs sarh
         jmp sagc
 sarh:
-        bne saok
+        bne sareserve
         lda strdstlo
         cmp rtvheapend
+        bcs sareserve
+        jmp sagc
+sareserve:
+        lda strmarksp
+        bne saok
+        lda strgctried
+        bne saok
+        sec
+        lda strdstlo
+        sbc rtvheapend
+        lda strdsthi
+        sbc rtvheapend+1
+        cmp #2                  ; keep a small top-level temp reserve
         bcs saok
         jmp sagc
 saok:
@@ -5524,6 +5571,7 @@ rtlinetab:    .byte 0,0
 rtgfxflag:    .byte 0,0
 rtd030save:   .byte 0
 rtspsave:     .byte 0
+rtccsave:     .byte 0
 snd_shutptr:  .word rtshutnop
 scr_c:        .byte 0,0
 scr_r:        .byte 0
@@ -10314,7 +10362,7 @@ ovl_dst:
         .byte $00
         .word $0000
 
-; load OUT.S00..OUT.S0(n-1) into attic ($81B0000 + k*$8000), then
+; load OUT.00..OUT.(n-1) into attic ($81B0000 + k*$8000), then
 ; swap segment 0 in. Reads go through BOOT's channel (lfn 4, raw
 ; secondary 4, kernalchrin2) into a page buffer, so no zero-page
 ; pointer is ever live across a KERNAL call (the C65 KERNAL owns
@@ -10329,6 +10377,23 @@ _ovi_loop:
         bcc _ovi_file
         jmp _ovi_go
 _ovi_file:
+        pha
+        lda ovlnptr             ; copy the emitted name blob (len,
+        sta varptr              ; "<base>.") into the local buffer
+        lda ovlnptr+1
+        sta varptr+1
+        ldy #0
+        lda (varptr),y
+        sta ovlnlen
+        tay
+_ovi_ncopy:
+        beq _ovi_ncopied
+        lda (varptr),y
+        sta ovlnbuf-1,y
+        dey
+        bra _ovi_ncopy
+_ovi_ncopied:
+        pla
         ldx #'0'                ; filename digits (segments <= 24)
         cmp #20
         bcc +
@@ -10341,10 +10406,13 @@ _ovi_file:
         sbc #10
         inx
 _ovi_dig:
-        stx _ovi_name+5
+        phy
+        ldy ovlnlen
+        stx ovlnbuf,y
         clc
         adc #'0'
-        sta _ovi_name+6
+        sta ovlnbuf+1,y
+        ply
         lda #0                  ; attic cursor: $81B0000 + k*$8000
         sta ovl_fdst
         lda ovl_k
@@ -10365,9 +10433,11 @@ _ovi_dig:
         lda #0
         ldx #0
         jsr kernalsetbnk
-        lda #7
-        ldx #<_ovi_name
-        ldy #>_ovi_name
+        lda ovlnlen
+        clc
+        adc #2                  ; + the two digits
+        ldx #<ovlnbuf
+        ldy #>ovlnbuf
         jsr kernalsetnam
         lda #4
         ldx #8
@@ -10447,11 +10517,10 @@ _ovf_page:
         inc ovl_fdst+2
 _ovf_done:
         rts
-_ovi_name:
-        .text "OUT.S00"        ; uppercase = PETSCII letter codes under
-                               ; .enc none, matching the directory bytes
-                               ; the compiler's SETNAM wrote (same trick
-                               ; as _gfx_name)
+_ovi_defname:                  ; defensive default: the stub always
+        .byte 4                ; repoints ovlnptr at the emitted blob
+        .text "OUT."           ; (uppercase = PETSCII letter codes under
+                               ; .enc none, matching directory bytes)
 
 ovl_k:     .byte 0
 ovlnseg:  .byte 0
@@ -10465,6 +10534,9 @@ ovlbase:  .byte 0              ; window page (extended header)
 ovlwlen:  .byte 0, 0           ; window length
 ovl_fdst: .byte 0, 0, 0, 0     ; loader attic cursor
 ovl_fcnt: .byte 0              ; loader flush count (0 = 256)
+ovlnptr:  .word _ovi_defname   ; -> name blob (len, "<base>.")
+ovlnlen:  .byte 0
+ovlnbuf:  .fill 18, 0          ; composed "<base>.##"
 ovlfbuf:  .fill 256, 0         ; loader page buffer
 .fi
 

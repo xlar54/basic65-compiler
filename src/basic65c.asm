@@ -43,9 +43,6 @@ str_ptr                 = $FB
 POOL_BANK               = $04
 POOL_BASE               = $C000 ; above any realistic tokenized source
 LINETAB_B4              = $F400 ; line records, bank 4 ($e000 = LBLTAB, $f000-$f3ff = string/branch tables; $f400+ is free)
-XREFTAB_B4              = $FB00 ; sticky cross-segment reference bits ($f400 + LINE_MAX*4 ends at $fa40)
-XREFREC_B4              = $8000 ; per-reference records (target line, home line), bank 4
-XREF_MAX                = 2048  ; bitmap page count and record space both cap here
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
@@ -317,14 +314,13 @@ _main_clr_hi:                   ; the zero-init state it expects
         lda #>VAR_HEAP_START
         sta var_heap_next_hi
 
-        lda #<msg_banner
-        ldy #>msg_banner
-        jsr screen_zstr
+        jsr show_banner
 
-        lda #<msg_opening_in
-        ldy #>msg_opening_in
-        jsr screen_zstr
         jsr prompt_source_name
+        jsr prompt_output_name
+.if TEXT_EMITTER
+        jsr prompt_asm_generation
+.fi
         jsr show_loading_source
         jsr load_source
         bcc +
@@ -349,7 +345,6 @@ _main_clr_hi:                   ; the zero-init state it expects
         jsr validate_branch_targets
         lda compile_error
         bne _main_compile_failed
-        jsr xref_clear
         jsr run_size_pass
         lda compile_error
         bne _main_compile_failed
@@ -369,9 +364,12 @@ _main_seg_stable:
         bne _main_compile_failed
 
 .if TEXT_EMITTER
+        lda asm_enabled
+        beq _main_skip_text
         lda #<msg_opening_out
         ldy #>msg_opening_out
         jsr screen_zstr
+        jsr show_base_asm_cr
         jsr open_output
         bcc +
         jsr CC_CLRCHN
@@ -414,10 +412,12 @@ _main_text_done:
 +       lda #13
         jsr CC_CHROUT
 .fi
+_main_skip_text:
 
         lda #<msg_writing_prg
         ldy #>msg_writing_prg
         jsr screen_zstr
+        jsr show_base_name_cr
         jsr emit_binary_output
         bcc _main_prg_ok
         lda #<msg_bin_write_fail
@@ -462,12 +462,17 @@ _main_prg_ok:
         lda #<msg_wrote_prg
         ldy #>msg_wrote_prg
         jsr screen_zstr
+        jsr show_base_name_cr
 
 _main_done_ok:
 .if TEXT_EMITTER
-        lda #<msg_done
-        ldy #>msg_done
+        lda asm_enabled
+        beq _main_done_no_asm_msg
+        lda #<msg_wrote_prg
+        ldy #>msg_wrote_prg
         jsr screen_zstr
+        jsr show_base_asm_cr
+_main_done_no_asm_msg:
 .fi
         jmp _main_rom_in
 
@@ -610,17 +615,33 @@ CC_READST:
 
 show_compile_line:
         ldx backend_mode
-        beq +
+        cpx #BK_SIZE
+        bne +
         rts
 +       jsr CC_CLRCHN
+        lda #$91                ; cursor up to the status line
+        jsr CC_CHROUT
+        ldx #16                 ; clear old "Line # nnnnn"
+_scl_clr:
+        lda #' '
+        jsr CC_CHROUT
+        dex
+        bne _scl_clr
+        ldx #16
+_scl_left:
+        lda #$9d                ; cursor left
+        jsr CC_CHROUT
+        dex
+        bne _scl_left
+        lda #<msg_compiling_start
+        ldy #>msg_compiling_start
+        jsr screen_zstr
         lda line_no_lo
         sta screen_num_lo
         lda line_no_hi
         sta screen_num_hi
         jsr screen_uint
-        lda #'.'
-        jsr CC_CHROUT
-        lda #'.'
+        lda #13
         jsr CC_CHROUT
         ldx #LFN_OUT
         jsr CC_CHKOUT
@@ -628,12 +649,15 @@ show_compile_line:
 
 show_compile_start:
         ldx backend_mode
-        beq +
+        cpx #BK_SIZE
+        bne +
         rts
 +       jsr CC_CLRCHN
         lda #<msg_compiling_start
         ldy #>msg_compiling_start
         jsr screen_zstr
+        lda #13
+        jsr CC_CHROUT
         ldx #LFN_OUT
         jsr CC_CHKOUT
         rts
@@ -659,9 +683,6 @@ reset_emit_counters:
         sta if_sp
         sta size_ovf
         sta seg_cut_ix
-        sta xref_ix
-        sta xref_ix+1
-        sta xref_set_cnt
         jsr lea_rst
         sta pending_kind
         sta const_state
@@ -767,10 +788,6 @@ _run_size_pass_done:
         sta bin_size_end
         lda bin_pc+1
         sta bin_size_end+1
-        lda xref_ix             ; debug: refs counted this pass
-        sta xref_last_ix        ; (the trailing reset clears xref_ix)
-        lda xref_ix+1
-        sta xref_last_ix+1
         lda seg_count           ; preserve pass results across the
         sta seg_plan_result     ; trailing counter reset
         lda size_ovf
@@ -816,9 +833,13 @@ emit_binary_output:
         jsr select_output
         jsr emit_generated_header
         lda segmented
-        beq +
+        beq _ebo_show_progress
         jsr seg_emit_resident
-+       jsr init_source_reader
+        bra _ebo_compile_lines
+_ebo_show_progress:
+        jsr show_compile_start
+_ebo_compile_lines:
+        jsr init_source_reader
         jsr compile_program
         lda segmented
         beq +
@@ -991,17 +1012,26 @@ _open_binary_fail:
         rts
 
 finalize_binary_output:
-        lda #<scratch_prg_name
-        ldy #>scratch_prg_name
-        ldx #scratch_prg_name_end - scratch_prg_name
-        jsr disk_command
+        ldx #0                  ; s0:<base>
+        lda #<cwf_s0
+        ldy #>cwf_s0
+        jsr cw_zstr
+        jsr cw_base
+        jsr cw_cr
+        jsr cw_send
         bcs _finalize_binary_fail
         jsr check_ds
         bcs _finalize_binary_fail
-        lda #<rename_prg_name
-        ldy #>rename_prg_name
-        ldx #rename_prg_name_end - rename_prg_name
-        jsr disk_command
+        ldx #0                  ; r0:<base>=outb.tmp
+        lda #<cwf_r0
+        ldy #>cwf_r0
+        jsr cw_zstr
+        jsr cw_base
+        lda #<cwf_eqb
+        ldy #>cwf_eqb
+        jsr cw_zstr
+        jsr cw_cr
+        jsr cw_send
         bcs _finalize_binary_fail
         jsr check_ds
         rts
@@ -1299,7 +1329,7 @@ _ser_fb_wr:
         bra _ser_fillbin
 _ser_fb_done:
         ldx backend_mode        ; native emit: segment code goes to
-        cpx #BK_EMIT            ; its own file from here (OUT.S00)
+        cpx #BK_EMIT            ; its own file from here (<base>.00)
         bne +
         lda #0
         jsr seg_next_file
@@ -1335,6 +1365,14 @@ _ses_len:
         .word out_sta_ovlnseg
         jsr emit_tmpl           ; FGOTO/FGOSUB become overlay-aware
         .word out_set_fgptrs
+        lda segname_addr        ; segment names follow the output base
+        jsr emit_lda_imm        ; (blob address from the prior pass;
+        jsr emit_tmpl           ; identical once sizes stabilize, and
+        .word out_sta_ovlnptr   ; the size-equality check enforces it)
+        lda segname_addr+1
+        jsr emit_lda_imm
+        jsr emit_tmpl
+        .word out_sta_ovlnptr1
         jsr emit_tmpl
         .word out_jsr_ovlinit
         ldx backend_mode
@@ -1390,7 +1428,7 @@ _sch_bin:
         sta bin_pc+1
         rts
 
-; A = segment id: close the current output file and open OUT.S0<id>
+; A = segment id: close the current output file and open <base>.<id>
 ; (scratch first, same discipline as the main outputs)
 seg_next_file:
         pha
@@ -1410,17 +1448,18 @@ seg_next_file:
         sbc #10
         inx
 _snf_dig:
-        stx seg_fname+7
-        stx seg_sname+8
+        stx seg_dig0
         clc
         adc #'0'
-        sta seg_fname+8
-        sta seg_sname+9
+        sta seg_dig1
         jsr show_writing_segment
-        lda #<seg_sname
-        ldy #>seg_sname
-        ldx #seg_sname_end - seg_sname
-        jsr disk_command
+        ldx #0                  ; s0:<base>.## (scratch a leftover)
+        lda #<cwf_s0
+        ldy #>cwf_s0
+        jsr cw_zstr
+        jsr cw_segname
+        jsr cw_cr
+        jsr cw_send
         bcs _snf_fail
         jsr check_ds
         bcs _snf_fail
@@ -1431,9 +1470,17 @@ _snf_dig:
         lda #0
         ldx #0
         jsr CC_SETBNK
-        lda #seg_fname_end - seg_fname
-        ldx #<seg_fname
-        ldy #>seg_fname
+        ldx #0                  ; 0:<base>.##,p,w
+        lda #<cwf_0
+        ldy #>cwf_0
+        jsr cw_zstr
+        jsr cw_segname
+        lda #<cwf_pw
+        ldy #>cwf_pw
+        jsr cw_zstr
+        txa                     ; A = name length
+        ldx #<cmd_work
+        ldy #>cmd_work
         jsr CC_SETNAM
         jsr CC_OPEN
         bcs _snf_fail
@@ -1451,23 +1498,72 @@ _snf_fail:
         sta backend_error_ptr+1
         rts
 
-seg_fname:
-        .text "0:out.s00,p,w"
-seg_fname_end:
-seg_sname:
-        .text "s0:out.s00"
-        .byte 13
-seg_sname_end:
+; append "<base>." + the two digits to cmd_work
+cw_segname:
+        jsr cw_base
+        lda #<cwf_dot
+        ldy #>cwf_dot
+        jsr cw_zstr
+        lda seg_dig0
+        sta cmd_work,x
+        inx
+        lda seg_dig1
+        sta cmd_work,x
+        inx
+        rts
+
+show_base_name_cr:
+        jsr show_base_name
+        lda #13
+        jsr CC_CHROUT
+        rts
+
+show_base_asm_cr:
+        jsr show_base_name
+        lda #<cwf_asm
+        ldy #>cwf_asm
+        jsr screen_zstr
+        lda #13
+        jsr CC_CHROUT
+        rts
+
+show_base_name:
+        ldx #0
+_sbn_loop:
+        cpx output_base_len
+        beq _sbn_done
+        lda output_base_buf,x
+        jsr CC_CHROUT
+        inx
+        bra _sbn_loop
+_sbn_done:
+        rts
 
 show_writing_segment:
         jsr CC_CLRCHN
         lda #<msg_writing_seg
         ldy #>msg_writing_seg
         jsr screen_zstr
-        lda seg_fname+7
+        ldx #0
+_sws_base:
+        cpx output_base_len
+        beq _sws_dots
+        lda output_base_buf,x
         jsr CC_CHROUT
-        lda seg_fname+8
+        inx
+        bra _sws_base
+_sws_dots:
+        lda #'.'
         jsr CC_CHROUT
+        lda seg_dig0
+        jsr CC_CHROUT
+        lda seg_dig1
+        jsr CC_CHROUT
+        lda #13
+        jsr CC_CHROUT
+        lda #<msg_compiling_start
+        ldy #>msg_compiling_start
+        jsr screen_zstr
         lda #13
         jsr CC_CHROUT
         rts
@@ -1790,10 +1886,136 @@ select_output:
 ; File I/O
 ;=======================================================================================
 
+show_banner:
+        lda #0                  ; black border and background
+        sta $d020
+        sta $d021
+        lda #<msg_banner2
+        ldy #>msg_banner2
+        jmp screen_zstr
+
+; read the output base name; capped at 12 chars so every derived name
+; (.asm/.00) stays within the DOS 16-char limit
+prompt_output_name:
+        jsr CC_CLRCHN
+        lda #<msg_opening_outname
+        ldy #>msg_opening_outname
+        jsr screen_zstr
+        ldx #0
+_pon_loop:
+        jsr CC_CHRIN
+        cmp #13
+        beq _pon_done
+        cpx #12
+        bcs _pon_loop
+        sta output_base_buf,x
+        inx
+        bra _pon_loop
+_pon_done:
+        stx output_base_len
+        lda #13
+        jsr CC_CHROUT
+        lda output_base_len
+        bne _pon_have
+        bra prompt_output_name
+_pon_have:
+        rts
+
+.if TEXT_EMITTER
+prompt_asm_generation:
+        jsr CC_CLRCHN
+        lda #<msg_generate_asm
+        ldy #>msg_generate_asm
+        jsr screen_zstr
+_pag_loop:
+        jsr CC_CHRIN
+        cmp #'Y'
+        beq _pag_yes
+        cmp #'y'
+        beq _pag_yes
+        cmp #'N'
+        beq _pag_no
+        cmp #'n'
+        bne _pag_loop
+_pag_no:
+        lda #0
+        sta asm_enabled
+        lda #'N'
+        bra _pag_echo
+_pag_yes:
+        lda #1
+        sta asm_enabled
+        lda #'Y'
+_pag_echo:
+        jsr CC_CHROUT
+        lda #13
+        jsr CC_CHROUT
+        rts
+.fi
+
+; command/name composer: append pieces into cmd_work at cursor X
+cw_zstr:
+        sta str_ptr
+        sty str_ptr+1
+        ldy #0
+_cwz_loop:
+        lda (str_ptr),y
+        beq _cwz_done
+        sta cmd_work,x
+        inx
+        iny
+        bra _cwz_loop
+_cwz_done:
+        rts
+
+cw_base:
+        ldy #0
+_cwb_loop:
+        cpy output_base_len
+        beq _cwb_done
+        lda output_base_buf,y
+        sta cmd_work,x
+        inx
+        iny
+        bra _cwb_loop
+_cwb_done:
+        rts
+
+cw_cr:
+        lda #13
+        sta cmd_work,x
+        inx
+        rts
+
+cw_send:                        ; X = length: send cmd_work as a DOS
+        txa                     ; command
+        pha
+        lda #<cmd_work
+        ldy #>cmd_work
+        plx
+        jmp disk_command
+
+cwf_s0:   .text "s0:"
+          .byte 0
+cwf_0:    .text "0:"
+          .byte 0
+cwf_r0:   .text "r0:"
+          .byte 0
+cwf_asm:  .text ".asm"
+          .byte 0
+cwf_dot:  .text "."
+          .byte 0
+cwf_eqa:  .text "=out.tmp"
+          .byte 0
+cwf_eqb:  .text "=outb.tmp"
+          .byte 0
+cwf_pw:   .text ",p,w"
+          .byte 0
+
 prompt_source_name:
         jsr CC_CLRCHN
-        lda #<msg_source_prompt
-        ldy #>msg_source_prompt
+        lda #<msg_opening_in
+        ldy #>msg_opening_in
         jsr screen_zstr
         lda #0
         sta source_filename_len
@@ -1815,27 +2037,12 @@ _prompt_source_done:
         jsr CC_CHROUT
         lda source_filename_len
         bne _prompt_source_terminate
-        jsr use_default_source_name
+        bra prompt_source_name
 
 _prompt_source_terminate:
         ldx source_filename_len
         lda #0
         sta source_filename_buf,x
-        rts
-
-use_default_source_name:
-        ldx #0
-
-_default_source_loop:
-        cpx #source_name_end - source_name
-        beq _default_source_done
-        lda source_name,x
-        sta source_filename_buf,x
-        inx
-        bra _default_source_loop
-
-_default_source_done:
-        stx source_filename_len
         rts
 
 show_loading_source:
@@ -1936,16 +2143,30 @@ scratch_output:
         rts
 
 finalize_output:
-        lda #<scratch_final_name
-        ldy #>scratch_final_name
-        ldx #scratch_final_name_end - scratch_final_name
-        jsr disk_command
+        ldx #0                  ; s0:<base>.asm
+        lda #<cwf_s0
+        ldy #>cwf_s0
+        jsr cw_zstr
+        jsr cw_base
+        lda #<cwf_asm
+        ldy #>cwf_asm
+        jsr cw_zstr
+        jsr cw_cr
+        jsr cw_send
         bcs _finalize_fail
-        lda #<rename_name
-        ldy #>rename_name
-        ldx #rename_name_end - rename_name
-        jsr disk_command
-        rts
+        ldx #0                  ; r0:<base>.asm=out.tmp
+        lda #<cwf_r0
+        ldy #>cwf_r0
+        jsr cw_zstr
+        jsr cw_base
+        lda #<cwf_asm
+        ldy #>cwf_asm
+        jsr cw_zstr
+        lda #<cwf_eqa
+        ldy #>cwf_eqa
+        jsr cw_zstr
+        jsr cw_cr
+        jmp cw_send
 
 _finalize_fail:
         sec
@@ -11483,8 +11704,61 @@ emit_tail_body:
         jsr emit_data_table
         jsr emit_string_roots
         jsr emit_line_number_tab
+        jsr emit_segname_blob
         jsr emit_flt_table
         jmp emit_for_storage
+
+; segmented: the output base name (+".") as a length-prefixed blob;
+; the startup stub points the runtime loader here so segment files
+; follow the chosen output name
+emit_segname_blob:
+        lda segmented
+        bne +
+        rts
++       ldx backend_mode
+        beq _esn_go             ; text emits bytes too
+        lda bin_pc              ; both native passes record the address
+        sta segname_addr
+        lda bin_pc+1
+        sta segname_addr+1
+_esn_go:
+        lda output_base_len     ; blob = len+1, base, "."
+        clc
+        adc #1
+        jsr _esn_byte
+        ldx #0
+_esn_base:
+        cpx output_base_len
+        beq _esn_dots
+        lda output_base_buf,x
+        phx
+        jsr _esn_byte
+        plx
+        inx
+        bra _esn_base
+_esn_dots:
+        lda #'.'
+        jmp _esn_byte
+
+_esn_byte:                      ; one blob byte, all three backends
+        ldx backend_mode
+        beq _esnb_text
+        cpx #BK_EMIT
+        beq _esnb_emit
+        pha
+        lda #1
+        jsr bin_add_pc
+        pla
+        rts
+_esnb_emit:
+        jmp bin_write_byte
+_esnb_text:
+        pha
+        jsr emit_tmpl
+        .word out_byte_pre
+        pla
+        jsr out_hex_byte
+        jmp out_cr
 
 ; the window guard, usable mid-stream (per segment) or as the tail
 emit_seg_guard:
@@ -12219,183 +12493,6 @@ _son_done:
         txa
         rts
 
-; record the current reference: target (number_lo/hi) and home line
-; (line_no_lo/hi) at XREFREC_B4 + xref_cur*4, for the post-pass scan
-xref_record:
-        jsr pool_ptr_save
-        lda xref_cur            ; * 4
-        asl a
-        sta source_ptr
-        lda xref_cur+1
-        rol a
-        asl source_ptr
-        rol a
-        clc
-        adc #>XREFREC_B4
-        sta source_ptr+1
-        ldz #0
-        lda number_lo
-        sta [source_ptr],z
-        inz
-        lda number_hi
-        sta [source_ptr],z
-        inz
-        lda line_no_lo
-        sta [source_ptr],z
-        inz
-        lda line_no_hi
-        sta [source_ptr],z
-        jmp pool_ptr_restore
-
-; after pass B: with the complete cut plan recorded, walk every
-; reference and mark those whose target segment differs from their
-; home segment. Sticky bits only ever grow, so the re-plan loop is
-; monotone and settles.
-xref_scan:
-        lda #0
-        sta xref_cur
-        sta xref_cur+1
-_xs_loop:
-        lda xref_cur
-        cmp xref_last_ix
-        bne _xs_body
-        lda xref_cur+1
-        cmp xref_last_ix+1
-        beq _xs_done
-_xs_body:
-        jsr xref_get
-        bne _xs_next            ; already sticky
-        jsr pool_ptr_save
-        lda xref_cur            ; * 4
-        asl a
-        sta source_ptr
-        lda xref_cur+1
-        rol a
-        asl source_ptr
-        rol a
-        clc
-        adc #>XREFREC_B4
-        sta source_ptr+1
-        ldz #0
-        lda [source_ptr],z
-        sta number_lo
-        inz
-        lda [source_ptr],z
-        sta number_hi
-        inz
-        lda [source_ptr],z
-        sta xs_home
-        inz
-        lda [source_ptr],z
-        sta xs_home+1
-        jsr pool_ptr_restore
-        jsr seg_of_number       ; target segment (full plan)
-        sta xs_tseg
-        lda xs_home
-        sta number_lo
-        lda xs_home+1
-        sta number_hi
-        jsr seg_of_number       ; home segment (same frame)
-        cmp xs_tseg
-        beq _xs_next
-        jsr xref_set            ; cross: sticky + growth latch
-_xs_next:
-        inc xref_cur
-        bne _xs_loop
-        inc xref_cur+1
-        bra _xs_loop
-_xs_done:
-        rts
-xs_home:
-        .byte 0, 0
-xs_tseg:
-        .byte 0
-
-; sticky cross-segment reference set: one bit per jump-form line
-; reference, indexed in program order (identical across passes). Once
-; a reference is classified cross-segment it stays that way -- the
-; trampoline works same-segment too -- which makes the pass-B sizing
-; loop monotone and guarantees convergence.
-xref_take:
-        lda xref_ix
-        sta xref_cur
-        lda xref_ix+1
-        sta xref_cur+1
-        inc xref_ix
-        bne +
-        inc xref_ix+1
-+       rts
-
-; caller did pool_ptr_save: source_ptr -> bitmap byte, A = bit mask
-xreflocate:
-        lda xref_cur
-        sta source_ptr
-        lda xref_cur+1
-        sta source_ptr+1
-        lsr source_ptr+1
-        ror source_ptr
-        lsr source_ptr+1
-        ror source_ptr
-        lsr source_ptr+1
-        ror source_ptr
-        clc
-        lda source_ptr
-        adc #<XREFTAB_B4
-        sta source_ptr
-        lda source_ptr+1
-        adc #>XREFTAB_B4
-        sta source_ptr+1
-        lda xref_cur
-        and #7
-        tax
-        lda _xref_bit,x
-        rts
-_xref_bit:
-        .byte 1, 2, 4, 8, 16, 32, 64, 128
-
-xref_get:                       ; A nonzero = sticky
-        jsr pool_ptr_save
-        jsr xreflocate
-        ldz #0
-        and [source_ptr],z
-        jmp pool_ptr_restore    ; A survives
-
-xref_set:
-        jsr pool_ptr_save
-        jsr xreflocate
-        ldz #0
-        ora [source_ptr],z
-        sta [source_ptr],z
-        lda #1
-        sta xref_grew
-        lda xref_cur            ; debug latch: last index that grew
-        sta xref_set_ix
-        lda xref_cur+1
-        sta xref_set_ix+1
-        inc xref_set_cnt
-        jmp pool_ptr_restore
-
-xref_clear:                     ; once per compile
-        jsr pool_ptr_save
-        lda #<XREFTAB_B4
-        sta source_ptr
-        lda #>XREFTAB_B4
-        sta source_ptr+1
-        ldx #4
-        lda #0
-        ldz #0
-_xc_loop:
-        sta [source_ptr],z
-        inz
-        bne _xc_loop
-        inc source_ptr+1
-        dex
-        bne _xc_loop
-        sta xref_ix
-        sta xref_ix+1
-        sta xref_grew
-        sta xref_pass_n
-        jmp pool_ptr_restore
 
 ; every compiled jump to a BASIC line goes through here: A = 0 for
 ; GOTO shapes (jmp), 1 for GOSUB shapes (jsr); number_lo/hi = target.
@@ -14836,10 +14933,6 @@ _screen_zstr_done:
 ; Strings
 ;=======================================================================================
 
-source_name:
-        .text "source.prg"
-source_name_end:
-
 output_name:
         .text "0:out.tmp,s,w"
 output_name_end:
@@ -14848,16 +14941,6 @@ scratch_name:
         .text "s0:out.tmp"
         .byte 13
 scratch_name_end:
-
-scratch_final_name:
-        .text "s0:out.asm"
-        .byte 13
-scratch_final_name_end:
-
-rename_name:
-        .text "r0:out.asm=out.tmp"
-        .byte 13
-rename_name_end:
 
 outb_name:
         .text "0:outb.tmp,p,w"
@@ -14872,26 +14955,31 @@ scratch_outb_name:
         .byte 13
 scratch_outb_name_end:
 
-scratch_prg_name:
-        .text "s0:out.prg"
+msg_banner2:
+        .byte $93, $0e          ; clear, lowercase charset
+        .byte $9e               ; yellow
+        .text "                                    BASIC65C"
         .byte 13
-scratch_prg_name_end:
-
-rename_prg_name:
-        .text "r0:out.prg=outb.tmp"
+        .byte $9f               ; cyan
+        .text "                        The MEGA65 BASIC to ML Compiler"
         .byte 13
-rename_prg_name_end:
-
-msg_banner:
-        .byte 13
-        .text "basic65c: source.prg -> out.asm"
-        .byte 13, 0
+        .text "                                  Version 1.0"
+        .byte 13, 13
+        .fill 78, $c0           ; PETSCII horizontal bar
+        .byte 13, 13
+        .byte $9e               ; yellow for the prompts onward
+        .byte 0
 msg_opening_in:
-        .text "source file? "
+        .text "Input Filename? "
         .byte 0
-msg_source_prompt:
-        .text "(return=source.prg) "
+msg_opening_outname:
+        .text "Output Filename "
         .byte 0
+.if TEXT_EMITTER
+msg_generate_asm:
+        .text "Generate ASM File? [Y]es [N]o "
+        .byte 0
+.fi
 msg_loading_source_prefix:
         .text "loading "
         .byte 0
@@ -14899,13 +14987,13 @@ msg_scanning_in:
         .text "scanning source"
         .byte 13, 0
 msg_opening_out:
-        .text "opening out.asm"
-        .byte 13, 0
+        .text "opening "
+        .byte 0
 msg_open_in_fail:
         .text "basic65c: cannot load source file"
         .byte 13, 0
 msg_open_out_fail:
-        .text "basic65c: cannot open out.asm"
+        .text "basic65c: cannot open asm file"
         .byte 13, 0
 msg_finalize_fail:
         .text "basic65c: cannot rename out.tmp"
@@ -14941,17 +15029,17 @@ msg_backend_rel_diag:
         .text "rel8 key target kind "
         .byte 0
 msg_writing_prg:
-        .text "writing out.prg"
-        .byte 13, 0
+        .text "writing "
+        .byte 0
 msg_loading_rt_attic:
         .text "loading runtime -> attic"
         .byte 13, 0
 msg_writing_seg:
-        .text "writing out.s"
+        .text "writing "
         .byte 0
 msg_wrote_prg:
-        .text "basic65c: wrote out.prg"
-        .byte 13, 0
+        .text "basic65c: wrote "
+        .byte 0
 msg_error_bad_def:
         .byte 13
         .text "bad def fn"
@@ -14970,15 +15058,12 @@ msg_bin_write_fail:
 msg_bin_mismatch:
         .text "basic65c: native size mismatch"
         .byte 13, 0
-msg_done:
-        .text "basic65c: wrote out.asm"
-        .byte 13, 0
 msg_compile_failed:
         .text "basic65c: compilation halted"
         .byte 13, 0
 msg_compiling_start:
-        .text "compiling:"
-        .byte 13, 0
+        .text "Line # "
+        .byte 0
 msg_error_line:
         .text "basic65c: error line "
         .byte 0
@@ -15011,9 +15096,6 @@ msg_overlay_base:
         .byte 0
 msg_overlay_todo:
         .text " segments"
-        .byte 13, 0
-msg_seg_fixpoint:
-        .text "segment plan did not converge"
         .byte 13, 0
 msg_seg_cross:
         .text "cross-segment jump (not yet supported)"
@@ -15187,6 +15269,20 @@ out_sta_ovlwlo:
 out_sta_ovlnseg:
 .if TEXT_EMITTER
         .text " sta ovlnseg"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_ovlnptr:
+.if TEXT_EMITTER
+        .text " sta ovlnptr"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_sta_ovlnptr1:
+.if TEXT_EMITTER
+        .text " sta ovlnptr+1"
         .byte 13, 0
 .else
         .byte 0
@@ -18816,6 +18912,14 @@ source_filename_len:
         .byte 0
 source_filename_buf:
         .fill FILENAME_MAX + 1, 0
+output_base_buf:
+        .fill 12, 0              ; chosen output base name; prompted pre-bankout
+output_base_len:
+        .byte 0
+.if TEXT_EMITTER
+asm_enabled:
+        .byte 0
+.fi
         .cerror * >= $c000, "loaded content (code/templates) must stay below $c000"
 def_n1:
         .fill DEF_MAX, 0
@@ -18850,13 +18954,10 @@ size_ovf:     .byte 0
 seg_ovf_result: .byte 0
 seg_cut_ix:   .byte 0
 seg_art2:     .byte 0, 0        ; artifacts corrected for segmented
-xref_ix:      .byte 0, 0        ; per-pass jump-reference counter
-xref_cur:     .byte 0, 0        ; index taken by the current reference
-xref_grew:    .byte 0           ; a reference newly went cross-segment
-xref_pass_n:  .byte 0           ; fixpoint iteration count
-xref_set_ix:  .byte 0, 0        ; debug: last grown index
-xref_set_cnt: .byte 0           ; debug: sets this pass
-xref_last_ix: .byte 0, 0        ; debug: refs counted last pass
+cmd_work:     .fill 40, 0       ; composed DOS command/name buffer
+seg_dig0:     .byte 0           ; segment digits for composed names
+seg_dig1:     .byte 0
+segname_addr: .byte 0, 0        ; artifact address of the name blob
 elj_kind:     .byte 0           ; 0 = jmp form, 1 = jsr form
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0

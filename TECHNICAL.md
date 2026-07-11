@@ -13,9 +13,8 @@ build.bat [basic\fixture.bas]
 
 creates `target\basic65c.d81` containing:
 
-- `basic65cc` — the checked compiler (text + native backends, table
-  guards; the CI oracle)
-- `basic65c` — the lean compiler (what `RUN"BASIC65C"` loads)
+- `basic65c` — the MEGA65-native compiler with native output and an
+  optional ASM export prompt
 - `source.prg` — the tokenized BASIC fixture (default
   `basic\source.bas`, or the fixture named on the command line)
 - `gfx` — the banked graphics blob (loaded to bank 5 at runtime by
@@ -45,19 +44,22 @@ RUN"BASIC65C"
 ```
 
 The compiler raw-loads `SOURCE.PRG` into bank 4, parses the tokenized
-BASIC from RAM, and writes both `OUT.ASM,S,W` (64tass source) and a
-natively generated `OUT.PRG` on the same D81. The native program is
-produced without any assembler: a size pass computes every address,
-then an emit pass streams the runtime image from `RUNTIME.PRG` and
-the compiled machine code (see `docs\native-backend.md`). `OUT.PRG`
-is byte-identical to what 64tass assembles from `OUT.ASM`, and the
-test harness verifies that on every run.
+BASIC from RAM, prompts for an output base name, and writes a natively
+generated PRG on the same D81. If the ASM prompt is answered `Y`, it
+also writes the matching 64tass source as `<output>.ASM`. The native
+program is produced without any assembler: a size pass computes every
+address, then an emit pass streams the runtime image from
+`RUNTIME.PRG` and the compiled machine code (see
+`docs\native-backend.md`). When ASM export is enabled, the native PRG
+is byte-identical to what 64tass assembles from the emitted source,
+and the test harness verifies that on every run.
 
-Before opening the output it sends `S0:OUT.ASM` on the command
-channel (scratch-then-write); generated source goes to `OUT.TMP`
-first and is renamed to `OUT.ASM` only after a clean compile. Disk
-errors are read back from the drive's DS channel and reported (for
-example a write-protected disk).
+Before opening the ASM output it sends `S0:<output>.ASM` on the
+command channel (scratch-then-write); generated source goes to
+`OUT.TMP` first and is renamed to `<output>.ASM` only after a clean
+compile. The native output uses the same scratch-and-rename discipline
+for `<output>`. Disk errors are read back from the drive's DS channel
+and reported (for example a write-protected disk).
 
 To link on the PC side, export the SEQ as `target\out.asm.seq`:
 
@@ -80,10 +82,11 @@ powershell -File tools\emu-test.ps1 -All
 ```
 
 Phase 1 builds the D81, boots xemu with `tools\bootstrap.bas` (which
-answers the source-file prompt through the `$D619` PETSCII
-keyboard-injection register and chain-loads the checked compiler),
-polls the D81 until `OUT.ASM` appears, extracts the native `OUT.PRG`,
-links `OUT.ASM` with the runtime on the PC, and byte-compares the two
+answers the input, output, and ASM prompts through the `$D619`
+PETSCII keyboard-injection register and chain-loads `BASIC65C`),
+polls the D81 until `OUT.ASM` appears, extracts the native program
+file `OUT`, links `OUT.ASM` with the runtime on the PC, and
+byte-compares the two
 programs. Phase 2 (skipped with `-SkipRun`) chain-loads the compiled
 program with `tools\bootstrap-run.bas` and captures the final screen.
 
@@ -158,8 +161,9 @@ number, tokenized bytes, `$00` terminator, final `$0000` pointer).
 3. **Native size pass:** compiles everything with output suppressed
    to compute every address and the final program size (enforcing the
    memory-window cap).
-4. **Emit passes:** text backend writes `OUT.ASM`; the native backend
-   streams `OUT.PRG` using binary templates patched with the
+4. **Emit passes:** text backend writes `<output>.ASM`; the native
+   backend streams the program file (plus `<output>.NN` segment files
+   for overlay programs) using binary templates patched with the
    addresses the size pass computed.
 
 Line labels are hexadecimal BASIC line numbers (`l000a:` for line

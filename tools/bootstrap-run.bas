@@ -1,1 +1,1 @@
-10 load"out.prg",8
+10 load"out",8

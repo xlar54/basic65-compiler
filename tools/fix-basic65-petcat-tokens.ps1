@@ -9,6 +9,8 @@ foreach ($item in $Path) {
     $resolved = (Resolve-Path -LiteralPath $item).Path
     [byte[]]$bytes = [IO.File]::ReadAllBytes($resolved)
     $changed = 0
+    $tokenCount = 0
+    $shiftedCount = 0
 
     if ($bytes.Length -lt 7) {
         continue
@@ -41,6 +43,8 @@ foreach ($item in $Path) {
             if ($inString) {
                 continue
             }
+            if ($b -ge 0xc1 -and $b -le 0xda) { $shiftedCount++ }
+            elseif ($b -ge 0x80) { $tokenCount++ }
             if ($b -eq 0x8f) {
                 break
             }
@@ -172,5 +176,10 @@ foreach ($item in $Path) {
     if ($changed -gt 0) {
         [IO.File]::WriteAllBytes($resolved, $bytes)
         Write-Host "Fixed $changed BASIC65 extended token(s) in $item"
+    }
+    if ($tokenCount -eq 0 -and $shiftedCount -gt 20) {
+        Write-Warning ("$item contains no BASIC tokens but many shifted " +
+            "letters: the .bas source is probably UPPERCASE. petcat only " +
+            "tokenizes lowercase keywords -- lowercase the source file.")
     }
 }

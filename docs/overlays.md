@@ -16,7 +16,7 @@ trampoline), pointed at program code instead of library code.
 - **Byte-diff discipline holds.** The text backend emits segments as
   64tass `.logical` blocks laid out consecutively, producing one
   verification image; the harness concatenates the native outputs
-  (OUT.PRG + OUT.S01 + ...) and byte-compares against it.
+  (the program file + <output>.00 + <output>.01 + ...) and byte-compares against it.
 
 ## Memory layout (segmented program)
 
@@ -37,11 +37,11 @@ Attic: segment n is stored at `$81B0000 + n*$8000` (32KB stride;
 after the GCOPY buffer at $81A0000). Segment 0 is also stored there —
 the window is pure swap space, no resident code lives in it.
 
-Disk: OUT.PRG (runtime + resident block) plus OUT.S01, OUT.S02...
+Disk: the program file (runtime + resident block) plus <output>.00, <output>.01... (segment files named from the chosen output base)
 (one per segment). rtinit-driven emitted loader reads them through
 the DOS data channel into attic, exactly like the GFX blob load
 (KERNAL LOAD cannot reach the high banks). Small programs remain a
-single OUT.PRG.
+single program file.
 
 ## Why nothing mutable lives in segments
 

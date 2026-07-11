@@ -399,6 +399,8 @@ _ssm_chp_done:
         sta $D069
         lda #$02
         sta $D06A
+        lda #$00
+        sta $D06B
         
         rts
 
