@@ -1701,8 +1701,18 @@ report_size_pass:
         ; .cerror only protects PC-side links, and an on-device
         ; compile must not silently write an image that runs into
         ; the i/o space (or the $c000 screen codes in gfx programs)
-        lda segmented           ; segmented pass B always lands here:
-        bne _rsp_over           ; per-segment sizes are enforced by
+        lda segmented
+        beq _rsp_plain_check
+        lda seg_ovf_result      ; final segment wrapped: bad plan
+        bne _rsp_plain_over
+        lda bin_pc+1            ; next byte exactly at cap is legal;
+        cmp seg_cap_hi          ; anything past it is not
+        bcc _rsp_over
+        bne _rsp_plain_over
+        lda bin_pc
+        beq _rsp_over
+        bra _rsp_plain_over
+_rsp_plain_check:
         lda seg_ovf_result      ; a wrapped pc is over any cap
         bne _rsp_over
         ldx #$d0                ; the recorded cuts, not the final pc
@@ -1719,6 +1729,7 @@ report_size_pass:
 _rsp_over:
         lda segmented
         beq _rsp_plain_over
+_rsp_seg_over:
         lda #<msg_overlay_plan  ; segmented: report the layout and
         ldy #>msg_overlay_plan  ; emit (M3/M4 make it runnable)
         jsr screen_zstr
@@ -12352,6 +12363,9 @@ _spl_done:
 ; running pc is within the slack zone below the cap; record the cut
 ; line number so the emit passes reproduce it exactly
 _spl_active:
+        lda bin_pc+1
+        cmp seg_cap_hi
+        bcs _spl_hard_over
         sec
         lda seg_cap_hi
         sbc #$06                ; slack: cut when within ~1.5KB of the
@@ -12380,6 +12394,18 @@ _spl_active:
         sta bin_pc+1
 _spl_actdone:
         rts
+_spl_hard_over:
+        lda for_sp              ; by this point the prior segment cannot
+        ora do_sp               ; safely accept the fall-through hop, so
+        ora begin_sp            ; report the structural reason loudly
+        bne _spl_seg_too_large
+        ldx seg_cut_n
+        cpx #SEG_MAX
+        bcs _spl_seg_too_large
+_spl_seg_too_large:
+        lda #<msg_error_too_large
+        ldy #>msg_error_too_large
+        jmp fatal_error_zstr
 
 emit_line_label:
         ldx backend_mode

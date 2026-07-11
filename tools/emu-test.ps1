@@ -1,21 +1,23 @@
 # End-to-end fixture test: compile a BASIC fixture with the MEGA65-native
-# compiler inside xemu, link the emitted assembly with the runtime, then run
-# the compiled program and capture its screen output.
+# compiler inside xemu, verify the native bytes against the emitted assembly,
+# then run the compiled program and capture its screen output.
 #
 # Usage:
 #   powershell -File tools\emu-test.ps1 [-Fixture basic\strings.bas]
 #   powershell -File tools\emu-test.ps1 -All
 #
-# Phase 1 boots the compiler D81 and injects tools\bootstrap.bas, which
-# types SOURCE.PRG, OUT, and Y (via the $D619 PETSCII injection register)
-# before chain-loading BASIC65C. OUT.ASM appearing on the D81 is the success
-# signal: the compiler only renames OUT.TMP after a clean compile. Fixtures
-# named in $NegativeFixtures must NOT produce OUT.ASM.
+# Phase 1 boots the compiler D81 and injects a fixture-specific bootstrap,
+# which types SOURCE.PRG, a fixture-derived output basename, and Y (via the
+# $D619 PETSCII injection register) before chain-loading BASIC65C. The
+# matching .ASM file appearing on the D81 is the success signal: the compiler
+# only renames the temp output after a clean compile. Fixtures named in
+# $NegativeFixtures must NOT produce an .ASM file.
 #
-# Phase 2 writes the linked OUT.PRG back to the D81 and injects
-# tools\bootstrap-run.bas, which chain-loads and runs it. The screen is
-# dumped on emulator exit. Output containing "FAIL" marks the fixture
-# suspect.
+# Phase 2 writes a validated resident program back to the D81 as
+# AUTOBOOT.C65 and runs it. Segmented programs keep their native
+# <base>.00/<base>.01... files on the D81 and are never run from a mixed
+# PC-built resident. The screen is dumped on emulator exit. Output
+# containing "FAIL" marks the fixture suspect.
 param(
     [string]$Fixture = "basic\source.bas",
     [string]$Xemu = "C:\Emulation\Mega65\xmega65.exe",
@@ -52,10 +54,60 @@ function Stop-Xemu {
     }
 }
 
+function Get-SegmentBlockCount {
+    param([string]$AsmPath)
+
+    $lines = [IO.File]::ReadAllLines($AsmPath)
+    $open = $false
+    $blocks = 0
+    foreach ($line in $lines) {
+        if ($line -match '^\s*\.logical\b') {
+            $open = $true
+        } elseif ($line -match '^\s*\.here\b' -and $open) {
+            $blocks++
+            $open = $false
+        }
+    }
+    return $blocks
+}
+
+function Get-CompilerOutputBase {
+    param([string]$FixturePath)
+
+    $base = [IO.Path]::GetFileNameWithoutExtension($FixturePath).ToUpperInvariant()
+    if ($base.Length -gt 12) { $base = $base.Substring(0, 12) }
+    if ($base.Length -eq 0) { $base = "OUT" }
+    return $base
+}
+
+function Write-CompilerBootstrap {
+    param([string]$OutputBase)
+
+    $keys = @()
+    foreach ($text in @("SOURCE.PRG", $OutputBase)) {
+        foreach ($ch in $text.ToCharArray()) { $keys += [int][char]$ch }
+        $keys += 13
+    }
+    $keys += [int][char]'Y'
+
+    $bootstrapBas = Join-Path $repo "target\bootstrap-auto.bas"
+    $pokeLine = '20 for i=1 to ' + $keys.Count + ':read k:poke $ffd3619,k:next:load"basic65c",8'
+    $lines = @(
+        ("10 data " + ($keys -join ","))
+        $pokeLine
+    )
+    Set-Content -LiteralPath $bootstrapBas -Encoding ASCII -Value $lines
+    cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- target\bootstrap-auto.bas 2>&1" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "failed to build compiler bootstrap" }
+}
+
 function Invoke-Fixture {
     param([string]$FixturePath)
 
     $name = [IO.Path]::GetFileNameWithoutExtension($FixturePath)
+    $outputBase = Get-CompilerOutputBase $FixturePath
+    $diskBase = $outputBase.ToLowerInvariant()
+    $asmDiskName = "$diskBase.asm,s"
     $negative = $NegativeFixtures -contains $name
     $screenDump = Join-Path $repo "target\emu-screen-$name.txt"
 
@@ -63,10 +115,10 @@ function Invoke-Fixture {
     cmd /c ".\build.bat $FixturePath" | Out-Null
     if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "BUILD FAILED" } }
 
-    cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas 2>&1" | Out-Null
+    Write-CompilerBootstrap $outputBase
     cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas 2>&1" | Out-Null
 
-    Write-Host "=== phase 1: compile $FixturePath on the MEGA65 ==="
+    Write-Host "=== phase 1: compile $FixturePath on the MEGA65 as $outputBase ==="
     $p = Start-Process -FilePath $Xemu -ArgumentList @(
         "-8", $d81, "-hdosvirt", "true",
         "-prg", (Join-Path $repo "target\bootstrap.prg"), "-besure"
@@ -78,7 +130,7 @@ function Invoke-Fixture {
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 5
         Copy-Item -Force $d81 $probe
-        cmd /c ".\c1541.exe -attach `"$probe`" -read `"out.asm,s`" target\out.asm.seq >nul 2>nul"
+        cmd /c ".\c1541.exe -attach `"$probe`" -read `"$asmDiskName`" target\out.asm.seq >nul 2>nul"
         if ((Test-Path target\out.asm.seq) -and (Get-Item target\out.asm.seq).Length -gt 0) {
             $compiled = $true
             break
@@ -90,47 +142,76 @@ function Invoke-Fixture {
             if ($compiled) { return @{ Name = $name; Result = "FAIL (compiled but should not)" } }
             return @{ Name = $name; Result = "PASS (rejected as expected)" }
         }
-        return @{ Name = $name; Result = "FAIL (no OUT.ASM in $waitFor s)" }
+        return @{ Name = $name; Result = "FAIL (no $outputBase.ASM in $waitFor s)" }
     }
-    Write-Host ("OUT.ASM extracted: {0} bytes" -f (Get-Item target\out.asm.seq).Length)
+    Write-Host ("{0}.ASM extracted: {1} bytes" -f $outputBase, (Get-Item target\out.asm.seq).Length)
+    $segmentCount = Get-SegmentBlockCount "target\out.asm.seq"
+    $segmented = $segmentCount -ge 2
+    if ($segmented) {
+        Write-Host ("segmented image detected: {0} segment files" -f $segmentCount)
+    }
 
-    # the native OUT.PRG is written right after OUT.ASM; keep the emulator
+    # the native resident is written right after the .ASM; keep the emulator
     # running until it lands
     Remove-Item -Force -ErrorAction SilentlyContinue target\out-native.prg
+    Remove-Item -Force -ErrorAction SilentlyContinue target\out-native.s*
     $nativeDeadline = (Get-Date).AddSeconds(40)
     while ((Get-Date) -lt $nativeDeadline) {
         Start-Sleep -Seconds 5
         Copy-Item -Force $d81 $probe
-        cmd /c ".\c1541.exe -attach `"$probe`" -read `"out`" target\out-native.prg >nul 2>nul"
+        cmd /c ".\c1541.exe -attach `"$probe`" -read `"$diskBase`" target\out-native.prg >nul 2>nul"
         if ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0) { break }
     }
     Stop-Xemu $p
 
-    Write-Host "=== link with runtime ==="
-    cmd /c ".\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg 2>&1" | Out-Host
-    if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "FAIL (link error)" } }
-
-    Write-Host "=== byte-diff: native OUT.PRG vs 64tass ==="
     $nativeOk = $false
-    if ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0) {
+    if (-not ((Test-Path target\out-native.prg) -and (Get-Item target\out-native.prg).Length -gt 0)) {
+        Write-Host "native $outputBase missing"
+    } elseif ($segmented) {
+        Write-Host "=== extract native overlay segments ==="
+        Copy-Item -Force $d81 $probe
+        $segmentsExtracted = $true
+        for ($k = 0; $k -lt $segmentCount; $k++) {
+            $segName = "$diskBase.{0:d2}" -f $k
+            $segOut = "target\out-native.s{0:d2}" -f $k
+            cmd /c ".\c1541.exe -attach `"$probe`" -read `"$segName`" `"$segOut`" >nul 2>nul"
+            if (-not ((Test-Path $segOut) -and (Get-Item $segOut).Length -gt 0)) {
+                Write-Host "native segment $segName missing"
+                $segmentsExtracted = $false
+            }
+        }
+        if ($segmentsExtracted) {
+            Write-Host "=== per-segment byte-diff: native $outputBase + $outputBase.NN vs 64tass ==="
+            cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File tools\seg-diff.ps1 target\out.asm.seq 2>&1" | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                $nativeOk = $true
+            }
+        }
+    } else {
+        Write-Host "=== link with runtime ==="
+        cmd /c ".\64tass.exe --cbm-prg --m45gs02 src\runtime\runtime.asm target\out.asm.seq -o target\out.prg 2>&1" | Out-Host
+        if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "FAIL (link error)" } }
+
+        Write-Host "=== byte-diff: native $outputBase vs 64tass ==="
         cmd /c "fc /b target\out.prg target\out-native.prg >nul 2>nul"
         if ($LASTEXITCODE -eq 0) {
             $nativeOk = $true
-            Write-Host "native OUT.PRG is byte-identical"
+            Write-Host "native $outputBase is byte-identical"
         } else {
-            Write-Host "native OUT.PRG DIFFERS from 64tass output"
+            Write-Host "native $outputBase DIFFERS from 64tass output"
         }
-    } else {
-        Write-Host "native OUT.PRG missing"
     }
 
     if ($SkipRun) {
-        if (-not $nativeOk) { return @{ Name = $name; Result = "SUSPECT (link ok, native differs/missing)" } }
+        if (-not $nativeOk) { return @{ Name = $name; Result = "SUSPECT (native differs/missing)" } }
         return @{ Name = $name; Result = "PASS (link only)" }
     }
 
-    Write-Host "=== phase 2: run OUT.PRG ==="
+    Write-Host "=== phase 2: run $outputBase ==="
     if (-not $nativeOk) {
+        if ($segmented) {
+            return @{ Name = $name; Result = "SUSPECT (segmented native differs/missing)" }
+        }
         # fall back to the 64tass-assembled PRG when the native one is absent
         cmd /c ".\c1541.exe -attach `"$d81`" -delete out.prg -write target\out.prg out.prg >nul 2>nul"
     }
