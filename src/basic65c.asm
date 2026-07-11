@@ -43,15 +43,24 @@ str_ptr                 = $FB
 POOL_BANK               = $04
 POOL_BASE               = $C000 ; above any realistic tokenized source
 LINETAB_B4              = $F400 ; line records, bank 4 ($e000 = LBLTAB, $f000-$f3ff = string/branch tables; $f400+ is free)
+XREFTAB_B4              = $FB00 ; sticky cross-segment reference bits ($f400 + LINE_MAX*4 ends at $fa40)
+XREFREC_B4              = $8000 ; per-reference records (target line, home line), bank 4
+XREF_MAX                = 2048  ; bitmap page count and record space both cap here
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
 LFN_CMD                 = 15
 DEVICE_DISK             = 8
+SA_OUT_TEXT             = 1
+SA_OUT_BIN              = 2
 
 SOURCE_BANK             = $04
 SOURCE_BUF              = $0000
 SOURCE_BODY             = SOURCE_BUF + 2
+RT_STAGE_BASE           = $0000 ; compiler-only attic staging for runtime.prg
+RT_STAGE_BANK           = $1f
+RT_STAGE_MB             = $08
+RT_FILE_BASE            = $2001 - 2
 
 TOK_END                 = $80
 TOK_FOR                 = $81
@@ -288,6 +297,7 @@ _main_clr_hi:                   ; the zero-init state it expects
         sta string_pool_next_hi
         sta backend_mode
         sta backend_error
+        sta backend_diag_kind
         sta flt_lit_count
         sta trap_used
         sta snd_used
@@ -339,15 +349,21 @@ _main_clr_hi:                   ; the zero-init state it expects
         jsr validate_branch_targets
         lda compile_error
         bne _main_compile_failed
+        jsr xref_clear
         jsr run_size_pass
         lda compile_error
         bne _main_compile_failed
         jsr seg_decide          ; over the window? enter segmented
         lda segmented           ; mode and re-run the size pass with
         beq +                   ; the real base and recorded cuts
-        jsr run_size_pass
+_main_segfix:
+        lda #0                  ; segmented v1 emits every line-number
+        sta seg_cut_n           ; transfer through the overlay trampoline,
+        jsr run_size_pass       ; so one pass gives a stable size plan
         lda compile_error
         bne _main_compile_failed
+        bra _main_seg_stable
+_main_seg_stable:
 +       jsr report_size_pass
         lda compile_error       ; the size report enforces the window
         bne _main_compile_failed
@@ -417,6 +433,29 @@ _main_text_done:
         jsr out_hex_byte
         lda #13
         jsr CC_CHROUT
+        lda backend_error
+        cmp #5
+        bne _main_prg_diag_done
+        lda #<msg_backend_rel_diag
+        ldy #>msg_backend_rel_diag
+        jsr screen_zstr
+        lda backend_diag_key+1
+        jsr out_hex_byte
+        lda backend_diag_key
+        jsr out_hex_byte
+        lda #' '
+        jsr CC_CHROUT
+        lda backend_diag_target+1
+        jsr out_hex_byte
+        lda backend_diag_target
+        jsr out_hex_byte
+        lda #' '
+        jsr CC_CHROUT
+        lda backend_diag_kind
+        jsr out_hex_byte
+        lda #13
+        jsr CC_CHROUT
+_main_prg_diag_done:
         bra _main_done_ok
 
 _main_prg_ok:
@@ -620,6 +659,9 @@ reset_emit_counters:
         sta if_sp
         sta size_ovf
         sta seg_cut_ix
+        sta xref_ix
+        sta xref_ix+1
+        sta xref_set_cnt
         jsr lea_rst
         sta pending_kind
         sta const_state
@@ -656,11 +698,36 @@ run_size_pass:
         lda rttrunchi,x
         sta rt_trunc+1
         lda segmented           ; segbase = level-4 progbase +
-        beq +                   ; artifacts (page-rounded) + $200
-        clc                     ; trampoline reserve
-        lda seg_art_lo
+        beq +                   ; corrected artifacts (page-rounded)
+        lda line_count          ; + $200 reserve. Correction: segmented
+        sta seg_art2            ; emission always carries the 5-byte-
+        lda line_count+1        ; record line table, which the plain
+        sta seg_art2+1          ; artifact pass sized as 4-byte records
+        lda fgoto_used          ; (fgoto: delta = count) or as empty
+        bne _rsp_delta_done     ; (delta = count*5)
+        asl seg_art2
+        rol seg_art2+1
+        asl seg_art2
+        rol seg_art2+1
+        clc
+        lda seg_art2
+        adc line_count
+        sta seg_art2
+        lda seg_art2+1
+        adc line_count+1
+        sta seg_art2+1
+_rsp_delta_done:
+        clc
+        lda seg_art2
+        adc seg_art_lo
+        sta seg_art2
+        lda seg_art2+1
+        adc seg_art_hi
+        sta seg_art2+1
+        clc
+        lda seg_art2
         adc #$ff
-        lda seg_art_hi
+        lda seg_art2+1
         adc prog_base_hi
         clc
         adc #2
@@ -700,6 +767,10 @@ _run_size_pass_done:
         sta bin_size_end
         lda bin_pc+1
         sta bin_size_end+1
+        lda xref_ix             ; debug: refs counted this pass
+        sta xref_last_ix        ; (the trailing reset clears xref_ix)
+        lda xref_ix+1
+        sta xref_last_ix+1
         lda seg_count           ; preserve pass results across the
         sta seg_plan_result     ; trailing counter reset
         lda size_ovf
@@ -714,21 +785,32 @@ _run_size_pass_done:
         rts
 
 ;=======================================================================================
-; Native OUT.PRG writer: stream runtime.prg from disk (its load address is
-; the PRG header), pad zeros up to progbase, then run pass 2 in emit mode.
-; The result must land exactly on the size-pass prediction.
+; Native OUT.PRG writer: stage runtime.prg in attic, copy it out (its load
+; address is the PRG header), pad zeros up to progbase, then run pass 2 in
+; emit mode. The result must land exactly on the size-pass prediction.
 ;=======================================================================================
 
 emit_binary_output:
-        jsr open_binary_output
+        lda #<msg_loading_rt_attic
+        ldy #>msg_loading_rt_attic
+        jsr screen_zstr
+        jsr load_runtime_image
         bcc +
+        bra _ebo_write_fail
++       jsr open_binary_output
+        bcc +
+        lda #$80                ; native temp open failed
+        jsr set_backend_error
         lda #<msg_bin_disk_fail
         ldy #>msg_bin_disk_fail
         jsr screen_zstr
         bra _ebo_open_fail
 +       jsr copy_runtime_image
-        bcs _ebo_write_fail
-        lda #BK_EMIT
+        bcc +
+        lda #$81                ; runtime copy/open failed
+        jsr set_backend_error
+        bra _ebo_write_fail
++       lda #BK_EMIT
         sta backend_mode
         jsr reset_emit_counters
         jsr select_output
@@ -757,6 +839,8 @@ _ebo_seg_done:
         jsr close_binary_files
         jsr finalize_binary_output
         bcc +
+        lda #$83                ; final scratch/rename failed
+        jsr set_backend_error
         lda #<msg_bin_disk_fail
         ldy #>msg_bin_disk_fail
         jsr screen_zstr
@@ -766,6 +850,8 @@ _ebo_seg_done:
 
 _ebo_mismatch:
         jsr close_binary_files
+        lda #$82                ; emitted size != size-pass prediction
+        jsr set_backend_error
         lda #<msg_bin_mismatch
         ldy #>msg_bin_mismatch
         jsr screen_zstr
@@ -778,6 +864,17 @@ _ebo_write_fail:
         jsr close_binary_files
 _ebo_open_fail:
         sec
+        rts
+
+set_backend_error:
+        ldx backend_error
+        bne _sbe_done
+        sta backend_error
+        lda bin_pc
+        sta backend_error_ptr
+        lda bin_pc+1
+        sta backend_error_ptr+1
+_sbe_done:
         rts
 
 close_binary_files:
@@ -863,12 +960,13 @@ open_binary_output:
         ldy #>scratch_outb_name
         ldx #scratch_outb_name_end - scratch_outb_name
         jsr disk_command
+        bcs _open_binary_fail
         jsr check_ds            ; write-protect/disk-full surfaces on
         bcs _open_binary_fail   ; the scratch, echoed in DOS's words
 
         lda #LFN_OUT
         ldx #DEVICE_DISK
-        ldy #1
+        ldy #SA_OUT_BIN
         jsr CC_SETLFS
 
         lda #0
@@ -882,8 +980,8 @@ open_binary_output:
 
         jsr CC_OPEN
         bcs _open_binary_fail
-        jsr CC_READST
-        bne _open_binary_fail
+        jsr CC_READST           ; NO check_ds while OUTB.TMP is open
+        bne _open_binary_fail   ; (command-channel close = close-all)
         clc
         rts
 
@@ -898,22 +996,28 @@ finalize_binary_output:
         ldx #scratch_prg_name_end - scratch_prg_name
         jsr disk_command
         bcs _finalize_binary_fail
+        jsr check_ds
+        bcs _finalize_binary_fail
         lda #<rename_prg_name
         ldy #>rename_prg_name
         ldx #rename_prg_name_end - rename_prg_name
         jsr disk_command
+        bcs _finalize_binary_fail
+        jsr check_ds
         rts
 
 _finalize_binary_fail:
+        lda #$83
+        jsr set_backend_error
         sec
         rts
 
-; stream runtime.prg verbatim (load address first) into the output file,
-; then pad with zeros until bin_pc reaches progbase ($5000)
-copy_runtime_image:
+; load runtime.prg into attic scratch before OUT.PRG is opened. This avoids
+; alternating a real-DOS read channel and write channel during native output.
+load_runtime_image:
         lda #0
-        sta rt_first_chunk
-        sta rt_first_write
+        sta rt_image_len
+        sta rt_image_len+1
         lda #LFN_RT
         ldx #DEVICE_DISK
         ldy #4
@@ -929,55 +1033,114 @@ copy_runtime_image:
         jsr CC_SETNAM
 
         jsr CC_OPEN
-        bcs _copy_runtime_fail
+        bcc _copy_runtime_opened
+        lda #$91
+        jsr set_backend_error
+        bra _load_runtime_fail
+_copy_runtime_opened:
         jsr CC_READST
-        bne _copy_runtime_fail
-
-        ; the file's two load-address bytes become the PRG header
-        lda #<($2001 - 2)
-        sta bin_pc
-        lda #>($2001 - 2)
-        sta bin_pc+1
-
-_copy_runtime_chunk:
+        beq _copy_runtime_status_ok
+        lda #$91
+        jsr set_backend_error
+        bra _load_runtime_fail
+_copy_runtime_status_ok:
+        ; Do not query DS here: on real DOS, opening/reading the
+        ; command channel between OPEN and CHKIN can disturb the
+        ; freshly-open runtime input stream. The first read below is
+        ; the file existence/content proof.
         ldx #LFN_RT
         jsr CC_CHKIN
-        bcs _copy_runtime_fail
-        ldy #0
-_copy_runtime_read:
+        bcc _load_runtime_chkin_ok
+        lda #$94
+        jsr set_backend_error
+        bra _load_runtime_fail
+
+_load_runtime_chkin_ok:
+        jsr init_rt_stage_ptr
+        ldz #0
+_load_runtime_loop:
         jsr CC_CHRIN
-        sta line_buf,y
-        iny
+        jsr rt_stage_store_a
+        jsr inc_rt_stage_ptr
+        jsr inc_rt_image_len
         jsr CC_READST
         sta rt_status
-        bne _copy_runtime_read_done
-        cpy #LINE_BUF_MAX
-        bcc _copy_runtime_read
-_copy_runtime_read_done:
-        sty rt_chunk_len
-        lda rt_first_chunk
-        bne _crc_not_first
-        lda #1
-        sta rt_first_chunk
-        lda rt_chunk_len        ; a real runtime image is KBs; a
-        cmp #16                 ; missing file reads as 0-1 bytes
-        bcc _copy_runtime_missing
-_crc_not_first:
+        beq _load_runtime_loop
+        and #$40
+        bne _load_runtime_done
+        lda rt_image_len
+        sta bin_pc
+        lda rt_image_len+1
+        sta bin_pc+1
+        lda #$95
+        jsr set_backend_error
+        bra _load_runtime_fail
+
+_load_runtime_done:
         jsr CC_CLRCHN
+        lda #LFN_RT
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        lda rt_image_len+1
+        bne _load_runtime_len_ok
+        lda rt_image_len
+        cmp #16
+        bcs _load_runtime_len_ok
+        lda #$93
+        jsr set_backend_error
+        sec
+        rts
+_load_runtime_len_ok:
+        clc
+        rts
+_load_runtime_fail:
+        jsr CC_CLRCHN
+        lda #LFN_RT
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        sec
+        rts
+
+; copy the staged runtime image (load address first) into the output file,
+; then pad with zeros until bin_pc reaches progbase ($5000)
+copy_runtime_image:
+        lda #0
+        sta rt_first_write
+        sec
+        lda rt_trunc
+        sbc #<RT_FILE_BASE
+        sta rt_copy_len
+        lda rt_trunc+1
+        sbc #>RT_FILE_BASE
+        sta rt_copy_len+1
+        lda rt_image_len+1
+        cmp rt_copy_len+1
+        bcc _copy_runtime_missing
+        bne _copy_runtime_len_ok
+        lda rt_image_len
+        cmp rt_copy_len
+        bcc _copy_runtime_missing
+_copy_runtime_len_ok:
+        jsr init_rt_stage_ptr
+        lda #<RT_FILE_BASE
+        sta bin_pc
+        lda #>RT_FILE_BASE
+        sta bin_pc+1
         ldx #LFN_OUT
         jsr CC_CHKOUT           ; a failed write-open (full or
         bcs _copy_runtime_wfail ; protected disk) surfaces here
-        ldy #0
+
 _copy_runtime_write:
-        cpy rt_chunk_len
-        beq _copy_runtime_written
+        lda rt_copy_len
+        ora rt_copy_len+1
+        beq _copy_runtime_pad
         lda bin_pc+1            ; truncate at this level's boundary
         cmp rt_trunc+1
         bcc _copy_runtime_keep
-        bne _copy_runtime_written
+        bne _copy_runtime_pad
         lda bin_pc
         cmp rt_trunc
-        bcs _copy_runtime_written
+        bcs _copy_runtime_pad
 _copy_runtime_keep:
         lda bin_pc+1
         cmp #>RT_PBHI
@@ -988,8 +1151,12 @@ _copy_runtime_keep:
         lda prog_base_hi        ; patch rtpbhi with this program's base
         bra _copy_runtime_put
 _copy_runtime_plain:
-        lda line_buf,y
+        jsr rt_stage_load_a
 _copy_runtime_put:
+        sta rt_byte
+        jsr inc_rt_stage_ptr
+        jsr dec_rt_copy_len
+        lda rt_byte
         jsr bin_write_byte
         lda rt_first_write      ; the DOS reports a failed write-open
         bne _crw_checked        ; (protected/full disk) only once data
@@ -998,13 +1165,7 @@ _copy_runtime_put:
         jsr CC_READST
         bne _copy_runtime_wfail
 _crw_checked:
-        iny
         bra _copy_runtime_write
-_copy_runtime_written:
-        lda rt_status
-        beq _copy_runtime_chunk
-        and #$40
-        beq _copy_runtime_fail   ; error bits without EOF
 
 _copy_runtime_pad:
         lda bin_pc+1
@@ -1020,16 +1181,76 @@ _copy_runtime_done:
 
 _copy_runtime_wfail:
         jsr CC_CLRCHN
+        lda #$92
+        jsr set_backend_error
         lda #<msg_bin_disk_fail
         ldy #>msg_bin_disk_fail
         jsr screen_zstr
         bra _copy_runtime_fail
 _copy_runtime_missing:
+        lda #$93
+        jsr set_backend_error
         lda #<msg_rt_missing
         ldy #>msg_rt_missing
         jsr screen_zstr
 _copy_runtime_fail:
         sec
+        rts
+
+init_rt_stage_ptr:
+        lda #<RT_STAGE_BASE
+        sta rt_stage_ptr
+        lda #>RT_STAGE_BASE
+        sta rt_stage_ptr+1
+        lda #RT_STAGE_BANK
+        sta rt_stage_ptr+2
+        lda #RT_STAGE_MB
+        sta rt_stage_ptr+3
+        rts
+
+rt_stage_set_source:
+        ldx #3
+-       lda rt_stage_ptr,x
+        sta source_ptr,x
+        dex
+        bpl -
+        rts
+
+rt_stage_store_a:
+        sta rt_byte
+        jsr rt_stage_set_source
+        ldz #0
+        lda rt_byte
+        sta [source_ptr],z
+        rts
+
+rt_stage_load_a:
+        jsr rt_stage_set_source
+        ldz #0
+        lda [source_ptr],z
+        rts
+
+inc_rt_stage_ptr:
+        inc rt_stage_ptr
+        bne +
+        inc rt_stage_ptr+1
+        bne +
+        inc rt_stage_ptr+2
+        bne +
+        inc rt_stage_ptr+3
++       rts
+
+inc_rt_image_len:
+        inc rt_image_len
+        bne +
+        inc rt_image_len+1
++       rts
+
+dec_rt_copy_len:
+        lda rt_copy_len
+        bne +
+        dec rt_copy_len+1
++       dec rt_copy_len
         rts
 
 ; segmented resident block: artifacts (with the FOR/DO totals from
@@ -1112,6 +1333,8 @@ _ses_len:
         jsr emit_lda_imm
         jsr emit_tmpl
         .word out_sta_ovlnseg
+        jsr emit_tmpl           ; FGOTO/FGOSUB become overlay-aware
+        .word out_set_fgptrs
         jsr emit_tmpl
         .word out_jsr_ovlinit
         ldx backend_mode
@@ -1193,13 +1416,17 @@ _snf_dig:
         adc #'0'
         sta seg_fname+8
         sta seg_sname+9
+        jsr show_writing_segment
         lda #<seg_sname
         ldy #>seg_sname
         ldx #seg_sname_end - seg_sname
         jsr disk_command
+        bcs _snf_fail
+        jsr check_ds
+        bcs _snf_fail
         lda #LFN_OUT
         ldx #DEVICE_DISK
-        ldy #1
+        ldy #SA_OUT_BIN
         jsr CC_SETLFS
         lda #0
         ldx #0
@@ -1210,12 +1437,18 @@ _snf_dig:
         jsr CC_SETNAM
         jsr CC_OPEN
         bcs _snf_fail
-        jsr CC_READST
-        bne _snf_fail
-        jmp select_output
+        jsr CC_READST           ; NO check_ds here: closing the command
+        bne _snf_fail           ; channel closes every open file on the
+        jsr select_output       ; unit, killing the fresh output file
+        bcs _snf_fail
+        rts
 _snf_fail:
         lda #6                  ; segment file open failed
         sta backend_error
+        lda seg_cut_ix
+        sta backend_error_ptr
+        lda #0
+        sta backend_error_ptr+1
         rts
 
 seg_fname:
@@ -1223,7 +1456,21 @@ seg_fname:
 seg_fname_end:
 seg_sname:
         .text "s0:out.s00"
+        .byte 13
 seg_sname_end:
+
+show_writing_segment:
+        jsr CC_CLRCHN
+        lda #<msg_writing_seg
+        ldy #>msg_writing_seg
+        jsr screen_zstr
+        lda seg_fname+7
+        jsr CC_CHROUT
+        lda seg_fname+8
+        jsr CC_CHROUT
+        lda #13
+        jsr CC_CHROUT
+        rts
 
 ; jsr seggoto / .word segbase / .byte new-segment: every segment's
 ; first line sits exactly at segbase, so the hop is all constants
@@ -1316,9 +1563,9 @@ seg_decide:
         lda bin_size_end
         beq _sgd_done
 _sgd_over:
-        lda fgoto_used          ; gated constructs cannot segment yet;
-        ora trap_used           ; report_size_pass will halt with the
-        ora def_count           ; gate message
+        lda trap_used           ; gated constructs cannot segment yet;
+        ora def_count           ; report_size_pass will halt with the
+        ora col_used            ; gate message
         bne _sgd_done
         lda #0
         sta seg_cut_n
@@ -1419,9 +1666,9 @@ _rsp_plain_over:
         lda #13
         jsr CC_CHROUT
         ; v1 gates: constructs the segmented runtime cannot serve yet
-        lda fgoto_used
-        ora trap_used
+        lda trap_used
         ora def_count
+        ora col_used
         beq _rsp_gates_ok
         lda #<msg_overlay_gate
         ldy #>msg_overlay_gate
@@ -1640,7 +1887,7 @@ open_output:
 
         lda #LFN_OUT
         ldx #DEVICE_DISK
-        ldy #1
+        ldy #SA_OUT_TEXT
         jsr CC_SETLFS
 
         lda #0
@@ -8612,10 +8859,8 @@ compile_resume:
         bcs compile_trap_bad
         jsr emit_tmpl
         .word out_jsr_trapresume
-        jsr emit_tmpl
-        .word out_jmp_label
-        jsr out_label_from_number
-        jsr out_cr
+        lda #0
+        jsr emit_line_jump
         rts
 
 compile_open:
@@ -9302,10 +9547,8 @@ compile_goto:
         bcs _goto_bad
         jsr line_number_exists
         bcs _goto_bad
-        jsr emit_tmpl
-        .word out_jmp_label
-        jsr out_label_from_number
-        jsr out_cr
+        lda #0
+        jsr emit_line_jump
         jsr line_skip_to_stmt_end
         rts
 
@@ -9320,10 +9563,8 @@ compile_gosub:
         bcs _gosub_bad
         jsr line_number_exists
         bcs _gosub_bad
-        jsr emit_tmpl
-        .word out_jsr_label
-        jsr out_label_from_number
-        jsr out_cr
+        lda #1
+        jsr emit_line_jump
         jsr line_skip_to_stmt_end
         rts
 
@@ -11434,9 +11675,10 @@ emit_line_number_tab:
         beq _elt_emit
         lda #2                  ; sizing pass: count word...
         jsr bin_add_pc
-        lda fgoto_used
-        beq _elt_done
-        lda line_count          ; ...plus four bytes per line
+        lda fgoto_used          ; segmented programs always carry the
+        ora segmented           ; table: cross-segment dispatch resolves
+        beq _elt_done           ; through it
+        lda line_count          ; ...plus 4 (5 segmented) bytes per line
         sta elt_i
         lda line_count+1
         sta elt_i+1
@@ -11444,7 +11686,12 @@ _elt_size_loop:
         lda elt_i
         ora elt_i+1
         beq _elt_done
-        lda #4
+        ldx segmented
+        beq +
+        lda #5
+        bra _elt_size_add
++       lda #4
+_elt_size_add:
         jsr bin_add_pc
         lda elt_i
         bne +
@@ -11455,6 +11702,7 @@ _elt_done:
         rts
 _elt_emit:
         lda fgoto_used
+        ora segmented
         bne +
         lda #0
         jsr bin_write_byte
@@ -11480,12 +11728,29 @@ _elt_emit_loop:
         lda #3
         jsr lf_read
         jsr bin_write_byte
-        jsr lf_next
+        lda segmented           ; the record's segment byte
+        beq +
+        jsr _elt_seg_of_rec
+        jsr bin_write_byte
++       jsr lf_next
         bra _elt_emit_loop
+
+; segment of the current lf record's line (number_lo/hi borrowed;
+; seg_cut_n holds pass B's full cut set in every later pass)
+_elt_seg_of_rec:
+        lda #0
+        jsr lf_read
+        sta number_lo
+        lda #1
+        jsr lf_read
+        sta number_hi
+        jmp seg_of_number
+
 _elt_text:
         jsr emit_tmpl
         .word out_linetab_label
         lda fgoto_used
+        ora segmented
         bne +
         jsr emit_tmpl
         .word out_word_pre
@@ -11513,13 +11778,32 @@ _elt_text_loop:
         lda #0
         jsr lf_read
         jsr out_hex_byte
-        jsr emit_tmpl
-        .word out_lineref_sep
+        lda segmented
+        bne _elt_text_seg
+        jsr emit_tmpl           ; plain: the label doubles as an
+        .word out_lineref_sep   ; address cross-check under 64tass
         lda #1
         jsr lf_read
         jsr out_hex_byte
         lda #0
         jsr lf_read
+        jsr out_hex_byte
+        jsr out_cr
+        jsr lf_next
+        bra _elt_text_loop
+_elt_text_seg:
+        jsr emit_tmpl           ; segmented: recorded numeric address
+        .word out_seg_hdr2      ; (a cross-segment label would break
+        lda #3                  ; per-segment verification)
+        jsr lf_read
+        jsr out_hex_byte
+        lda #2
+        jsr lf_read
+        jsr out_hex_byte
+        jsr out_cr
+        jsr emit_tmpl
+        .word out_byte_pre
+        jsr _elt_seg_of_rec
         jsr out_hex_byte
         jsr out_cr
         jsr lf_next
@@ -11935,19 +12219,248 @@ _son_done:
         txa
         rts
 
+; record the current reference: target (number_lo/hi) and home line
+; (line_no_lo/hi) at XREFREC_B4 + xref_cur*4, for the post-pass scan
+xref_record:
+        jsr pool_ptr_save
+        lda xref_cur            ; * 4
+        asl a
+        sta source_ptr
+        lda xref_cur+1
+        rol a
+        asl source_ptr
+        rol a
+        clc
+        adc #>XREFREC_B4
+        sta source_ptr+1
+        ldz #0
+        lda number_lo
+        sta [source_ptr],z
+        inz
+        lda number_hi
+        sta [source_ptr],z
+        inz
+        lda line_no_lo
+        sta [source_ptr],z
+        inz
+        lda line_no_hi
+        sta [source_ptr],z
+        jmp pool_ptr_restore
+
+; after pass B: with the complete cut plan recorded, walk every
+; reference and mark those whose target segment differs from their
+; home segment. Sticky bits only ever grow, so the re-plan loop is
+; monotone and settles.
+xref_scan:
+        lda #0
+        sta xref_cur
+        sta xref_cur+1
+_xs_loop:
+        lda xref_cur
+        cmp xref_last_ix
+        bne _xs_body
+        lda xref_cur+1
+        cmp xref_last_ix+1
+        beq _xs_done
+_xs_body:
+        jsr xref_get
+        bne _xs_next            ; already sticky
+        jsr pool_ptr_save
+        lda xref_cur            ; * 4
+        asl a
+        sta source_ptr
+        lda xref_cur+1
+        rol a
+        asl source_ptr
+        rol a
+        clc
+        adc #>XREFREC_B4
+        sta source_ptr+1
+        ldz #0
+        lda [source_ptr],z
+        sta number_lo
+        inz
+        lda [source_ptr],z
+        sta number_hi
+        inz
+        lda [source_ptr],z
+        sta xs_home
+        inz
+        lda [source_ptr],z
+        sta xs_home+1
+        jsr pool_ptr_restore
+        jsr seg_of_number       ; target segment (full plan)
+        sta xs_tseg
+        lda xs_home
+        sta number_lo
+        lda xs_home+1
+        sta number_hi
+        jsr seg_of_number       ; home segment (same frame)
+        cmp xs_tseg
+        beq _xs_next
+        jsr xref_set            ; cross: sticky + growth latch
+_xs_next:
+        inc xref_cur
+        bne _xs_loop
+        inc xref_cur+1
+        bra _xs_loop
+_xs_done:
+        rts
+xs_home:
+        .byte 0, 0
+xs_tseg:
+        .byte 0
+
+; sticky cross-segment reference set: one bit per jump-form line
+; reference, indexed in program order (identical across passes). Once
+; a reference is classified cross-segment it stays that way -- the
+; trampoline works same-segment too -- which makes the pass-B sizing
+; loop monotone and guarantees convergence.
+xref_take:
+        lda xref_ix
+        sta xref_cur
+        lda xref_ix+1
+        sta xref_cur+1
+        inc xref_ix
+        bne +
+        inc xref_ix+1
++       rts
+
+; caller did pool_ptr_save: source_ptr -> bitmap byte, A = bit mask
+xreflocate:
+        lda xref_cur
+        sta source_ptr
+        lda xref_cur+1
+        sta source_ptr+1
+        lsr source_ptr+1
+        ror source_ptr
+        lsr source_ptr+1
+        ror source_ptr
+        lsr source_ptr+1
+        ror source_ptr
+        clc
+        lda source_ptr
+        adc #<XREFTAB_B4
+        sta source_ptr
+        lda source_ptr+1
+        adc #>XREFTAB_B4
+        sta source_ptr+1
+        lda xref_cur
+        and #7
+        tax
+        lda _xref_bit,x
+        rts
+_xref_bit:
+        .byte 1, 2, 4, 8, 16, 32, 64, 128
+
+xref_get:                       ; A nonzero = sticky
+        jsr pool_ptr_save
+        jsr xreflocate
+        ldz #0
+        and [source_ptr],z
+        jmp pool_ptr_restore    ; A survives
+
+xref_set:
+        jsr pool_ptr_save
+        jsr xreflocate
+        ldz #0
+        ora [source_ptr],z
+        sta [source_ptr],z
+        lda #1
+        sta xref_grew
+        lda xref_cur            ; debug latch: last index that grew
+        sta xref_set_ix
+        lda xref_cur+1
+        sta xref_set_ix+1
+        inc xref_set_cnt
+        jmp pool_ptr_restore
+
+xref_clear:                     ; once per compile
+        jsr pool_ptr_save
+        lda #<XREFTAB_B4
+        sta source_ptr
+        lda #>XREFTAB_B4
+        sta source_ptr+1
+        ldx #4
+        lda #0
+        ldz #0
+_xc_loop:
+        sta [source_ptr],z
+        inz
+        bne _xc_loop
+        inc source_ptr+1
+        dex
+        bne _xc_loop
+        sta xref_ix
+        sta xref_ix+1
+        sta xref_grew
+        sta xref_pass_n
+        jmp pool_ptr_restore
+
+; every compiled jump to a BASIC line goes through here: A = 0 for
+; GOTO shapes (jmp), 1 for GOSUB shapes (jsr); number_lo/hi = target.
+; Same-segment (and all non-segmented) references emit the direct
+; jmp/jsr label form; cross-segment references emit the line-number
+; trampoline (jsr seglgoto/seglgosub / .word line#, 5 bytes), which
+; resolves address+segment through the emitted line table at runtime.
+emit_line_jump:
+        sta elj_kind
+        lda segmented
+        bne _elj_seg
+_elj_direct:
+        lda elj_kind
+        bne _elj_djsr
+        jsr emit_tmpl
+        .word out_jmp_label
+        bra _elj_dlab
+_elj_djsr:
+        jsr emit_tmpl
+        .word out_jsr_label
+_elj_dlab:
+        jsr out_label_from_number
+        jmp out_cr
+_elj_seg:
+        bra _elj_cross          ; same-segment transfers are valid through
+                                ; the trampoline too; v1 favors stability
+_elj_cross:
+        lda elj_kind
+        bne _elj_cjsr
+        jsr emit_tmpl
+        .word out_jsr_seglgoto
+        bra _elj_cop
+_elj_cjsr:
+        jsr emit_tmpl
+        .word out_jsr_seglgosub
+_elj_cop:
+        ldx backend_mode
+        bne _elj_cbin
+        jsr emit_tmpl
+        .word out_seg_wordpre
+        lda number_hi
+        jsr out_hex_byte
+        lda number_lo
+        jsr out_hex_byte
+        jmp out_cr
+_elj_cbin:
+        cpx #BK_EMIT
+        beq +
+        lda #2
+        jmp bin_add_pc
++       lda number_lo
+        jsr bin_write_byte
+        lda number_hi
+        jmp bin_write_byte
+
 out_label_from_number:
         pha
         lda segmented
         beq _oln_nogate
-        jsr seg_of_number       ; cross-segment reference?
-        ldx backend_mode
-        cpx #BK_SIZE
-        bne +
-        cmp seg_cut_n           ; pass B: current segment = cuts so far
-        beq _oln_nogate
-        bra _oln_cross
-+       cmp seg_cut_ix          ; emit passes: cuts consumed
-        beq _oln_nogate
+        ldx backend_mode        ; pass B sizes not-yet-sticky refs as
+        cpx #BK_SIZE            ; direct on purpose (the post-pass scan
+        beq _oln_nogate         ; classifies them); no gate there
+        jsr seg_of_number       ; text/emit: a direct-form reference
+        cmp seg_cut_ix          ; must be same-segment -- anything else
+        beq _oln_nogate         ; is a real bug, halt loudly
 _oln_cross:
         pla                     ; cross-segment jump: not yet emitted
         lda #<msg_seg_cross
@@ -13500,15 +14013,12 @@ emit_jmp_if_else:
         rts
 
 emit_jmp_if_target:
-        jsr emit_tmpl
-        .word out_jmp_label
         lda if_target_lo
         sta number_lo
         lda if_target_hi
         sta number_hi
-        jsr out_label_from_number
-        jsr out_cr
-        rts
+        lda #0
+        jmp emit_line_jump
 
 emit_on_compare:
         jsr emit_tmpl
@@ -13534,26 +14044,20 @@ emit_on_compare:
         rts
 
 emit_jmp_on_target:
-        jsr emit_tmpl
-        .word out_jmp_label
         lda on_target_lo
         sta number_lo
         lda on_target_hi
         sta number_hi
-        jsr out_label_from_number
-        jsr out_cr
-        rts
+        lda #0
+        jmp emit_line_jump
 
 emit_jsr_on_target:
-        jsr emit_tmpl
-        .word out_jsr_label
         lda on_target_lo
         sta number_lo
         lda on_target_hi
         sta number_hi
-        jsr out_label_from_number
-        jsr out_cr
-        rts
+        lda #1
+        jmp emit_line_jump
 
 emit_jmp_ondone:
         jsr emit_tmpl
@@ -14202,6 +14706,16 @@ _bfr_write:
         lda bin_rel_lo
         jmp bin_write_byte
 _bfr_far:
+        txa
+        sta backend_diag_kind
+        lda bin_key_lo
+        sta backend_diag_key
+        lda bin_key_hi
+        sta backend_diag_key+1
+        lda pending_value
+        sta backend_diag_target
+        lda pending_value+1
+        sta backend_diag_target+1
         lda #5                  ; rel8 branch out of range at bin_pc
         sta backend_error
         lda bin_pc
@@ -14423,9 +14937,18 @@ msg_bin_size:
 msg_backend_error:
         .text "basic65c: backend error "
         .byte 0
+msg_backend_rel_diag:
+        .text "rel8 key target kind "
+        .byte 0
 msg_writing_prg:
         .text "writing out.prg"
         .byte 13, 0
+msg_loading_rt_attic:
+        .text "loading runtime -> attic"
+        .byte 13, 0
+msg_writing_seg:
+        .text "writing out.s"
+        .byte 0
 msg_wrote_prg:
         .text "basic65c: wrote out.prg"
         .byte 13, 0
@@ -14487,13 +15010,16 @@ msg_overlay_base:
         .text " segs, base $"
         .byte 0
 msg_overlay_todo:
-        .text " segments (not yet runnable)"
+        .text " segments"
+        .byte 13, 0
+msg_seg_fixpoint:
+        .text "segment plan did not converge"
         .byte 13, 0
 msg_seg_cross:
         .text "cross-segment jump (not yet supported)"
         .byte 13, 0
 msg_overlay_gate:
-        .text "overlay: fgoto/trap/def fn not supported yet"
+        .text "overlay: trap/def fn/collision not supported yet"
         .byte 13, 0
 msg_error_too_large:
         .text "basic65c: program too large for the memory window"
@@ -14676,6 +15202,48 @@ out_seg_jmp:
 .if TEXT_EMITTER
         .text " jmp $"
         .byte 0
+.else
+        .byte 0
+.fi
+out_byte_pre:
+.if TEXT_EMITTER
+        .text " .byte $"
+        .byte 0
+.else
+        .byte 0
+.fi
+out_set_fgptrs:
+.if TEXT_EMITTER
+        .text " lda #<segfgoto"
+        .byte 13
+        .text " sta fgdptr"
+        .byte 13
+        .text " lda #>segfgoto"
+        .byte 13
+        .text " sta fgdptr+1"
+        .byte 13
+        .text " lda #<segfgosub"
+        .byte 13
+        .text " sta fgsptr"
+        .byte 13
+        .text " lda #>segfgosub"
+        .byte 13
+        .text " sta fgsptr+1"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_seglgoto:
+.if TEXT_EMITTER
+        .text " jsr seglgoto"
+        .byte 13, 0
+.else
+        .byte 0
+.fi
+out_jsr_seglgosub:
+.if TEXT_EMITTER
+        .text " jsr seglgosub"
+        .byte 13, 0
 .else
         .byte 0
 .fi
@@ -17993,6 +18561,12 @@ backend_error:
         .byte 0
 backend_error_ptr:
         .word 0
+backend_diag_kind:
+        .byte 0
+backend_diag_key:
+        .word 0
+backend_diag_target:
+        .word 0
 pending_kind:
         .byte 0
 pending_value:
@@ -18014,6 +18588,14 @@ for_storage_addr:
 rt_status:
         .byte 0
 rt_chunk_len:
+        .byte 0
+rt_image_len:
+        .word 0
+rt_copy_len:
+        .word 0
+rt_stage_ptr:
+        .byte 0,0,0,0
+rt_byte:
         .byte 0
 probe_mode:
         .byte 0
@@ -18267,6 +18849,15 @@ seg_cut_line: .fill SEG_MAX * 2, 0
 size_ovf:     .byte 0
 seg_ovf_result: .byte 0
 seg_cut_ix:   .byte 0
+seg_art2:     .byte 0, 0        ; artifacts corrected for segmented
+xref_ix:      .byte 0, 0        ; per-pass jump-reference counter
+xref_cur:     .byte 0, 0        ; index taken by the current reference
+xref_grew:    .byte 0           ; a reference newly went cross-segment
+xref_pass_n:  .byte 0           ; fixpoint iteration count
+xref_set_ix:  .byte 0, 0        ; debug: last grown index
+xref_set_cnt: .byte 0           ; debug: sets this pass
+xref_last_ix: .byte 0, 0        ; debug: refs counted last pass
+elj_kind:     .byte 0           ; 0 = jmp form, 1 = jsr form
 flt_lit_sid:
         .fill FLT_LIT_MAX, 0
 flt_lit_addr_lo:

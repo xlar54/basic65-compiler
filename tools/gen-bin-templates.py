@@ -108,6 +108,7 @@ COMMENTS = {
     "out_seg_fill", "out_seg_fill2",
     "out_seg_hdr0", "out_seg_hdr", "out_seg_hdr2", "out_seg_hdr3",
     "out_seg_hdr4", "out_seg_wordpre", "out_seg_hop2", "out_seg_jmp",
+    "out_byte_pre",
 }
 
 

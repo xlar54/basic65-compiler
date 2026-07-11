@@ -3282,7 +3282,8 @@ edmago:
         rts
 
 ; FGOTO/FGOSUB: resolve a computed line number via the emitted table
-; (word count, then line#/address pairs); miss raises UNDEF'D STATEMENT
+; (word count, then line#/address records; segmented programs append a
+; segment byte per record); miss raises UNDEF'D STATEMENT
 fgres:
         lda rtlinetab
         sta rtptr
@@ -3318,11 +3319,19 @@ _fg_loop:
         ldy #3
         lda (rtptr),y
         sta fg_addr+1
-        rts
+        lda rtgfxflag+1         ; segmented marker (header byte 15)
+        beq +
+        ldy #4
+        lda (rtptr),y
+        sta fg_seg
++       rts
 _fg_next:
-        clc
-        lda rtptr
-        adc #4
+        lda #4                  ; record stride: 5 with the segment byte
+        ldx rtgfxflag+1
+        beq +
+        lda #5
++       clc
+        adc rtptr
         sta rtptr
         bcc +
         inc rtptr+1
@@ -3335,15 +3344,29 @@ _fg_err:
         lda #11                 ; UNDEF'D STATEMENT
         jmp rterror
 
+; FGOTO/FGOSUB dispatch through core pointers so the code bytes are
+; identical at every runtime level (the native backend ships one
+; truncated image): the segmented startup stub repoints them at the
+; overlay-aware dispatchers in the level-4 section (same pattern as
+; snd_shutptr)
 fgoto:
+        jmp (fgdptr)
+fgotoplain:
         jsr fgres
         pla                     ; GOTO semantics: drop the return
         pla
         jmp (fg_addr)
 
 fgosub:
+        jmp (fgsptr)
+fgosubplain:
         jsr fgres
         jmp (fg_addr)           ; the target's RETURN rts's to our caller
+
+fgdptr:
+        .word fgotoplain
+fgsptr:
+        .word fgosubplain
 
 ; ---------------------------------------------------------------------------
 ; Banked graphics: the GFX blob loads to bank 5 at init; each graphics
@@ -5518,6 +5541,7 @@ key_dsti:     .byte 0
 key_byte:     .byte 0
 fg_cnt:       .byte 0,0
 fg_addr:      .byte 0,0
+fg_seg:       .byte 0
 exprb2:       .byte 0
 exprb3:       .byte 0
 dma_i:        .byte 0
@@ -10147,8 +10171,9 @@ seggosub:
         lda varptr+1
         adc #0
         sta ovl_res+1
-        ldx ovl_sp
-        cpx #24                 ; 8 nested cross-segment gosubs
+sgsframe:                     ; ovl_tgt/ovl_new/ovl_res staged: push
+        ldx ovl_sp              ; the frame, call, restore the caller's
+        cpx #24                 ; segment (8 nested cross-seg gosubs)
         bcs _sgs_ovf
         lda ovl_cur
         sta ovl_stk,x
@@ -10184,6 +10209,95 @@ _sgs_call:
 _sgs_ovf:
         lda #8                  ; OUT OF MEMORY: gosub nesting
         jmp rterror
+
+; cross-segment GOTO by line number: jsr seglgoto / .word line#.
+; The address and segment come from the emitted line table, so neither
+; backend ever references a label in another segment (per-segment
+; verification stays possible). Works same-segment too.
+seglgoto:
+        pla
+        sta varptr
+        pla
+        sta varptr+1
+        ldy #1
+        lda (varptr),y
+        sta exprlo
+        iny
+        lda (varptr),y
+        sta exprhi
+        jsr fgres
+        lda fg_addr
+        sta ovl_tgt
+        lda fg_addr+1
+        sta ovl_tgt+1
+        lda fg_seg
+        cmp ovl_cur
+        beq +
+        jsr ovlswap
++       jmp (ovl_tgt)
+
+; segmented FGOTO/FGOSUB: like the plain forms, but the resolved
+; target may live in another segment (the stub points fgdptr/fgsptr
+; here)
+segfgoto:
+        jsr fgres
+        pla                     ; GOTO semantics: drop the return
+        pla
+        lda fg_addr
+        sta ovl_tgt
+        lda fg_addr+1
+        sta ovl_tgt+1
+        lda fg_seg
+        cmp ovl_cur
+        beq +
+        jsr ovlswap
++       jmp (ovl_tgt)
+
+segfgosub:
+        jsr fgres               ; the callee's RETURN must restore the
+        pla                     ; caller's segment: run through the
+        clc                     ; overlay frame; resume = return + 1
+        adc #1
+        sta ovl_res
+        pla
+        adc #0
+        sta ovl_res+1
+        lda fg_addr
+        sta ovl_tgt
+        lda fg_addr+1
+        sta ovl_tgt+1
+        lda fg_seg
+        sta ovl_new
+        jmp sgsframe
+
+; cross-segment GOSUB by line number: jsr seglgosub / .word line#;
+; frame handling shared with seggosub (resume = operands + 3)
+seglgosub:
+        pla
+        sta varptr
+        pla
+        sta varptr+1
+        ldy #1
+        lda (varptr),y
+        sta exprlo
+        iny
+        lda (varptr),y
+        sta exprhi
+        clc
+        lda varptr
+        adc #3
+        sta ovl_res
+        lda varptr+1
+        adc #0
+        sta ovl_res+1
+        jsr fgres
+        lda fg_addr
+        sta ovl_tgt
+        lda fg_addr+1
+        sta ovl_tgt+1
+        lda fg_seg
+        sta ovl_new
+        jmp sgsframe
 
 ovl_list:
         .byte $0b               ; F018B enhanced
