@@ -306,6 +306,11 @@ def main():
         if not _m3:
             sys.exit("rtpbhi missing from runtime.lbl")
         f.write("RT_PBHI = $%s\n" % _m3.group(1))
+        _m4 = _re.search(r"^volsndl\s*=\s*\$([0-9a-fA-F]+)",
+                         RUNTIME_LBL.read_text(encoding="ascii", errors="replace"), _re.M)
+        if not _m4:
+            sys.exit("volsndl missing from runtime.lbl")
+        f.write("RT_VOLSNDL = $%s\n" % _m4.group(1))
         f.write("; record: .byte kind, length, bytes... (patch slots are $00)\n")
         f.write("; kinds: 0 code, 1 patch_byte, 2 patch_word, 3 patch_lo,\n")
         f.write(";        4 patch_hi, 5 patch_rel8, 6 name fragment\n\n")

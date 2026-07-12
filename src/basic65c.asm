@@ -42,7 +42,10 @@ source_ptr              = $F7
 str_ptr                 = $FB
 POOL_BANK               = $04
 POOL_BASE               = $C000 ; above any realistic tokenized source
-LINETAB_B4              = $F400 ; line records, bank 4 ($e000 = LBLTAB, $f000-$f3ff = string/branch tables; $f400+ is free)
+STR_OFF_PAGE            = $D8   ; string literal offset tables: $d800/$d900
+.cerror POOL_BASE + STRING_POOL_MAX > (STR_OFF_PAGE << 8), "string pool overruns the bank-4 scratch tables"
+BRANCH_TAB_PAGE         = $DA   ; branch target tables: $da00/$db00
+LINETAB_B4              = $F400 ; line records, bank 4; $e000-$f2ff = generated labels
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
@@ -205,7 +208,7 @@ DATA_LINE_MAX           = 64
 DATA_TYPE_INT           = 0
 DATA_TYPE_STRING        = 1
 STRING_MAX              = 240 ; offset tables live in bank 4
-STRING_POOL_MAX         = $2000 ; pool lives in bank 4, not the image
+STRING_POOL_MAX         = $1800 ; pool lives in bank 4; $d800+ holds scratch tables
 
 .if TEXT_EMITTER
 SYM_MAX                 = 64    ; checked build: tables extend past $c000
@@ -695,9 +698,11 @@ reset_emit_counters:
 ; slot advances bin_pc, line addresses are recorded, and the tail table
 ; addresses are captured for the future emit pass
 run_size_pass:
+        jsr reset_emit_counters
+        lda #0                  ; pass-local: do not inherit prior pass
+        sta backend_error       ; errors (explicit, not via reset's A)
         lda #BK_SIZE
         sta backend_mode
-        jsr reset_emit_counters
         ldx #0                  ; runtime level: highest section needed
         lda fio_used
         beq +
@@ -1661,7 +1666,6 @@ seg_decide:
 _sgd_over:
         lda trap_used           ; gated constructs cannot segment yet;
         ora def_count           ; report_size_pass will halt with the
-        ora col_used            ; gate message
         bne _sgd_done
         lda #0
         sta seg_cut_n
@@ -1775,7 +1779,6 @@ _rsp_plain_over:
         ; v1 gates: constructs the segmented runtime cannot serve yet
         lda trap_used
         ora def_count
-        ora col_used
         beq _rsp_gates_ok
         lda #<msg_overlay_gate
         ldy #>msg_overlay_gate
@@ -2540,6 +2543,8 @@ _scan_vars_array:
         lda #VAR_KIND_ARRAY1
         sta var_kind
         jsr resolve_existing_var
+        bcc _scan_vars_loop
+        jsr create_implicit_array_var
         bcs _scan_vars_fail
         bra _scan_vars_loop
 
@@ -2651,6 +2656,7 @@ _scan_ext_gfx:
 _scan_ext_col:
         ldx #1
         stx col_used
+        stx fgoto_used
         bra _scan_ext_snd
 _scan_ext_fio:
         ldx #1
@@ -4283,7 +4289,7 @@ _compile_next_emit:
         lda current_for_var_data_hi
         sta current_var_data_hi
         sta assign_var_data_hi
-        jsr emit_load_var
+        jsr emit_load_for_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forstep
         jsr emit_add_lhs_expr
@@ -4302,7 +4308,7 @@ _compile_next_emit:
         sta current_var_data_lo
         lda current_for_var_data_hi
         sta current_var_data_hi
-        jsr emit_load_var
+        jsr emit_load_for_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
         jsr emit_tmpl
@@ -4318,7 +4324,7 @@ _compile_next_emit:
         sta current_var_data_lo
         lda current_for_var_data_hi
         sta current_var_data_hi
-        jsr emit_load_var
+        jsr emit_load_for_var
         jsr emit_move_expr_to_lhs
         jsr emit_load_forend
         jsr emit_tmpl
@@ -6766,8 +6772,6 @@ _print_loop:
         bcs _print_finish
 
         jsr line_peek
-        cmp #'"'
-        beq _print_string
         cmp #';'
         beq _print_semicolon
         cmp #','
@@ -6817,15 +6821,6 @@ _print_expression_bad:
         ldy #>msg_error_unsupported_print
         jsr fatal_statement_error
         rts
-
-_print_string:
-        jsr line_get                         ; opening quote
-        lda #0
-        sta print_suppress_cr
-        jsr add_string_literal
-        bcs _print_expression_bad
-        jsr emit_print_string_current
-        bra _print_loop
 
 _print_semicolon:
         jsr line_get
@@ -7210,7 +7205,7 @@ scrarr_probe:
         cmp #$43                ; C
         bne _sap_no
 _sap_check:
-        stx scrarr_kind
+        stx scrarr_probe_kind
         sta scrarr_chr          ; callers pass the first char in A and
         lda line_idx            ; expect it back untouched on a miss
         sta scrarr_save
@@ -7224,6 +7219,8 @@ _sap_check:
         jsr line_get
         cmp #$26                ; &
         bne _sap_restore
+        lda scrarr_probe_kind
+        sta scrarr_kind
         clc
         rts
 _sap_restore:
@@ -7292,16 +7289,12 @@ compile_collision:
         bcs _compile_col_bad
         jsr line_number_exists
         bcs _compile_col_bad
-        jsr emit_tmpl
-        .word out_lda_label_lo_imm
-        jsr out_label_from_number
-        jsr out_cr
+        lda number_lo
+        jsr emit_lda_imm
         jsr emit_tmpl
         .word out_sta_coltmp
-        jsr emit_tmpl
-        .word out_lda_label_hi_imm
-        jsr out_label_from_number
-        jsr out_cr
+        lda number_hi
+        jsr emit_lda_imm
         jsr emit_tmpl
         .word out_sta_coltmp1
         jsr emit_tmpl_done
@@ -8880,15 +8873,15 @@ _movspr_rely:
         jsr emit_tmpl
         .word out_jsr_sprsetyr
 _movspr_place:
-        jsr emit_tmpl
-        .word out_jsr_movsprgo
         ; optional: TO endx, endy, speed
         jsr line_skip_spaces
         jsr line_at_end_or_colon
-        bcs _movspr_done
+        bcs _movspr_place_now
         jsr line_peek
         cmp #TOK_TO
-        bne _movspr_done
+        bne _movspr_place_now
+        jsr emit_tmpl
+        .word out_jsr_sprsetty
         jsr line_get
         jsr compile_expression
         bcs compile_sprite_bad
@@ -8906,6 +8899,10 @@ _movspr_place:
         bcs compile_sprite_bad
         jsr emit_tmpl
         .word out_jsr_sprgoto
+        bra _movspr_done
+_movspr_place_now:
+        jsr emit_tmpl
+        .word out_jsr_movsprgo
 _movspr_done:
         clc
         rts
@@ -9013,6 +9010,15 @@ _sprite_slot_bad:
 
 ; SOUND voice, freq, dur [, dir [, min [, sweep [, wave [, pulse]]]]]
 compile_sound:
+        jsr line_skip_spaces
+        jsr line_peek
+        cmp #TOK_CLR
+        bne _compile_sound_args
+        jsr line_get
+        jsr emit_tmpl_done
+        .word out_jsr_playoff
+
+_compile_sound_args:
         jsr compile_expression
         bcs compile_sound_bad
         jsr emit_tmpl
@@ -9072,8 +9078,23 @@ compile_sound_bad:
 compile_vol:
         jsr compile_expression
         bcs compile_sound_bad
-        jsr emit_tmpl_done
+        jsr emit_tmpl
         .word out_jsr_volsnd
+        jsr parse_opt_comma
+        bcs _compile_vol_emit_left
+        jsr compile_expression
+        bcs compile_sound_bad
+_compile_vol_emit_left:
+        lda #<RT_VOLSNDL
+        sta number_lo
+        lda #>RT_VOLSNDL
+        sta number_hi
+        jsr emit_tmpl
+        .word out_jsr_abs
+        jsr out_hex_word_number
+        jsr out_cr
+        clc
+        rts
 
 compile_trap_bad:
         lda #<msg_error_bad_trap
@@ -9144,7 +9165,10 @@ parse_opt_comma:
         bcs parse_opt_comma_end
         jsr line_get
         cmp #','
-        bne parse_opt_comma_end
+        beq _parse_opt_comma_yes
+        dec line_idx
+        bra parse_opt_comma_end
+_parse_opt_comma_yes:
         clc
         rts
 parse_opt_comma_end:
@@ -10324,6 +10348,15 @@ _resolve_existing_fail:
         sec
         rts
 
+; BASIC auto-dimensions one-dimensional arrays on first use with bounds 0..10.
+create_implicit_array_var:
+        lda #1
+        sta array_rank
+        lda #11
+        sta array_dims_lo
+        lda #0
+        sta array_dims_hi
+
 create_array_var:
         ldx #0
 _create_array_find:
@@ -10787,7 +10820,7 @@ add_string_literal:
 
 _add_string_loop:
         jsr line_at_end
-        bcs _add_string_fail
+        bcs _add_string_done
         jsr line_get
         cmp #'"'
         beq _add_string_done
@@ -10849,6 +10882,8 @@ _parse_float_before:
         jsr line_at_end
         bcs _parse_float_intend ; digits ran to end of line
         jsr line_peek
+        cmp #'$'
+        beq _parse_float_hex
         cmp #'0'
         bcc _parse_float_dot_check
         cmp #'9' + 1
@@ -10893,6 +10928,36 @@ _parse_float_bigint:
         rts
 _pf_65535:
         .text "65535"
+
+_parse_float_hex:
+        jsr line_get
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+_parse_float_hex_loop:
+        jsr line_at_end
+        bcs _parse_float_hex_done
+        jsr line_peek
+        jsr hex_to_nibble
+        bcs _parse_float_hex_done
+        sta digit_value
+        jsr line_get
+        jsr string_temp_append_a
+        bcs _parse_float_fail
+        lda digit_value
+        bne _parse_float_hex_sig
+        lda byte_value
+        beq _parse_float_hex_loop
+_parse_float_hex_sig:
+        lda #1
+        sta byte_value
+        inc number_digits
+        bra _parse_float_hex_loop
+_parse_float_hex_done:
+        lda number_digits
+        cmp #5
+        bcs _parse_float_bigint
+        bra _parse_float_fail
+
 _parse_float_dot:
         jsr line_get
         lda #'.'
@@ -11122,16 +11187,16 @@ string_pool_read_byte:
         lda [source_ptr],z
         jmp pool_ptr_restore    ; A survives, restores the pointer
 
-; string offset tables live in bank 4 at $f000/$f100, one page each,
+; string offset tables live in bank 4 at STR_OFF_PAGE/STR_OFF_PAGE+1,
 ; through the same borrowed pointer as the pool
-; branch target table in bank 4 at $f200/$f300 (X preserved)
+; branch target table in bank 4 at BRANCH_TAB_PAGE/BRANCH_TAB_PAGE+1 (X preserved)
 brtabload:
         phx
         jsr pool_ptr_save
         plx
         phx
         stx source_ptr
-        lda #$f2
+        lda #BRANCH_TAB_PAGE
         sta source_ptr+1
         ldz #0
         lda [source_ptr],z
@@ -11149,7 +11214,7 @@ brtabstore:
         plx
         phx
         stx source_ptr
-        lda #$f2
+        lda #BRANCH_TAB_PAGE
         sta source_ptr+1
         ldz #0
         lda number_lo
@@ -11166,7 +11231,7 @@ stroffload:
         jsr pool_ptr_save
         plx
         stx source_ptr
-        lda #$f0
+        lda #STR_OFF_PAGE
         sta source_ptr+1
         ldz #0
         lda [source_ptr],z
@@ -11181,7 +11246,7 @@ stroffstore:
         jsr pool_ptr_save
         plx
         stx source_ptr
-        lda #$f0
+        lda #STR_OFF_PAGE
         sta source_ptr+1
         ldz #0
         lda string_pool_next_lo
@@ -12368,7 +12433,7 @@ _spl_active:
         bcs _spl_hard_over
         sec
         lda seg_cap_hi
-        sbc #$06                ; slack: cut when within ~1.5KB of the
+        sbc #$20                ; slack: cut when within ~8KB of the
         cmp bin_pc+1            ; cap (largest line emission fits)
         bcs _spl_done           ; comfortably below: keep going
         lda for_sp
@@ -12874,15 +12939,26 @@ emit_load_var:
         ldx current_sym_index
         lda sym_type,x
         cmp #VAR_TYPE_FLOAT
-        beq _emit_load_var_float
+        beq emit_load_var_float
         jsr emit_tmpl_done
         .word out_jsr_loadintvar
 
-_emit_load_var_float:
+emit_load_var_float:
         jsr emit_tmpl
         .word out_jsr_floadvar
         jsr emit_tmpl_done
         .word out_jsr_qint
+
+; NEXT reloads the loop variable after the loop body has compiled, so the
+; active symbol may belong to an expression inside the loop. Use the saved
+; FOR-frame type instead.
+emit_load_for_var:
+        jsr emit_set_varptr_current
+        lda current_for_var_type
+        cmp #VAR_TYPE_FLOAT
+        beq emit_load_var_float
+        jsr emit_tmpl_done
+        .word out_jsr_loadintvar
 
 ; typed load for expression factors: float variables land in FAC
 emit_load_var_typed:
@@ -13610,11 +13686,6 @@ emit_store_a_to_expr_bool:
                                 ; passed or failed on leftover FAC state)
         jsr emit_tmpl
         .word out_sta_exprlo
-        jsr emit_tmpl
-        .word out_lda_imm_hex
-        lda #0
-        jsr out_hex_byte
-        jsr out_cr
         jsr emit_tmpl_done
         .word out_sta_exprhi
 
@@ -14989,7 +15060,7 @@ msg_banner2:
         .byte $9f               ; cyan
         .text "                        The MEGA65 BASIC to ML Compiler"
         .byte 13
-        .text "                                  Version 1.0"
+        .text "                                  Version 1.1"
         .byte 13, 13
         .fill 78, $c0           ; PETSCII horizontal bar
         .byte 13, 13
@@ -15031,7 +15102,7 @@ msg_error_bad_sprite:
         .text "bad sprite/movspr"
         .byte 13, 0
 msg_error_bad_sound:
-        .text "bad sound/vol"
+        .text "bad audio"
         .byte 13, 0
 msg_error_bad_trap:
         .text "bad trap/resume"
@@ -15072,14 +15143,14 @@ msg_error_bad_def:
         .byte 0
 msg_bin_disk_fail:
         .byte 13
-        .text "cannot write out file (disk full or write protected?)"
+        .text "cannot write out file"
         .byte 13, 0
 msg_rt_missing:
         .byte 13
-        .text "runtime.prg missing or unreadable on this disk"
+        .text "runtime.prg missing"
         .byte 13, 0
 msg_bin_write_fail:
-        .text "basic65c: native out.prg failed"
+        .text "native out.prg failed"
         .byte 13, 0
 msg_bin_mismatch:
         .text "basic65c: native size mismatch"
@@ -15112,7 +15183,7 @@ msg_error_many_lines:
         .text "too many lines"
         .byte 13, 0
 msg_error_scan_var:
-        .text "cannot resolve variable (out of symbols?)"
+        .text "cannot resolve variable"
         .byte 13, 0
 msg_overlay_plan:
         .text "overlay: $"
@@ -15127,10 +15198,10 @@ msg_seg_cross:
         .text "cross-segment jump (not yet supported)"
         .byte 13, 0
 msg_overlay_gate:
-        .text "overlay: trap/def fn/collision not supported yet"
+        .text "overlay: trap/def fn not supported yet"
         .byte 13, 0
 msg_error_too_large:
-        .text "basic65c: program too large for the memory window"
+        .text "program too large"
         .byte 13, 0
 msg_error_unsupported_token:
         .text "unsupported token"
@@ -18756,6 +18827,8 @@ cmd2_tail:
         .byte 0,0
 scrarr_kind:
         .byte 0
+scrarr_probe_kind:
+        .byte 0
 scrarr_save:
         .byte 0
 scrarr_chr:
@@ -18863,7 +18936,7 @@ string_pool:
 
 LBL_IF_IDS      = 384
 LBL_ON_IDS      = 128
-LBL_ARRAY_IDS   = 256
+LBL_ARRAY_IDS   = 512
 .if TEXT_EMITTER
 LBL_FORDO_MAX   = 48            ; checked build: restored (tables live high)
 .else
@@ -18901,6 +18974,7 @@ lbloff_forcont   = lbloff_forinitneg + LBL_FORDO_MAX * 2
 lbloff_fordone   = lbloff_forcont + LBL_FORDO_MAX * 2
 lbloff_dotop     = lbloff_fordone + LBL_FORDO_MAX * 2
 lbloff_dodone    = lbloff_dotop + LBL_FORDO_MAX * 2
+.cerror LBLTAB_BASE + lbloff_dodone + LBL_FORDO_MAX * 2 > LINETAB_B4, "label tables overrun the bank-4 line records"
 
 lbladdr_base_lo:
         .byte <(LBLTAB_BASE+lbloff_if), <(LBLTAB_BASE+lbloff_on)

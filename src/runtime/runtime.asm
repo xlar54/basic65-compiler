@@ -132,6 +132,8 @@ _rtinit_vecs:
         sta varptr+3
         lda #128
         sta cur_bank
+        lda #0
+        sta $d015
         jsr strtreset
         ; bank the C65 BASIC and editor ROMs out of $8000-$cfff BEFORE
         ; fltinit: large programs keep their literal text above $8000, and
@@ -178,6 +180,8 @@ rtcallprog:
 ; END/STOP from any GOSUB depth: unwind the stack to the pre-program mark,
 ; restore the ROM mapping, and return to the BASIC SYS caller
 rtexit:
+        lda #0
+        sta $d015
         jsr rtsndshut
         ldx rtspsave
         txs
@@ -1078,10 +1082,9 @@ fcbfalse:
         lda #0
         bra fcbstore
 fcbtrue:
-        lda #1
+        lda #$ff
 fcbstore:
         sta exprlo
-        lda #0
         sta exprhi
         rts
 
@@ -1261,6 +1264,8 @@ _vf_skip:
 _vf_digits:
         lda (rtptr),y
         beq _vf_scale
+        cmp #'$'
+        beq _vf_hex
         cmp #'.'
         beq _vf_point
         cmp #$65                ; ASCII 'e'
@@ -1289,6 +1294,33 @@ _vf_digits:
         inc vflt_decexp
 +       iny
         bra _vf_digits
+_vf_hex:
+        iny
+_vf_hex_loop:
+        lda (rtptr),y
+        jsr vfhexdig
+        bcs _vf_scale
+        sta vflt_digit
+        sty vflt_y
+        lda facexp
+        beq _vf_hex_add
+        clc
+        adc #4
+        bcs _vf_hex_over
+        sta facexp
+_vf_hex_add:
+        jsr fmovaf
+        lda vflt_digit
+        sta exprlo
+        lda #0
+        sta exprhi
+        jsr float16
+        jsr fadd
+        ldy vflt_y
+        iny
+        bra _vf_hex_loop
+_vf_hex_over:
+        jmp fltoverflow
 _vf_point:
         lda #1
         sta vflt_frac
@@ -1356,6 +1388,38 @@ _vf_sign:
         bpl +
         sta facsgn
 +       rts
+
+vfhexdig:
+        cmp #'0'
+        bcc _vfhex_bad
+        cmp #'9' + 1
+        bcc _vfhex_digit
+        cmp #$41                ; A-F
+        bcc _vfhex_lower
+        cmp #$47
+        bcc _vfhex_upper
+_vfhex_lower:
+        cmp #$61                ; a-f
+        bcc _vfhex_bad
+        cmp #$67
+        bcs _vfhex_bad
+        sec
+        sbc #$61 - 10
+        clc
+        rts
+_vfhex_upper:
+        sec
+        sbc #$41 - 10
+        clc
+        rts
+_vfhex_digit:
+        sec
+        sbc #'0'
+        clc
+        rts
+_vfhex_bad:
+        sec
+        rts
 
 ; print FAC in BASIC style: sign space/minus, up to nine significant digits
 ; with the point placed by the decimal exponent, E notation outside
@@ -2421,7 +2485,7 @@ cmpgtfalse2:
         jmp cmpfalse
 
 cmptrue:
-        lda #1
+        lda #$ff
         rts
 cmpfalse:
         lda #0
@@ -3864,8 +3928,9 @@ bittab:
         .byte 1, 2, 4, 8, 16, 32, 64, 128
 
 ; SPRSAV: 64-byte C64-style sprite shapes staged through sprsavbuf.
-; Sprite data is found through the live pointers at screen+1016 (the
-; screen base comes from SCRNPTR, VIC bank 0 assumed).
+; Sprite data is found through the live C64-style pointers at screen+1016
+; (VIC bank 0 assumed). The MEGA65's VIC path used here still consumes
+; that table even while the text display is 80-column.
 sprdataptr:
         lda $d060               ; screen base + $3f8 + sprite#
         clc
@@ -3882,8 +3947,31 @@ sprdataptr:
         lda exprlo
         and #7
         taz
+        lda $d061               ; active screen page, in sprite slots
+        asl a
+        asl a
+        sta rtptr
         lda [varptr],z          ; the sprite pointer byte
-        sta rtptr+1             ; *64: byte<<6 across 16 bits
+        beq _sdp_default
+        sta rtptr+1
+        sec
+        sbc rtptr               ; screen-relative slots below the
+        cmp #32                 ; post-screen sprite area are stale.
+        bcc _sdp_default
+        lda rtptr+1             ; trust only sprite pages below $2000;
+        cmp #$80                ; higher pages can hit runtime/program RAM
+        bcc _sdp_have_ptr
+_sdp_default:
+        lda rtptr               ; default after the active 2K screen
+        clc
+        adc #32
+        sta rtptr+1
+        tza
+        clc
+        adc rtptr+1
+        sta [varptr],z
+        sta rtptr+1
+_sdp_have_ptr:
         lda #0
         sta rtptr
         lsr rtptr+1
@@ -3901,6 +3989,7 @@ _ssa_loop:
         iny
         cpy #64
         bne _ssa_loop
+        ldz #0
         rts
 
 sprsavs:                        ; string source -> buffer (pad with 0)
@@ -3934,6 +4023,7 @@ _sss_copy:
         iny
         bra _sss_copy
 _sss_done:
+        ldz #0
         rts
 
 sprsavdn:                       ; buffer -> sprite (numeric dest)
@@ -3945,6 +4035,7 @@ _ssd_loop:
         iny
         cpy #64
         bne _ssd_loop
+        ldz #0
         rts
 
 sprsavstr:                      ; buffer -> fresh 64-byte heap string
@@ -3964,6 +4055,7 @@ _sstr_loop:
         cpy #64
         bne _sstr_loop
 _sstr_done:
+        ldz #0
         rts
 
 ; VSYNC raster: busy-wait until the 9-bit VIC raster matches
@@ -4413,7 +4505,7 @@ strgetrue:
 strgefalse:
         jmp strcmpfalse
 strcmptrue:
-        lda #1
+        lda #$ff
         rts
 strcmpfalse:
         lda #0
@@ -8248,7 +8340,7 @@ _playtrk_copied:
         lda snd_vol             ; volume must keep the FILTER mode bits:
         ora flt_mode            ; a raw write here bypassed the filter
         sta $d418               ; for every note PLAYed after a FILTER
-        lda snd_vol
+        lda snd_voll
         ora flt_mode+1
         sta $d458
         lda #1
@@ -8272,6 +8364,27 @@ _playoff_loop:
         sta $d404,y
         dex
         bpl _playoff_loop
+        ldx #5
+_playoff_sound_loop:
+        ldy snd_regoff,x
+        sta $d404,y
+        sta snd_dur_lo,x
+        sta snd_dur_hi,x
+        sta snd_pswp_lo,x
+        sta snd_pswp_hi,x
+        dex
+        bpl _playoff_sound_loop
+        lda #2
+        sta snd_w
+        lda #0
+        sta snd_p
+        sta snd_dir
+        sta snd_m
+        sta snd_m+1
+        sta snd_s
+        sta snd_s+1
+        lda #$08
+        sta snd_p+1
         rts
 
 ; one jiffy for all tracks; called from the sound ISR (A/X/Y saved there)
@@ -8390,11 +8503,8 @@ _ptick_char:
         tay
         lda play_voltab,y
         sta snd_vol             ; U is the master volume; keep the
-        ora flt_mode            ; FILTER mode bits when rewriting
-        sta $d418
-        lda snd_vol
-        ora flt_mode+1
-        sta $d458
+        sta snd_voll            ; FILTER mode bits when rewriting
+        jsr volsndall
         bra _ptick_scan
 +       cmp #$58                ; X: filter this voice
         beq _ptick_xdir
@@ -8649,7 +8759,6 @@ movsprgo:
         sta $d000,y
         lda exprlo
         sta $d001,y
-        ldx spr_n
         lda spr_x+1
         beq _movspr_msboff
         lda sprbit,x
@@ -8745,7 +8854,7 @@ _bump_done:
 ; ($ff8d) per dansanderson.com/mega65/kernal-of-truth: read the RAM
 ; vector table, patch the IRQ entry (first word), write it back --
 ; never poke $0314 directly, the MEGA65 table location is internal.
-; The handler touches only snd_* state and SID registers.
+; The handler preserves A/X/Y/Z, then chains through a patched JMP.
 ;=======================================================================================
 
 sndinit:
@@ -8761,9 +8870,9 @@ sndinit:
         ldy #>snd_vectab
         jsr kernalvector
         lda snd_vectab          ; first entry is the IRQ vector
-        sta snd_oldirq
+        sta snd_irqret+1
         lda snd_vectab+1
-        sta snd_oldirq+1
+        sta snd_irqret+2
         lda #<rtsound_isr
         sta snd_vectab
         lda #>rtsound_isr
@@ -8783,6 +8892,7 @@ rtsound_isr:
         pha
         phx
         phy
+        phz
         jsr play_tick
         jsr mouse_tick
         jsr col_tick
@@ -8817,10 +8927,12 @@ _snd_isr_sweep:
 _snd_isr_next:
         dex
         bpl _snd_isr_loop
+        plz
         ply
         plx
         pla
-        jmp (snd_oldirq)
+snd_irqret:
+        jmp $0000
 
 ; advance the sweep of voice X by one jiffy: dir 0 climbs from freq,
 ; 1 falls toward min, 2 bounces between min and the starting freq
@@ -8913,16 +9025,15 @@ _sndshut_mo:
         sta mo_mode,x
         dex
         bpl _sndshut_mo
-        lda #0
         sta col_pending
         sta col_active
         jsr playoff
         lda snd_hooked
         beq _sndshut_gates_only
         sei
-        lda snd_oldirq
+        lda snd_irqret+1
         sta snd_vectab
-        lda snd_oldirq+1
+        lda snd_irqret+2
         sta snd_vectab+1
         clc
         ldx #<snd_vectab
@@ -9186,15 +9297,34 @@ sprgoto:
         lda exprlo
         bne +
         lda #1                  ; speed 0 would never arrive
++       sta spr_spd
+        ldx spr_n
+        lda mo_mode,x
+        cmp #2
+        bne _sprgoto_new
+        lda spr_spd
+        cmp mo_speed,x
+        bne _sprgoto_new
+        lda spr_tx
+        cmp mo_txl,x
+        bne _sprgoto_new
+        lda spr_tx+1
+        cmp mo_txh,x
+        bne _sprgoto_new
+        lda spr_ty
+        cmp mo_ty,x
+        bne _sprgoto_new
+        rts
+_sprgoto_new:
+        lda spr_dy
         sta exprlo
-+       jsr sndinit             ; motion runs on the IRQ tick
-        lda exprlo
-        sta spr_spd
+        jsr movsprgo
+        jsr sndinit             ; motion runs on the IRQ tick
+        lda spr_spd
         ldx spr_n
         sta mo_speed,x
         jsr sprsyncpos
         ; dx = tx - x (16-bit signed), dy = ty - y
-        ldx spr_n
         sec
         lda spr_tx
         sbc mo_xw,x
@@ -9206,13 +9336,10 @@ sprgoto:
         lda spr_ty
         sbc mo_yw,x
         sta spr_dy
-        lda spr_dy+1
         lda #0
         sbc #0
         sta spr_dy+1
-        lda spr_ty+1
-        beq +
-+       ; frames = sqrt(dx*dx + dy*dy) / speed -- the ROM's speed is
+        ; frames = sqrt(dx*dx + dy*dy) / speed -- the ROM's speed is
         ; pixels per frame along the path (user-measured: 233px at
         ; speed 4 took 1.18s interpreted)
         lda spr_dx
@@ -9244,7 +9371,7 @@ sprgoto:
         jsr fpoparg
         jsr fdiv                ; frames = dist / speed
         jsr qint
-        inc exprlo              ; ceil-ish, and never zero
+        inc exprlo
         bne +
         inc exprhi
 +       ldx spr_n
@@ -9312,14 +9439,12 @@ sprsyncpos:
         tay
         lda $d000,y
         sta mo_xw,x
-        lda #0
-        sta mo_xwh,x
         lda $d010
         and sprbit,x
         beq +
         lda #1
-        sta mo_xwh,x
-+       lda $d001,y
++       sta mo_xwh,x
+        lda $d001,y
         sta mo_yw,x
         lda #0
         sta mo_xf,x
@@ -9328,6 +9453,8 @@ sprsyncpos:
 
 ; TO/velocity targets staged before sprgoto
 sprsettx:
+        lda spr_ty              ; start Y was staged with sprsetty; keep it
+        sta spr_dy              ; before target Y overwrites spr_ty.
         lda exprlo
         sta spr_tx
         lda exprhi
@@ -9469,7 +9596,7 @@ colsett:
 +       stx col_t
         rts
 
-; arm type col_t with the handler address staged in coltmp
+; arm type col_t with the handler line number staged in coltmp
 colarm:
         lda $d01e               ; reading re-arms the VIC latches and
         lda $d01f               ; discards collisions from before arming
@@ -9555,15 +9682,13 @@ _colcheck_fire:
         lda #1
         sta col_active
         lda col_vlo,x
-        sta col_jmp
+        sta exprlo
         lda col_vhi,x
-        sta col_jmp+1
-        jsr _colcheck_call
+        sta exprhi
+        jsr fgosub
         lda #0
         sta col_active
         rts
-_colcheck_call:
-        jmp (col_jmp)
 
 ; MOUSE driver: 1351 proportional deltas decoded per frame in the IRQ
 ; tick; the pointer sprite follows. Left button = fire line (bit 7 of
@@ -9877,7 +10002,7 @@ _fltmode_clear:
         and flt_mode,x
 _fltmode_wr:
         sta flt_mode,x
-        ora snd_vol
+        ora snd_vol,x
         ldy fltoff,x
         sta $d418,y
         rts
@@ -9897,19 +10022,31 @@ fltsetres:
         cli
         rts
 
-; VOL affects all voices (SOUND and PLAY), so write all four SIDs
+; VOL right,left affects all voices (SOUND and PLAY):
+; right -> SID1/SID2, left -> SID3/SID4.
 volsnd:
         lda exprlo
         and #$0f
         sta snd_vol
+        bra volsndright
+volsndl:
+        lda exprlo
+        and #$0f
+        sta snd_voll
+        bra volsndleft
 volsndall:
-        sta $d438
+        jsr volsndright
+volsndleft:
+        lda snd_voll
         sta $d478
-        ora flt_mode
-        sta $d418
-        lda snd_vol
         ora flt_mode+1
         sta $d458
+        rts
+volsndright:
+        lda snd_vol
+        sta $d438
+        ora flt_mode
+        sta $d418
         rts
 
 sndsetv:
@@ -9973,7 +10110,6 @@ sndsetp:
 
 sndgo:
         jsr sndinit
-        lda snd_vol
         jsr volsndall
         ldx snd_v
         ldy snd_regoff,x
@@ -10035,8 +10171,8 @@ sndgo:
 
 
 snd_hooked:   .byte 0
-snd_oldirq:   .byte 0,0
 snd_vol:      .byte $0f
+snd_voll:     .byte $0f
 snd_v:        .byte 0
 snd_f:        .byte 0,0
 snd_d:        .byte 0,0
@@ -10449,25 +10585,16 @@ _ovi_dig:
         jsr kernalchkin
         bcs _ovi_err
         jsr kernalchrin2        ; probe the first byte: a missing file
-        sta ovlfbuf             ; shows as instant EOF/error
+        jsr _ovi_store_a        ; shows as instant EOF/error
         jsr kernalreadst
         and #$82
         bne _ovi_err
-        ldx #1
 _ovi_rd:
         jsr kernalreadst
-        bne _ovi_tail
+        bne _ovi_close
         jsr kernalchrin2
-        sta ovlfbuf,x
-        inx
-        bne _ovi_rd
-        jsr _ovi_flush          ; full page (X=0 -> 256 bytes)
-        ldx #0
+        jsr _ovi_store_a
         bra _ovi_rd
-_ovi_tail:
-        cpx #0                  ; partial page at EOF (X=0: none)
-        beq _ovi_close
-        jsr _ovi_flush
 _ovi_close:
         jsr kernalclrchn
         lda #4
@@ -10477,7 +10604,7 @@ _ovi_close:
         jmp _ovi_loop
 _ovi_go:
         lda #0                  ; runtime far-pointer convention back
-        sta varptr+3            ; (bank 1 heap), then segment 0 into
+        sta varptr+3
         lda #1                  ; the window
         sta varptr+2
         lda #0
@@ -10486,36 +10613,24 @@ _ovi_err:
         lda #4                  ; FILE NOT FOUND
         jmp rterror
 
-; X bytes of ovlfbuf (0 = 256) -> attic at ovl_fdst, cursor bumped.
-; varptr is only borrowed between KERNAL calls, never across them.
-_ovi_flush:
-        stx ovl_fcnt
+; Store A into attic at ovl_fdst, then advance the far cursor.  varptr is
+; only borrowed between KERNAL calls, never across them.
+_ovi_store_a:
+        pha
         ldx #3
 -       lda ovl_fdst,x
         sta varptr,x
         dex
         bpl -
-        ldx #0
         ldz #0
-_ovf_cp:
-        lda ovlfbuf,x
+        pla
         sta [varptr],z
-        inz
-        inx
-        cpx ovl_fcnt
-        bne _ovf_cp
-        ldz #0
-        lda ovl_fcnt
-        beq _ovf_page           ; 256: high byte bumps, low unchanged
-        clc
-        adc ovl_fdst
-        sta ovl_fdst
-        bcc _ovf_done
-_ovf_page:
+        inc ovl_fdst
+        bne _ovis_done
         inc ovl_fdst+1
-        bne _ovf_done
+        bne _ovis_done
         inc ovl_fdst+2
-_ovf_done:
+_ovis_done:
         rts
 _ovi_defname:                  ; defensive default: the stub always
         .byte 4                ; repoints ovlnptr at the emitted blob
@@ -10533,11 +10648,9 @@ ovl_new:   .byte 0
 ovlbase:  .byte 0              ; window page (extended header)
 ovlwlen:  .byte 0, 0           ; window length
 ovl_fdst: .byte 0, 0, 0, 0     ; loader attic cursor
-ovl_fcnt: .byte 0              ; loader flush count (0 = 256)
 ovlnptr:  .word _ovi_defname   ; -> name blob (len, "<base>.")
 ovlnlen:  .byte 0
 ovlnbuf:  .fill 18, 0          ; composed "<base>.##"
-ovlfbuf:  .fill 256, 0         ; loader page buffer
 .fi
 
 rtendovl:

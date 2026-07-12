@@ -6,6 +6,22 @@ divergences from the interpreter (by design or ROM quirk) live in
 Resolved issues are removed from this file; their write-ups live in
 the git history (this file's log and the fixing commits' messages).
 
+## 2. Graphics-idle KERNAL crash (gfxclock)
+
+**Symptom:** a compiled program that stays in graphics mode while
+looping (gfxclock) dies after a couple of seconds with an unhandled
+memory write to colour RAM + a huge offset (e.g. $FF88E90, PC=$EBB6
+inside the C65 KERNAL editor's clear/scroll far-store `sta [$e0],z`).
+Reproduces in xemu and on real hardware; chain-started runs sometimes
+survive where a manually typed RUN crashes. The bitmap itself was
+verified pixel-perfect -- this is display/IRQ-side state, not drawing.
+
+**State:** the KERNAL IRQ's screen service writes through pointers
+whose recomputation goes insane in graphics mode; the $CC cursor
+save/disable at rtinit did not stop it. Suspects: editor line-link /
+logical-screen state interacting with the FCM mode switch. Not caused
+by GET or TI$ (bisected away). Open.
+
 ## 1. Harness phase-1 timeout (boot stall)
 
 **Symptom:** `tools/emu-test.ps1` occasionally reports "no OUT.ASM in

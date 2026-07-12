@@ -36,7 +36,7 @@ Set-Location $repo
 # Graphics fixtures are named gfx*.bas and are skipped by the -All runner:
 # they are visual, long-running, or key-driven rather than screen-text tests.
 $NegativeFixtures = @("bad_data")
-$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "clock")   # interactive
+$SkipFixtures = @("ioarray", "mouse", "joydemo", "getkey", "testline", "input", "get", "lineinkb", "pacman")   # interactive/endless
 
 $d81 = Join-Path $repo "target\basic65c.d81"
 $probe = Join-Path $env:TEMP "basic65c-probe.d81"
@@ -116,7 +116,6 @@ function Invoke-Fixture {
     if ($LASTEXITCODE -ne 0) { return @{ Name = $name; Result = "BUILD FAILED" } }
 
     Write-CompilerBootstrap $outputBase
-    cmd /c ".\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas 2>&1" | Out-Null
 
     Write-Host "=== phase 1: compile $FixturePath on the MEGA65 as $outputBase ==="
     $p = Start-Process -FilePath $Xemu -ArgumentList @(

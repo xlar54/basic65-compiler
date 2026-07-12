@@ -87,8 +87,9 @@ PETSCII keyboard-injection register and chain-loads `BASIC65C`),
 polls the D81 until `OUT.ASM` appears, extracts the native program
 file `OUT`, links `OUT.ASM` with the runtime on the PC, and
 byte-compares the two
-programs. Phase 2 (skipped with `-SkipRun`) chain-loads the compiled
-program with `tools\bootstrap-run.bas` and captures the final screen.
+programs. Phase 2 (skipped with `-SkipRun`) writes the compiled
+program to the D81 as `AUTOBOOT.C65`, boots it directly, and captures
+the final screen.
 
 Negative fixtures (must fail to compile) and interactive fixtures
 (skipped: they block on keyboard input) are listed at the top of the

@@ -47,7 +47,6 @@ if errorlevel 1 exit /b 1
 rem harness bootstraps must survive the target\*.prg wipe above
 .\petcat.exe -w65 -l 2001 -o target\bootstrap.prg -- tools\bootstrap.bas
 if errorlevel 1 exit /b 1
-.\petcat.exe -w65 -l 2001 -o target\bootstrap-run.prg -- tools\bootstrap-run.bas
 if errorlevel 1 exit /b 1
 
 rem Builds every BASIC fixture, including graphics demos named basic\gfx*.bas.

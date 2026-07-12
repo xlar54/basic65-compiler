@@ -225,7 +225,7 @@ Legend:
 | $FE $1D | WPOKE | ✅ | MEGA65 reassignment (petcat's table still says SPRDEF here); fixer rewrites |
 | $FE $1E | FWRITE# | ❌ | |
 | $FE $1F | DMA | ✅ | legacy 1MB form, mapped onto the enhanced engine |
-| $FE $21 | EDMA | ⚠️ | copy/mix/swap/fill with 28-bit addresses (float args convert); hex literals stay 16-bit — write big addresses in decimal or expressions |
+| $FE $21 | EDMA | ✅ | copy/mix/swap/fill with 28-bit addresses (float args convert); hex literals with 5+ significant digits compile as float literals, matching the interpreter |
 | $FE $23 | MEM | ❌ | |
 | $FE $24 | OFF | 🔧 | argument keyword (MOUSE OFF) |
 | $FE $25 | FAST | ❌ | MEGA65 runs full speed compiled anyway |

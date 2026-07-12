@@ -385,7 +385,8 @@ _ssm_chp_done:
         sta VIC4_SCRNPTRMSB
         lda scrn_base+2
         sta VIC4_SCRBPTRBNK
-        stz $D063
+        lda #$00
+        sta $D063
 
         ; Color RAM pointer
         lda #$00
@@ -465,7 +466,7 @@ restore_default_screen:
         sta VIC4_SCRNPTRMSB
         lda #$00
         sta VIC4_SCRBPTRBNK
-        stz $D063
+        sta $D063
 
         ; Restore DISPROWS
         lda #25
