@@ -23,8 +23,9 @@ matches the compiled output.
 - [ ] bits.bas         (SETBIT/CLRBIT incl flat 28-bit form; compiled
       run verified 2026-07-07)
 - [ ] sprsav.bas       (SPRSAV string/sprite round trip; compiled run
-      verified 2026-07-07. Note: assumes sprite pointers at
-      screen+$3F8 -- confirm against the interpreted run.)
+      verified 2026-07-07 and re-verified 2026-07-12 after the pointer
+      bounds fix. The screen+$3F8 pointer table is deliberate C64-style
+      compatibility; stale/dangerous pointer bytes are bounded now.)
 - [ ] boot.bas         (BOOT chain-load; booted stub paints BOOT OK
       into screen RAM and freezes by design -- no READY. Compiled run
       verified 2026-07-07.)
@@ -144,6 +145,42 @@ matches the compiled output.
       interpreted, the ROM raises ILLEGAL QUANTITY on its deliberate
       out-of-range coordinates. Compiled: silently clips, PIXEL
       out-of-range reads 0, DS$ stays 00,OK. Verified 2026-07-08.)
+
+## Added since the last sweep (2026-07-12) -- not yet checked
+
+Full parity expected:
+- [ ] deffn.bas        (DEF FN definitions + calls)
+- [ ] log2.bas         (LOG2 against known values)
+- [ ] lineinp.bas      (LINE INPUT# from disk; lineinkb.bas is the
+      interactive keyboard variant)
+- [ ] bsavep.bas       (BSAVE with P(expr) addresses)
+- [ ] condcmp.bas      (string compares inside compound AND/OR
+      conditions -- the qint/FAC-clobber regression fixture)
+- [ ] flow.bas, loops.bas, get.bas, scrarr.bas, strarrgc.bas,
+      attrs.bas, bitprobe.bas, bankpk.bas, temp.bas, primes.bas,
+      bench.bas, bench2.bas
+- [ ] big.bas, bigx.bas (overlay fixtures: interpreted runs print the
+      same SUM/S totals; compiled builds segment into <name>.NN files)
+- [ ] lcp.bas          (Little Computer People house; segmented
+      compiled)
+
+Graphics (renamed with the gfx prefix; the old plain names were the
+same programs): gfxboxes, gfxcircles, gfxlines, gfxmandel, gfxsurf,
+gfxsurface, gfxg640clr, gfxgraphic640 -- benchmarks/demos, compare
+visually + timings. Also new:
+- [ ] rgraphic.bas     (RGRAPHIC readback)
+- [ ] cut.bas          (GCOPY/CUT clear-source semantics)
+- [ ] viewport.bas     (VIEWPORT clipping)
+- [ ] gfxclock.bas     (analog RTC clock; interactive, any key exits.
+      KNOWN-ISSUES #2: compiled build crashes after a few seconds in
+      graphics-idle -- do not chase as a parity bug)
+- [ ] wallprobe.bas    (t@&/c@& wall-adjacency probe)
+
+Compiled-verification fixtures (interpreted parity not the point):
+- movtest2.bas (sprite glide vs SPRSAV/COLLISION/SOUND isolation
+  phases; runs both ways but exists to probe the compiled runtime)
+- pacman.bas (playable game, interactive, endless -- on the harness
+  skip list; the fixture that surfaced the 2026-07-12 sprite fixes)
 
 ## Known divergences to NOT report as bugs
 
