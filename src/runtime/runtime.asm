@@ -3931,16 +3931,15 @@ bittab:
         .byte 1, 2, 4, 8, 16, 32, 64, 128
 
 ; SPRSAV: 64-byte C64-style sprite shapes staged through sprsavbuf.
-; Sprite data is found through the live C64-style pointers at screen+1016
-; (VIC bank 0 assumed). The MEGA65's VIC path used here still consumes
-; that table even while the text display is 80-column.
+; Sprite data is found through the live MEGA65/C65 sprite pointers at
+; screen+2040 (VIC bank 0 assumed), past the default 2K 80-column screen.
 sprdataptr:
-        lda $d060               ; screen base + $3f8 + sprite#
+        lda $d060               ; screen base + $7f8 + sprite#
         clc
         adc #$f8
         sta varptr
         lda $d061
-        adc #$03
+        adc #$07
         sta varptr+1
         lda $d062
         adc #0
@@ -9317,6 +9316,15 @@ sprgoto:
         lda spr_ty
         cmp mo_ty,x
         bne _sprgoto_new
+        lda spr_x
+        cmp mo_sxl,x
+        bne _sprgoto_new
+        lda spr_x+1
+        cmp mo_sxh,x
+        bne _sprgoto_new
+        lda spr_dy
+        cmp mo_sy,x
+        bne _sprgoto_new
         rts
 _sprgoto_new:
         lda spr_dy
@@ -9326,6 +9334,12 @@ _sprgoto_new:
         lda spr_spd
         ldx spr_n
         sta mo_speed,x
+        lda spr_x
+        sta mo_sxl,x
+        lda spr_x+1
+        sta mo_sxh,x
+        lda spr_dy
+        sta mo_sy,x
         jsr sprsyncpos
         ; dx = tx - x (16-bit signed), dy = ty - y
         sec
@@ -10229,6 +10243,9 @@ mo_vyh:       .fill 8, 0
 mo_txl:       .fill 8, 0
 mo_txh:       .fill 8, 0
 mo_ty:        .fill 8, 0
+mo_sxl:       .fill 8, 0
+mo_sxh:       .fill 8, 0
+mo_sy:        .fill 8, 0
 mo_cntl:      .fill 8, 0
 mo_cnth:      .fill 8, 0
 mo_speed:     .fill 8, 0

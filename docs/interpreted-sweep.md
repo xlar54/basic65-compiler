@@ -24,8 +24,8 @@ matches the compiled output.
       run verified 2026-07-07)
 - [ ] sprsav.bas       (SPRSAV string/sprite round trip; compiled run
       verified 2026-07-07 and re-verified 2026-07-12 after the pointer
-      bounds fix. The screen+$3F8 pointer table is deliberate C64-style
-      compatibility; stale/dangerous pointer bytes are bounded now.)
+      bounds fix. The MEGA65 default sprite pointer table is screen+$7F8;
+      stale/dangerous pointer bytes are bounded to the post-screen area.)
 - [ ] boot.bas         (BOOT chain-load; booted stub paints BOOT OK
       into screen RAM and freezes by design -- no READY. Compiled run
       verified 2026-07-07.)

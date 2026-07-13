@@ -215,7 +215,7 @@ Legend:
 | $FE $13 | CONCAT | ✅ | DOS combine form with explicit 0: source prefixes (CBDOS silently skips the append without them); SEQ files only (DOS rule) |
 | $FE $14 | DVERIFY | ❌ | |
 | $FE $15 | DCLEAR | ✅ | |
-| $FE $16 | SPRSAV | ⚠️ | sprite#/string$ both directions (64-byte C64-style shapes, pointers read at screen+$3F8, VIC bank 0); array-cell targets rejected |
+| $FE $16 | SPRSAV | ⚠️ | sprite#/string$ both directions (64-byte MEGA65/C65 sprite shapes, pointers read at screen+$7F8, VIC bank 0; stale/high pointers bounded to the post-screen sprite area); array-cell targets rejected |
 | $FE $17 | COLLISION | ✅ | first working implementation on the platform — the ROM's is unfinished |
 | $FE $18 | BEGIN | ✅ | |
 | $FE $19 | BEND | ✅ | |

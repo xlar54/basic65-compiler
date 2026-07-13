@@ -2,12 +2,12 @@
 RT_END_CORE = $56d5
 RT_END_FIO = $5b41
 RT_END_MATH = $5eea
-RT_END_SOUND = $7372
-RT_END_OVL = $7654
+RT_END_SOUND = $73b4
+RT_END_OVL = $7696
 RT_PROGBASE = $7400
 
 RT_PBHI = $4c49
-RT_VOLSNDL = $6df8
+RT_VOLSNDL = $6e22
 ; record: .byte kind, length, bytes... (patch slots are $00)
 ; kinds: 0 code, 1 patch_byte, 2 patch_word, 3 patch_lo,
 ;        4 patch_hi, 5 patch_rel8, 6 name fragment
@@ -330,19 +330,19 @@ bt_out_jsr_cmpne:
 
 bt_out_jsr_colarm:
         .byte 0, 3
-        .byte $20, $9c, $6a
+        .byte $20, $c6, $6a
 
 bt_out_jsr_colcheck:
         .byte 0, 3
-        .byte $20, $22, $6b
+        .byte $20, $4c, $6b
 
 bt_out_jsr_coloff:
         .byte 0, 3
-        .byte $20, $c9, $6a
+        .byte $20, $f3, $6a
 
 bt_out_jsr_colsett:
         .byte 0, 3
-        .byte $20, $8e, $6a
+        .byte $20, $b8, $6a
 
 bt_out_jsr_concatstr:
         .byte 0, 3
@@ -582,27 +582,27 @@ bt_out_jsr_float16:
 
 bt_out_jsr_fltsetbp:
         .byte 0, 3
-        .byte $20, $a7, $6d
+        .byte $20, $d1, $6d
 
 bt_out_jsr_fltsetf:
         .byte 0, 3
-        .byte $20, $7b, $6d
+        .byte $20, $a5, $6d
 
 bt_out_jsr_fltsethp:
         .byte 0, 3
-        .byte $20, $ab, $6d
+        .byte $20, $d5, $6d
 
 bt_out_jsr_fltsetlp:
         .byte 0, 3
-        .byte $20, $a3, $6d
+        .byte $20, $cd, $6d
 
 bt_out_jsr_fltsetn:
         .byte 0, 3
-        .byte $20, $6d, $6d
+        .byte $20, $97, $6d
 
 bt_out_jsr_fltsetres:
         .byte 0, 3
-        .byte $20, $d5, $6d
+        .byte $20, $ff, $6d
 
 bt_out_jsr_fmul:
         .byte 0, 3
@@ -766,27 +766,27 @@ bt_out_jsr_modseta:
 
 bt_out_jsr_mouseoff:
         .byte 0, 3
-        .byte $20, $0b, $6c
+        .byte $20, $35, $6c
 
 bt_out_jsr_mouseon:
         .byte 0, 3
-        .byte $20, $d4, $6b
+        .byte $20, $fe, $6b
 
 bt_out_jsr_mousetp:
         .byte 0, 3
-        .byte $20, $61, $6b
+        .byte $20, $8b, $6b
 
 bt_out_jsr_mousets:
         .byte 0, 3
-        .byte $20, $78, $6b
+        .byte $20, $a2, $6b
 
 bt_out_jsr_mousetx:
         .byte 0, 3
-        .byte $20, $81, $6b
+        .byte $20, $ab, $6b
 
 bt_out_jsr_mousety:
         .byte 0, 3
-        .byte $20, $8e, $6b
+        .byte $20, $b8, $6b
 
 bt_out_jsr_movsprgo:
         .byte 0, 3
@@ -798,7 +798,7 @@ bt_out_jsr_mul16:
 
 bt_out_jsr_ovlinit:
         .byte 0, 3
-        .byte $20, $16, $75
+        .byte $20, $58, $75
 
 bt_out_jsr_peekbk:
         .byte 0, 3
@@ -890,7 +890,7 @@ bt_out_jsr_readstr:
 
 bt_out_jsr_rmousef:
         .byte 0, 3
-        .byte $20, $01, $6d
+        .byte $20, $2b, $6d
 
 bt_out_jsr_rndf:
         .byte 0, 3
@@ -938,15 +938,15 @@ bt_out_jsr_rwindowf:
 
 bt_out_jsr_seggoto:
         .byte 0, 3
-        .byte $20, $b5, $73
+        .byte $20, $f7, $73
 
 bt_out_jsr_seglgosub:
         .byte 0, 3
-        .byte $20, $ca, $74
+        .byte $20, $0c, $75
 
 bt_out_jsr_seglgoto:
         .byte 0, 3
-        .byte $20, $56, $74
+        .byte $20, $98, $74
 
 bt_out_jsr_setbitgo:
         .byte 0, 3
@@ -962,39 +962,39 @@ bt_out_jsr_sleepf:
 
 bt_out_jsr_sndgo:
         .byte 0, 3
-        .byte $20, $86, $6e
+        .byte $20, $b0, $6e
 
 bt_out_jsr_sndsetd:
         .byte 0, 3
-        .byte $20, $3c, $6e
+        .byte $20, $66, $6e
 
 bt_out_jsr_sndsetdr:
         .byte 0, 3
-        .byte $20, $49, $6e
+        .byte $20, $73, $6e
 
 bt_out_jsr_sndsetf:
         .byte 0, 3
-        .byte $20, $2f, $6e
+        .byte $20, $59, $6e
 
 bt_out_jsr_sndsetm:
         .byte 0, 3
-        .byte $20, $56, $6e
+        .byte $20, $80, $6e
 
 bt_out_jsr_sndsetp:
         .byte 0, 3
-        .byte $20, $79, $6e
+        .byte $20, $a3, $6e
 
 bt_out_jsr_sndsets:
         .byte 0, 3
-        .byte $20, $63, $6e
+        .byte $20, $8d, $6e
 
 bt_out_jsr_sndsetv:
         .byte 0, 3
-        .byte $20, $1f, $6e
+        .byte $20, $49, $6e
 
 bt_out_jsr_sndsetw:
         .byte 0, 3
-        .byte $20, $70, $6e
+        .byte $20, $9a, $6e
 
 bt_out_jsr_spcn:
         .byte 0, 3
@@ -1058,11 +1058,11 @@ bt_out_jsr_sprsetprio:
 
 bt_out_jsr_sprsettx:
         .byte 0, 3
-        .byte $20, $76, $69
+        .byte $20, $a0, $69
 
 bt_out_jsr_sprsetty:
         .byte 0, 3
-        .byte $20, $89, $69
+        .byte $20, $b3, $69
 
 bt_out_jsr_sprsetx:
         .byte 0, 3
@@ -1070,11 +1070,11 @@ bt_out_jsr_sprsetx:
 
 bt_out_jsr_sprsetxr:
         .byte 0, 3
-        .byte $20, $96, $69
+        .byte $20, $c0, $69
 
 bt_out_jsr_sprsetyr:
         .byte 0, 3
-        .byte $20, $b0, $69
+        .byte $20, $da, $69
 
 bt_out_jsr_sprswitch:
         .byte 0, 3
@@ -1234,7 +1234,7 @@ bt_out_jsr_valstr:
 
 bt_out_jsr_volsnd:
         .byte 0, 3
-        .byte $20, $ee, $6d
+        .byte $20, $18, $6e
 
 bt_out_jsr_vsync:
         .byte 0, 3
@@ -1278,15 +1278,15 @@ bt_out_jsr_wpokebk:
 
 bt_out_ld_mourb:
         .byte 0, 12
-        .byte $ad, $36, $70, $8d, $36, $4d, $ad, $37, $70, $8d, $37, $4d
+        .byte $ad, $78, $70, $8d, $36, $4d, $ad, $79, $70, $8d, $37, $4d
 
 bt_out_ld_mourx:
         .byte 0, 12
-        .byte $ad, $32, $70, $8d, $36, $4d, $ad, $33, $70, $8d, $37, $4d
+        .byte $ad, $74, $70, $8d, $36, $4d, $ad, $75, $70, $8d, $37, $4d
 
 bt_out_ld_moury:
         .byte 0, 12
-        .byte $ad, $34, $70, $8d, $36, $4d, $ad, $35, $70, $8d, $37, $4d
+        .byte $ad, $76, $70, $8d, $36, $4d, $ad, $77, $70, $8d, $37, $4d
 
 bt_out_lda_exprhi:
         .byte 0, 3
@@ -1433,7 +1433,7 @@ bt_out_seg_wordpre:
 
 bt_out_set_fgptrs:
         .byte 0, 20
-        .byte $a9, $86, $8d, $09, $3a, $a9, $74, $8d, $0a, $3a, $a9, $a5
+        .byte $a9, $c8, $8d, $09, $3a, $a9, $74, $8d, $0a, $3a, $a9, $e7
         .byte $8d, $0b, $3a, $a9, $74, $8d, $0c, $3a
 
 bt_out_sign_xor_lhshi_exprhi:
@@ -1452,11 +1452,11 @@ bt_out_sta_abs:
 
 bt_out_sta_coltmp:
         .byte 0, 3
-        .byte $8d, $17, $70
+        .byte $8d, $59, $70
 
 bt_out_sta_coltmp1:
         .byte 0, 3
-        .byte $8d, $18, $70
+        .byte $8d, $5a, $70
 
 bt_out_sta_curline:
         .byte 0, 3
@@ -1496,31 +1496,31 @@ bt_out_sta_lhslo:
 
 bt_out_sta_ovlbase:
         .byte 0, 3
-        .byte $8d, $38, $76
+        .byte $8d, $7a, $76
 
 bt_out_sta_ovlnptr:
         .byte 0, 3
-        .byte $8d, $3f, $76
+        .byte $8d, $81, $76
 
 bt_out_sta_ovlnptr1:
         .byte 0, 3
-        .byte $8d, $40, $76
+        .byte $8d, $82, $76
 
 bt_out_sta_ovlnseg:
         .byte 0, 3
-        .byte $8d, $18, $76
+        .byte $8d, $5a, $76
 
 bt_out_sta_ovlwhi:
         .byte 0, 3
-        .byte $8d, $3a, $76
+        .byte $8d, $7c, $76
 
 bt_out_sta_ovlwlo:
         .byte 0, 3
-        .byte $8d, $39, $76
+        .byte $8d, $7b, $76
 
 bt_out_sta_playarg:
         .byte 0, 3
-        .byte $8d, $78, $6f
+        .byte $8d, $a2, $6f
 
 bt_out_sta_rtptr:
         .byte 0, 2

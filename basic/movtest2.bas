@@ -25,6 +25,11 @@
 250 next
 260 xd=rsppos(0,0)
 270 print " d sound :";xd-126;:if xd>126 then print " ok" : else print " fail"
-280 print "movtest2 done"
-290 end
+280 rem -- e: new start, same target/speed must reprogram
+290 movspr 0,126,177 to 180,177,1
+300 movspr 0,140,177 to 180,177,1
+310 xe=rsppos(0,0)
+320 print " e start :";xe;:if xe>=140 and xe<150 then print " ok" : else print " fail"
+330 print "movtest2 done"
+340 end
 900 co%=bump(1):return
