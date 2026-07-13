@@ -40,6 +40,7 @@ KERNAL_LOAD             = $FFD5
 
 source_ptr              = $F7
 str_ptr                 = $FB
+.include "gen/text-template-labels.inc"
 POOL_BANK               = $04
 POOL_BASE               = $C000 ; above any realistic tokenized source
 STR_OFF_PAGE            = $D8   ; string literal offset tables: $d800/$d900
@@ -49,6 +50,7 @@ LINETAB_B4              = $F400 ; line records, bank 4; $e000-$f2ff = generated 
 
 LFN_OUT                 = 2
 LFN_RT                  = 3
+LFN_TMPL                = 4
 LFN_CMD                 = 15
 DEVICE_DISK             = 8
 SA_OUT_TEXT             = 1
@@ -261,27 +263,6 @@ main:
         sta d030_save           ; CC_ wrappers key off it
         lda #0
         sta cc_mode             ; 0 = ROMs stay as booted
-        ldx #0                  ; the $c000 table block is not
-        txa                     ; reliably loaded -- give the compiler
-_main_clr_hi:                   ; the zero-init state it expects
-        sta $c000,x
-        sta $c100,x
-        sta $c200,x
-        sta $c300,x
-        sta $c400,x
-        sta $c500,x
-        sta $c600,x
-        sta $c700,x
-        sta $c800,x
-        sta $c900,x
-        sta $ca00,x
-        sta $cb00,x
-        sta $cc00,x
-        sta $cd00,x
-        sta $ce00,x
-        sta $cf00,x
-        inx
-        bne _main_clr_hi
         jsr close_work_files
         lda #0
         sta compile_error
@@ -332,12 +313,12 @@ _main_clr_hi:                   ; the zero-init state it expects
         jsr screen_zstr
         rts
 
-+       lda d030_save           ; the ROM shadow at $c000 hides the
-        and #%11000111          ; scratch tables (reads see ROM, writes
-        sta $d030               ; fall through) -- bank $8000/$a000/
-        lda #1                  ; $c000 out for the compile; keyboard
-        sta cc_mode             ; input is done. The CC_ wrappers put
-        lda #<msg_scanning_in   ; the ROMs back around KERNAL file ops
++       lda d030_save           ; bank $8000/$a000 RAM in for the compiler;
+        and #%11100111          ; leave the $c000 DOS/editor window alone.
+        sta $d030
+        lda #1                  ; keyboard input is done. The CC_ wrappers
+        sta cc_mode             ; put the ROMs back around KERNAL file ops
+        lda #<msg_scanning_in
         ldy #>msg_scanning_in
         jsr screen_zstr
         jsr read_prg_header
@@ -369,7 +350,14 @@ _main_seg_stable:
 .if TEXT_EMITTER
         lda asm_enabled
         beq _main_skip_text
-        lda #<msg_opening_out
+        jsr load_text_templates
+        bcc +
+        lda #<msg_template_missing
+        ldy #>msg_template_missing
+        jsr screen_zstr
+        jmp _main_rom_in
+
++       lda #<msg_opening_out
         ldy #>msg_opening_out
         jsr screen_zstr
         jsr show_base_asm_cr
@@ -519,7 +507,7 @@ cc_rom_out:
         lda cc_mode
         beq _ccro_plain
         lda d030_save
-        and #%11000111
+        and #%11100111
         sta $d030
         pla
         rts
@@ -1047,7 +1035,7 @@ _finalize_binary_fail:
         sec
         rts
 
-; load runtime.prg into attic scratch before OUT.PRG is opened. This avoids
+; load +b65rtm into attic scratch before OUT.PRG is opened. This avoids
 ; alternating a real-DOS read channel and write channel during native output.
 load_runtime_image:
         lda #0
@@ -2102,6 +2090,107 @@ _load_source_fail:
         sec
         rts
 
+.if TEXT_EMITTER
+load_text_templates:
+        lda #<msg_loading_templates
+        ldy #>msg_loading_templates
+        jsr screen_zstr
+
+        jsr CC_CLRCHN
+        lda #LFN_TMPL
+        jsr CC_CLOSE
+
+        lda #0
+        ldx #0
+        jsr CC_SETBNK
+
+        lda #tmpl_name_end - tmpl_name
+        ldx #<tmpl_name
+        ldy #>tmpl_name
+        jsr CC_SETNAM
+
+        lda #LFN_TMPL
+        ldx #DEVICE_DISK
+        ldy #4
+        jsr CC_SETLFS
+
+        jsr CC_OPEN
+        bcs _load_tmpl_fail
+        jsr CC_READST
+        bne _load_tmpl_fail
+        ldx #LFN_TMPL
+        jsr CC_CHKIN
+        bcs _load_tmpl_fail
+
+        jsr CC_CHRIN             ; skip PRG load address
+        jsr CC_CHRIN
+        jsr CC_READST
+        bne _load_tmpl_fail
+
+        lda #<TEXT_TEMPLATE_BASE
+        sta tmpl_dst
+        lda #>TEXT_TEMPLATE_BASE
+        sta tmpl_dst+1
+        lda #TEXT_TEMPLATE_FAR_BANK
+        sta tmpl_dst+2
+        lda #TEXT_TEMPLATE_FAR_MB
+        sta tmpl_dst+3
+
+_load_tmpl_loop:
+        jsr CC_CHRIN
+        jsr tmpl_store_a
+        jsr CC_READST
+        and #$40
+        beq _load_tmpl_loop
+        jsr CC_CLRCHN
+        lda #LFN_TMPL
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        clc
+        rts
+
+_load_tmpl_fail:
+        jsr CC_CLRCHN
+        lda #LFN_TMPL
+        jsr CC_CLOSE
+        jsr CC_CLRCHN
+        sec
+        rts
+
+tmpl_store_a:
+        sta rt_byte
+        ldx source_ptr
+        stx pool_save
+        ldx source_ptr+1
+        stx pool_save+1
+        ldx source_ptr+2
+        stx pool_save+2
+        ldx source_ptr+3
+        stx pool_save+3
+        ldx #3
+-       lda tmpl_dst,x
+        sta source_ptr,x
+        dex
+        bpl -
+        ldz #0
+        lda rt_byte
+        sta [source_ptr],z
+        ldx pool_save
+        stx source_ptr
+        ldx pool_save+1
+        stx source_ptr+1
+        ldx pool_save+2
+        stx source_ptr+2
+        ldx pool_save+3
+        stx source_ptr+3
+        inc tmpl_dst
+        bne +
+        inc tmpl_dst+1
+        bne +
+        inc tmpl_dst+2
++       rts
+.fi
+
 open_output:
         jsr close_work_files
         jsr scratch_output
@@ -2294,7 +2383,7 @@ emit_prg_header_comment:
         rts
 +       lda #<out_comment_load_addr
         ldy #>out_comment_load_addr
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda prg_load_hi
         jsr out_hex_byte
         lda prg_load_lo
@@ -2702,6 +2791,7 @@ _scan_vars_fail:
 _scan_vars_done:
         rts
 
+
 scan_line_branches:
         lda #0
         sta line_idx
@@ -2791,138 +2881,6 @@ _scan_branch_extended:
 _scan_branch_done:
         rts
 
-
-scan_dim_statement:
-_scan_dim_next:
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _scan_dim_bad
-        jsr line_get
-        jsr is_var_start
-        bcs _scan_dim_bad
-        jsr parse_variable_with_first_char
-        bcs _scan_dim_bad
-        lda var_type
-        jsr var_type_is_numeric
-        bcc +
-        cmp #VAR_TYPE_STRING
-        bne _scan_dim_bad
-+
-
-        jsr line_skip_spaces
-        jsr line_at_end
-        bcs _scan_dim_bad
-        jsr line_get
-        cmp #'('
-        bne _scan_dim_bad
-
-        lda #0
-        sta array_rank
-
-_scan_dim_dim_loop:
-        lda array_rank
-        cmp #ARRAY_RANK_MAX
-        bcs _scan_dim_bad
-        jsr line_parse_number
-        bcs _scan_dim_bad
-        lda number_lo
-        sta array_dim_lo
-        lda number_hi
-        sta array_dim_hi
-        inc array_dim_lo
-        bne +
-        inc array_dim_hi
-        beq _scan_dim_bad
-+       ldx array_rank
-        lda array_dim_lo
-        sta array_dims_lo,x
-        lda array_dim_hi
-        sta array_dims_hi,x
-        inc array_rank
-
-        jsr line_skip_spaces
-        jsr line_at_end
-        bcs _scan_dim_bad
-        jsr line_get
-        cmp #','
-        beq _scan_dim_dim_loop
-        cmp #')'
-        bne _scan_dim_bad
-
-        lda array_rank
-        beq _scan_dim_bad
-
-        lda #VAR_KIND_ARRAY1
-        sta var_kind
-        jsr create_array_var
-        bcs _scan_dim_bad
-
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _scan_dim_done
-        jsr line_get
-        cmp #','
-        beq _scan_dim_next
-
-_scan_dim_bad:
-        lda #1
-        sta compile_error
-        jsr line_skip_to_stmt_end
-
-_scan_dim_done:
-        rts
-
-scan_data_statement:
-_scan_data_next:
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _scan_data_done
-        jsr line_peek
-        cmp #','
-        beq _scan_data_bad_item
-        cmp #'"'
-        beq _scan_data_string
-
-        jsr line_parse_signed_decimal_number
-        bcs _scan_data_bad_item
-        jsr record_data_line_if_needed
-        bcs _scan_data_too_many
-        jsr record_data_number
-        bcs _scan_data_too_many
-        bra _scan_data_after_item
-
-_scan_data_string:
-        jsr line_get
-        jsr add_string_literal
-        bcs _scan_data_bad_item
-        jsr record_data_line_if_needed
-        bcs _scan_data_too_many
-        jsr record_data_string
-        bcs _scan_data_too_many
-
-_scan_data_after_item:
-        jsr line_skip_spaces
-        jsr line_at_end_or_colon
-        bcs _scan_data_done
-        jsr line_get
-        cmp #','
-        beq _scan_data_next
-
-_scan_data_bad_item:
-        lda #<msg_error_bad_data
-        ldy #>msg_error_bad_data
-        jsr fatal_error_zstr
-        jsr line_skip_to_stmt_end
-        bra _scan_data_done
-
-_scan_data_too_many:
-        lda #<msg_error_too_many_data
-        ldy #>msg_error_too_many_data
-        jsr fatal_error_zstr
-        jsr line_skip_to_stmt_end
-
-_scan_data_done:
-        rts
 
 record_data_number:
         ldx data_count
@@ -3479,7 +3437,7 @@ _stmt_dim:
         lda #<out_dim_comment
         ldy #>out_dim_comment
 _stmt_skipstmt:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jmp line_skip_to_stmt_end
 
 _stmt_clr:
@@ -6586,7 +6544,7 @@ _factor_ffn_paren:
 _factor_ffn_flt:
         ply
         pla
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda #1
         sta expr_type
         clc
@@ -7091,7 +7049,7 @@ _compile_flt_loop:
         phx
         lda fltsetterlo,x
         ldy fltsetterhi,x
-        jsr out_zstr
+        jsr out_tmpl_zstr
         plx
         inx
         cpx #5
@@ -7271,7 +7229,7 @@ _css_c:
         lda #<out_jsr_cscrw
         ldy #>out_jsr_cscrw
 _css_emit:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         rts
 _css_bad:
         jmp compile_env_bad
@@ -7365,7 +7323,7 @@ cmd2entry:
         .word out_jsr_cmdeq
         lda cmd2_tail
         ldy cmd2_tail+1
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr emit_string_temp_release
         jsr emit_string_temp_release
         bra compile_cmd_go
@@ -7432,7 +7390,7 @@ emit_tmpl:
         phx
         lda et_tmpl
         ldy et_tmpl+1
-        jmp out_zstr
+        jmp out_tmpl_zstr
 
 et_ret:
         .byte 0,0
@@ -7466,7 +7424,7 @@ emit_tmpl_done:
         sta source_ptr
         lda et_tmpl
         ldy et_tmpl+1
-        jsr out_zstr
+        jsr out_tmpl_zstr
         clc
         rts
 
@@ -7481,7 +7439,7 @@ parse_paren_expr:
 
 ; shared tail: emit a template and return success
 out_zstr_ok:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         clc
         rts
 
@@ -8478,7 +8436,7 @@ out_fn_ref:
         jmp bin_label
 +       lda #<out_fnlab_prefix
         ldy #>out_fnlab_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda cfn_ref_hi
         jsr out_hex_byte
         lda cfn_ref_lo
@@ -8788,7 +8746,7 @@ _compile_env_loop:
         phx
         lda envsetterlo,x
         ldy envsetterhi,x
-        jsr out_zstr
+        jsr out_tmpl_zstr
         plx
         inx
         cpx #6
@@ -11900,7 +11858,7 @@ emit_varheapend:
         rts                     ; binary: value goes into the header vector
 +       lda #<out_varheapend_def
         ldy #>out_varheapend_def
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda var_heap_next_hi
         jsr out_hex_byte
         lda var_heap_next_lo
@@ -11952,7 +11910,7 @@ emit_data_table:
         sta datastart_addr+1
 +       lda #<out_data_table_start
         ldy #>out_data_table_start
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda #0
         sta data_emit_idx
 
@@ -12006,7 +11964,7 @@ _emit_data_table_done:
         sta dataend_addr+1
 +       lda #<out_data_table_end
         ldy #>out_data_table_end
-        jsr out_zstr
+        jsr out_tmpl_zstr
         rts
 
 ; line-number -> address table for FGOTO/FGOSUB: "linetab:" then a
@@ -12173,7 +12131,7 @@ emit_string_roots:
         sta strroots_addr+1
 +       lda #<out_strroots_start
         ldy #>out_strroots_start
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda #0
         sta root_emit_idx
 
@@ -12315,7 +12273,7 @@ emit_string_pool:
         rts
 +       lda #<out_string_pool_header
         ldy #>out_string_pool_header
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda #0
         sta string_emit_idx
 
@@ -12538,7 +12496,7 @@ emit_line_track:
         rts
 +       lda #<out_lda_imm_hex
         ldy #>out_lda_imm_hex
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda line_no_lo
         jsr out_hex_byte
         jsr out_cr
@@ -13466,7 +13424,7 @@ _emit_bool_cmp_ge:
         ldy #>out_jsr_cmpge
 
 _emit_bool_cmp_call:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr emit_store_a_to_expr_bool
         rts
 
@@ -13516,7 +13474,7 @@ _emit_str_cmp_ge:
         ldy #>out_jsr_strge
 
 _emit_str_cmp_call:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr emit_store_a_to_expr_bool
         rts
 
@@ -13566,7 +13524,7 @@ _emit_strref_cmp_ge:
         ldy #>out_jsr_strrefge
 
 _emit_strref_cmp_call:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr emit_store_a_to_expr_bool
         rts
 
@@ -14161,19 +14119,19 @@ emit_cmp_lhslo_exprlo:
         .word out_cmp_lhslo_exprlo
 
 emit_branch_if_true:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr out_if_true_ref
         jsr out_cr
         rts
 
 emit_branch_if_skip:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr out_if_skip_ref
         jsr out_cr
         rts
 
 emit_branch_if_tmp:
-        jsr out_zstr
+        jsr out_tmpl_zstr
         jsr out_if_tmp_ref
         jsr out_cr
         rts
@@ -14302,7 +14260,7 @@ out_if_true_ref:
         jmp bin_label
 +       lda #<out_iftrue_prefix
         ldy #>out_iftrue_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda if_true_hi
         jsr out_hex_byte
         lda if_true_lo
@@ -14318,7 +14276,7 @@ out_if_skip_ref:
         jmp bin_label
 +       lda #<out_ifskip_prefix
         ldy #>out_ifskip_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda if_skip_hi
         jsr out_hex_byte
         lda if_skip_lo
@@ -14334,7 +14292,7 @@ out_if_end_ref:
         jmp bin_label
 +       lda #<out_ifend_prefix
         ldy #>out_ifend_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda if_end_hi
         jsr out_hex_byte
         lda if_end_lo
@@ -14350,7 +14308,7 @@ out_if_else_ref:
         jmp bin_label
 +       lda #<out_ifelse_prefix
         ldy #>out_ifelse_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda if_else_hi
         jsr out_hex_byte
         lda if_else_lo
@@ -14366,7 +14324,7 @@ out_if_tmp_ref:
         jmp bin_label
 +       lda #<out_iftmp_prefix
         ldy #>out_iftmp_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda if_tmp_hi
         jsr out_hex_byte
         lda if_tmp_lo
@@ -14382,7 +14340,7 @@ out_array_ok_ref:
         jmp bin_label
 +       lda #<out_arrayok_prefix
         ldy #>out_arrayok_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda array_ok_hi
         jsr out_hex_byte
         lda array_ok_lo
@@ -14398,7 +14356,7 @@ out_array_nonneg_ref:
         jmp bin_label
 +       lda #<out_arraynonneg_prefix
         ldy #>out_arraynonneg_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda array_ok_hi
         jsr out_hex_byte
         lda array_ok_lo
@@ -14414,7 +14372,7 @@ out_array_hieq_ref:
         jmp bin_label
 +       lda #<out_arrayhieq_prefix
         ldy #>out_arrayhieq_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda array_ok_hi
         jsr out_hex_byte
         lda array_ok_lo
@@ -14430,7 +14388,7 @@ out_onnext_ref:
         jmp bin_label
 +       lda #<out_onnext_prefix
         ldy #>out_onnext_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda on_label_hi
         jsr out_hex_byte
         lda on_label_lo
@@ -14446,7 +14404,7 @@ out_ondone_ref:
         jmp bin_label
 +       lda #<out_ondone_prefix
         ldy #>out_ondone_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         lda on_done_hi
         jsr out_hex_byte
         lda on_done_lo
@@ -14463,7 +14421,7 @@ out_forend_ref:
         jmp bin_for_storage_ref
 +       lda #<out_forend_prefix
         ldy #>out_forend_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 out_forstep_ref:
@@ -14473,7 +14431,7 @@ out_forstep_ref:
         jmp bin_for_storage_ref
 +       lda #<out_forstep_prefix
         ldy #>out_forstep_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 bin_for_storage_ref:
@@ -14503,7 +14461,7 @@ out_fortop_ref:
         bra bin_for_label
 +       lda #<out_fortop_prefix
         ldy #>out_fortop_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 out_forneg_ref:
@@ -14513,7 +14471,7 @@ out_forneg_ref:
         bra bin_for_label
 +       lda #<out_forneg_prefix
         ldy #>out_forneg_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 out_forinitneg_ref:
@@ -14523,7 +14481,7 @@ out_forinitneg_ref:
         bra bin_for_label
 +       lda #<out_forinitneg_prefix
         ldy #>out_forinitneg_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 out_forcont_ref:
@@ -14533,7 +14491,7 @@ out_forcont_ref:
         bra bin_for_label
 +       lda #<out_forcont_prefix
         ldy #>out_forcont_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_for_id
 
 out_fordone_ref:
@@ -14543,7 +14501,7 @@ out_fordone_ref:
         bra bin_for_label
 +       lda #<out_fordone_prefix
         ldy #>out_fordone_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
 
 out_current_for_id:
         lda #0
@@ -14564,7 +14522,7 @@ out_dotop_ref:
         bra bin_do_label
 +       lda #<out_dotop_prefix
         ldy #>out_dotop_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
         bra out_current_do_id
 
 out_dodone_ref:
@@ -14574,7 +14532,7 @@ out_dodone_ref:
         bra bin_do_label
 +       lda #<out_dodone_prefix
         ldy #>out_dodone_prefix
-        jsr out_zstr
+        jsr out_tmpl_zstr
 
 out_current_do_id:
         lda #0
@@ -14700,6 +14658,55 @@ out_cr:
         jmp bin_finalize_pending
 +       lda #13
         jsr CC_CHROUT
+        rts
+
+out_tmpl_zstr:
+        ldx backend_mode
+        beq _out_tmpl_text
+        jmp bin_zstr
+_out_tmpl_text:
+        sta tmpl_read
+        sty tmpl_read+1
+_out_tmpl_loop:
+        jsr tmpl_load_a
+        beq _out_tmpl_done
+        jsr CC_CHROUT
+        inc tmpl_read
+        bne _out_tmpl_loop
+        inc tmpl_read+1
+        bra _out_tmpl_loop
+_out_tmpl_done:
+        rts
+
+tmpl_load_a:
+        ldx source_ptr
+        stx pool_save
+        ldx source_ptr+1
+        stx pool_save+1
+        ldx source_ptr+2
+        stx pool_save+2
+        ldx source_ptr+3
+        stx pool_save+3
+        lda tmpl_read
+        sta source_ptr
+        lda tmpl_read+1
+        sta source_ptr+1
+        lda #TEXT_TEMPLATE_FAR_BANK
+        sta source_ptr+2
+        lda #TEXT_TEMPLATE_FAR_MB
+        sta source_ptr+3
+        ldz #0
+        lda [source_ptr],z
+        pha
+        ldx pool_save
+        stx source_ptr
+        ldx pool_save+1
+        stx source_ptr+1
+        ldx pool_save+2
+        stx source_ptr+2
+        ldx pool_save+3
+        stx source_ptr+3
+        pla
         rts
 
 out_zstr:
@@ -15044,8 +15051,12 @@ outb_name:
 outb_name_end:
 
 rt_name:
-        .text "runtime.prg"
+        .text "+b65rtm"
 rt_name_end:
+
+tmpl_name:
+        .text "+b65tpl"
+tmpl_name_end:
 
 scratch_outb_name:
         .text "s0:outb.tmp"
@@ -15131,6 +15142,12 @@ msg_writing_prg:
 msg_loading_rt_attic:
         .text "loading runtime -> attic"
         .byte 13, 0
+msg_loading_templates:
+        .text "loading templates -> bank 5"
+        .byte 13, 0
+msg_template_missing:
+        .text "+b65tpl missing"
+        .byte 13, 0
 msg_writing_seg:
         .text "writing "
         .byte 0
@@ -15147,7 +15164,7 @@ msg_bin_disk_fail:
         .byte 13, 0
 msg_rt_missing:
         .byte 13
-        .text "runtime.prg missing"
+        .text "+b65rtm missing"
         .byte 13, 0
 msg_bin_write_fail:
         .text "native out.prg failed"
@@ -15269,6 +15286,11 @@ msg_error_bad_exit:
         .text "bad exit"
         .byte 13, 0
 
+; Text templates are parsed by tools/gen-bin-templates.py into:
+;   - src/gen/text-template-labels.inc (the out_* IDs used below)
+;   - target/basic65t.prg (the bank-5 text image for ASM output)
+; They are intentionally not emitted into the compiler's resident bank.
+.if 0
 out_header_pre:
 .if TEXT_EMITTER
         .text "; generated by basic65c"
@@ -18468,6 +18490,7 @@ out_dim_comment:
 .else
         .byte 0
 .fi
+.fi
 ;=======================================================================================
 ; State
 ;=======================================================================================
@@ -18788,6 +18811,10 @@ rt_copy_len:
         .word 0
 rt_stage_ptr:
         .byte 0,0,0,0
+tmpl_dst:
+        .byte 0,0,0,0
+tmpl_read:
+        .byte 0,0
 rt_byte:
         .byte 0
 probe_mode:
@@ -18995,19 +19022,9 @@ lbladdr_base_hi:
 
         .include "gen/bin-templates.inc"
 
-; ---- scratch tables: pure zero-fill, placed at the image tail so in
-; the checked build they may spill past $c000 -- the chain-load does
-; not reliably deliver bytes up there (probe-proven: the native
-; templates died past $c000 while the compiler itself ran fine), but
-; these don't care: main clears $c000-$cfff at startup, and everything
-; below $c000 loads normally. All VALUED content (code, templates)
-; must stay below $c000.
-;
-; EXCEPTION: the source filename is read at prompt time, BEFORE the
-; ROMs are banked out -- $c000-$cfff reads see the ROM shadow ($ff
-; padding) until then, so these two must stay below $c000 (writes
-; always land in RAM, which is why the startup clear and the prompt's
-; stores masked this until the block crossed the boundary).
+; ---- resident state and scratch tables. Keep all of this below $c000:
+; $8000/$a000 RAM is unmapped during compilation, but the $c000 DOS/editor
+; window is left alone.
 source_filename_len:
         .byte 0
 source_filename_buf:
@@ -19020,7 +19037,145 @@ output_base_len:
 asm_enabled:
         .byte 0
 .fi
-        .cerror * >= $c000, "loaded content (code/templates) must stay below $c000"
+
+;=======================================================================================
+; Resident compiler helpers
+;=======================================================================================
+
+scan_dim_statement:
+_scan_dim_next:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_dim_bad
+        jsr line_get
+        jsr is_var_start
+        bcs _scan_dim_bad
+        jsr parse_variable_with_first_char
+        bcs _scan_dim_bad
+        lda var_type
+        jsr var_type_is_numeric
+        bcc +
+        cmp #VAR_TYPE_STRING
+        bne _scan_dim_bad
++
+
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _scan_dim_bad
+        jsr line_get
+        cmp #'('
+        bne _scan_dim_bad
+
+        lda #0
+        sta array_rank
+
+_scan_dim_dim_loop:
+        lda array_rank
+        cmp #ARRAY_RANK_MAX
+        bcs _scan_dim_bad
+        jsr line_parse_number
+        bcs _scan_dim_bad
+        lda number_lo
+        sta array_dim_lo
+        lda number_hi
+        sta array_dim_hi
+        inc array_dim_lo
+        bne +
+        inc array_dim_hi
+        beq _scan_dim_bad
++       ldx array_rank
+        lda array_dim_lo
+        sta array_dims_lo,x
+        lda array_dim_hi
+        sta array_dims_hi,x
+        inc array_rank
+
+        jsr line_skip_spaces
+        jsr line_at_end
+        bcs _scan_dim_bad
+        jsr line_get
+        cmp #','
+        beq _scan_dim_dim_loop
+        cmp #')'
+        bne _scan_dim_bad
+
+        lda array_rank
+        beq _scan_dim_bad
+
+        lda #VAR_KIND_ARRAY1
+        sta var_kind
+        jsr create_array_var
+        bcs _scan_dim_bad
+
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_dim_done
+        jsr line_get
+        cmp #','
+        beq _scan_dim_next
+
+_scan_dim_bad:
+        lda #1
+        sta compile_error
+        jsr line_skip_to_stmt_end
+
+_scan_dim_done:
+        rts
+
+
+scan_data_statement:
+_scan_data_next:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_data_done
+        jsr line_peek
+        cmp #','
+        beq _scan_data_bad_item
+        cmp #'"'
+        beq _scan_data_string
+
+        jsr line_parse_signed_decimal_number
+        bcs _scan_data_bad_item
+        jsr record_data_line_if_needed
+        bcs _scan_data_too_many
+        jsr record_data_number
+        bcs _scan_data_too_many
+        bra _scan_data_after_item
+
+_scan_data_string:
+        jsr line_get
+        jsr add_string_literal
+        bcs _scan_data_bad_item
+        jsr record_data_line_if_needed
+        bcs _scan_data_too_many
+        jsr record_data_string
+        bcs _scan_data_too_many
+
+_scan_data_after_item:
+        jsr line_skip_spaces
+        jsr line_at_end_or_colon
+        bcs _scan_data_done
+        jsr line_get
+        cmp #','
+        beq _scan_data_next
+
+_scan_data_bad_item:
+        lda #<msg_error_bad_data
+        ldy #>msg_error_bad_data
+        jsr fatal_error_zstr
+        jsr line_skip_to_stmt_end
+        bra _scan_data_done
+
+_scan_data_too_many:
+        lda #<msg_error_too_many_data
+        ldy #>msg_error_too_many_data
+        jsr fatal_error_zstr
+        jsr line_skip_to_stmt_end
+
+_scan_data_done:
+        rts
+
+scratch_tail_start:
 def_n1:
         .fill DEF_MAX, 0
 def_n2:
@@ -19158,7 +19313,5 @@ data_line_index:
 string_temp:
         .fill LINE_BUF_MAX + 1, 0
 
-; On the MEGA65 the $c000-$cfff block is unmapped RAM in the compiler's
-; execution context (the editor lives in the bank-3 ROM via MAPHI, not
-; a $c000 shadow); only the I/O space at $d000 is a hard limit.
-        .cerror * >= $d000, "resident compiler grew into i/o space"
+; Keep the checked compiler out of the $c000-$cfff DOS/editor window.
+        .cerror * >= $c000, "resident compiler grew into the DOS/editor window"

@@ -6,22 +6,6 @@ divergences from the interpreter (by design or ROM quirk) live in
 Resolved issues are removed from this file; their write-ups live in
 the git history (this file's log and the fixing commits' messages).
 
-## 2. Graphics-idle KERNAL crash (gfxclock)
-
-**Symptom:** a compiled program that stays in graphics mode while
-looping (gfxclock) dies after a couple of seconds with an unhandled
-memory write to colour RAM + a huge offset (e.g. $FF88E90, PC=$EBB6
-inside the C65 KERNAL editor's clear/scroll far-store `sta [$e0],z`).
-Reproduces in xemu and on real hardware; chain-started runs sometimes
-survive where a manually typed RUN crashes. The bitmap itself was
-verified pixel-perfect -- this is display/IRQ-side state, not drawing.
-
-**State:** the KERNAL IRQ's screen service writes through pointers
-whose recomputation goes insane in graphics mode; the $CC cursor
-save/disable at rtinit did not stop it. Suspects: editor line-link /
-logical-screen state interacting with the FCM mode switch. Not caused
-by GET or TI$ (bisected away). Open.
-
 ## 1. Harness phase-1 timeout (boot stall)
 
 **Symptom:** `tools/emu-test.ps1` occasionally reports "no OUT.ASM in
@@ -37,16 +21,21 @@ retries up to 3x for the same reason, the harness does not retry.
 
 ## Capacity watch (not defects, but current hard limits)
 
-- **Runtime core is full:** rtendsound = $70FA vs progbase = $7100 --
-  6 bytes of headroom (guarded by .cerror). The next runtime addition
-  forces the graphics-trampoline carve-out (~250 bytes), sectioned
-  emission, or a progbase bump (costs every program 256 bytes of the
-  24KB window).
-- **Checked compiler:** valued content ends $BE32 (~460 bytes below
-  the $C000 guard) after squeeze round 2 (string/data-line scratch
-  moved into the $C000 tail, SYM_MAX 96 -> 64; fixture peak is ~44
-  symbols).
-- **Graphics blob:** ~14.1KB of the 16KB bank-5 budget (~2.3KB free).
-- **Program window:** any single program is bound by $7100-$D000
-  (~24KB emitted). Program overlays (attic segments + line-table
-  trampoline) are the plan when a real program outgrows it.
+- **Runtime sections are page-rounded by need:** current section ends
+  are core `$56D5`, FIO `$5B41`, math `$5EEA`, sound/sprite/graphics
+  `$7372`, and overlay `$7654`. Their generated program bases are
+  `$5700`, `$5C00`, `$5F00`, `$7400`, and `$7700`, respectively. The
+  tightest low-tier slack is math at 22 bytes; the heavy sound/graphics
+  tier has 142 bytes before `$7400`; the overlay tier has 172 bytes
+  before `$7700`.
+- **Compiler resident bank:** valued compiler content ends at `$B30D`,
+  leaving 3314 bytes (`$0CF2`) below the `$C000` DOS/editor guard.
+  ASM text templates now live in the companion `+b65tpl` file and are
+  loaded to bank 5 only when ASM export is enabled.
+- **Graphics blob:** the banked graphics helper ends at `$BB00`, leaving
+  1279 bytes (`$04FF`) below its `$C000` 16KB window guard.
+- **Program window:** native program space starts at the selected
+  runtime base above and runs to `$D000` for ordinary programs. Graphics
+  programs that need the `$C000` screen-code area use the lower `$C000`
+  cap. Program overlays are implemented for larger programs, with the
+  current v1 restrictions documented in `docs/overlays.md`.

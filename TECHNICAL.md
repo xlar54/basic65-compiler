@@ -15,10 +15,14 @@ creates `target\basic65c.d81` containing:
 
 - `basic65c` — the MEGA65-native compiler with native output and an
   optional ASM export prompt
+- `+b65tpl` — ASM text templates loaded by the compiler when ASM
+  export is enabled
+- `+b65rtm` — the runtime image staged by the compiler for native
+  output
+- `+b65gfx` — the banked graphics blob loaded by compiled graphics
+  programs
 - `source.prg` — the tokenized BASIC fixture (default
   `basic\source.bas`, or the fixture named on the command line)
-- `gfx` — the banked graphics blob (loaded to bank 5 at runtime by
-  graphics programs)
 - `out.prg` — the previous PC-side linked output, when present
 
 It also assembles `src\runtime\runtime.asm` standalone as a

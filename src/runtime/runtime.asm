@@ -3479,7 +3479,7 @@ gfxload:
         lda #0
         ldx #0
         jsr kernalsetbnk
-        lda #7
+        lda #_gfx_name_end - _gfx_name
         ldx #<_gfx_name
         ldy #>_gfx_name
         jsr kernalsetnam
@@ -3526,7 +3526,10 @@ _gfxl_err:
         lda #21                 ; missing GFX file: FILE NOT FOUND
         jmp rterror
 _gfx_name:
-        .text "GFX,P,R"
+        .text "+B65GFX,P,R"   ; uppercase = PETSCII letter codes under
+                              ; .enc none, matching the directory bytes
+                              ; c1541 wrote (see the OUT. blob note)
+_gfx_name_end:
 
 ; CHAR: copy the string (descriptor in exprlo/hi) into the blob image
 ; at attic $8180100 (blob offset $100); the next gfxcall swaps it in

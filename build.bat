@@ -85,12 +85,14 @@ cd target
 if errorlevel 1 exit /b 1
 ..\c1541.exe -attach basic65c.d81 -write basic65c basic65c
 if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write runtime.prg runtime.prg
+..\c1541.exe -attach basic65c.d81 -write basic65t.prg "+b65tpl"
 if errorlevel 1 exit /b 1
-..\c1541.exe -attach basic65c.d81 -write gfx.prg gfx
+..\c1541.exe -attach basic65c.d81 -write gfx.prg "+b65gfx"
+if errorlevel 1 exit /b 1
+..\c1541.exe -attach basic65c.d81 -write runtime.prg "+b65rtm"
 if errorlevel 1 exit /b 1
 for %%F in (*.prg) do (
-    if /I not "%%F"=="out.prg" if /I not "%%F"=="runtime.prg" if /I not "%%F"=="gfx.prg" (
+    if /I not "%%F"=="out.prg" if /I not "%%F"=="runtime.prg" if /I not "%%F"=="gfx.prg" if /I not "%%F"=="basic65t.prg" (
         set "DISKNAME=%%F"
         if /I "!DISKNAME:~0,3!"=="gfx" if not "!DISKNAME:~16!"=="" set "DISKNAME=%%~nF"
         if not "!DISKNAME:~16!"=="" set "DISKNAME=!DISKNAME:~0,16!"

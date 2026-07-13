@@ -29,6 +29,10 @@ builds `target\basic65c.d81`. Boot it and:
 RUN"BASIC65C"
 ```
 
+Keep the three companion files on the compiler disk: `+b65tpl` for ASM
+templates, `+b65rtm` for native output, and `+b65gfx` for compiled
+programs that use graphics.
+
 Enter the input filename, output filename, and whether to generate
 the ASM file. For example, `SOURCE.PRG`, `GAME`, and `Y` write the
 runnable program `GAME` and its assembly `GAME.ASM` back to the same
