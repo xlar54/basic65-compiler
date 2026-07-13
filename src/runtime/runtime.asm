@@ -9028,7 +9028,6 @@ _sndshut_mo:
         dex
         bpl _sndshut_mo
         sta col_pending
-        sta col_active
         jsr playoff
         lda snd_hooked
         beq _sndshut_gates_only
@@ -9602,8 +9601,9 @@ _sprt_next:
 
 ; COLLISION type[,line]: the IRQ tick latches VIC collision bits into
 ; pending flags; colcheck (emitted at each line start when the program
-; uses COLLISION) dispatches a compiled GOSUB to the armed handler.
-; Only one handler runs at a time, per the book.
+; uses COLLISION) dispatches one pending compiled GOSUB. No persistent
+; "inside handler" latch is kept: a handler may leave via GOTO/END and
+; future collisions must still dispatch.
 colsett:
         ldx exprlo
         dex
@@ -9677,8 +9677,6 @@ col_tick:
 
 ; between lines: run at most one pending handler as a GOSUB
 colcheck:
-        lda col_active
-        bne _colcheck_done
         lda col_pending
         beq _colcheck_done
         ldx #0
@@ -9696,16 +9694,11 @@ _colcheck_fire:
         eor #$ff
         and col_pending
         sta col_pending
-        lda #1
-        sta col_active
         lda col_vlo,x
         sta exprlo
         lda col_vhi,x
         sta exprhi
-        jsr fgosub
-        lda #0
-        sta col_active
-        rts
+        jmp fgosub
 
 ; MOUSE driver: 1351 proportional deltas decoded per frame in the IRQ
 ; tick; the pointer sprite follows. Left button = fire line (bit 7 of
@@ -10256,7 +10249,6 @@ col_acc1:     .byte 0
 col_acc2:     .byte 0
 col_armed:    .byte 0
 col_pending:  .byte 0
-col_active:   .byte 0
 col_jmp:      .byte 0,0
 col_vlo:      .fill 3, 0
 col_vhi:      .fill 3, 0
@@ -10605,10 +10597,13 @@ _ovi_dig:
         jsr kernalchkin
         bcs _ovi_err
         jsr kernalchrin2        ; probe the first byte: a missing file
-        jsr _ovi_store_a        ; shows as instant EOF/error
+        pha                     ; shows as instant EOF/error; hold the
+                                ; byte until READST says it is valid.
         jsr kernalreadst
         and #$82
-        bne _ovi_err
+        bne _ovi_err_drop
+        pla
+        jsr _ovi_store_a
 _ovi_rd:
         jsr kernalreadst
         bne _ovi_close
@@ -10630,8 +10625,15 @@ _ovi_go:
         lda #0
         jmp ovlswap
 _ovi_err:
+        jsr kernalclrchn
+        lda #4
+        jsr kernalclose
+        jsr fio_rom_off
         lda #4                  ; FILE NOT FOUND
         jmp rterror
+_ovi_err_drop:
+        pla
+        bra _ovi_err
 
 ; Store A into attic at ovl_fdst, then advance the far cursor.  varptr is
 ; only borrowed between KERNAL calls, never across them.

@@ -12421,13 +12421,20 @@ _spl_hard_over:
         lda for_sp              ; by this point the prior segment cannot
         ora do_sp               ; safely accept the fall-through hop, so
         ora begin_sp            ; report the structural reason loudly
-        bne _spl_seg_too_large
+        bne _spl_open_too_large
         ldx seg_cut_n
         cpx #SEG_MAX
-        bcs _spl_seg_too_large
-_spl_seg_too_large:
-        lda #<msg_error_too_large
-        ldy #>msg_error_too_large
+        bcs _spl_too_many_segments
+        lda #<msg_error_segment_window
+        ldy #>msg_error_segment_window
+        jmp fatal_error_zstr
+_spl_open_too_large:
+        lda #<msg_error_segment_open
+        ldy #>msg_error_segment_open
+        jmp fatal_error_zstr
+_spl_too_many_segments:
+        lda #<msg_error_too_many_segments
+        ldy #>msg_error_too_many_segments
         jmp fatal_error_zstr
 
 emit_line_label:
@@ -15219,6 +15226,15 @@ msg_overlay_gate:
         .byte 13, 0
 msg_error_too_large:
         .text "program too large"
+        .byte 13, 0
+msg_error_segment_window:
+        .text "segment exceeds window"
+        .byte 13, 0
+msg_error_segment_open:
+        .text "open block too large"
+        .byte 13, 0
+msg_error_too_many_segments:
+        .text "too many overlay segments"
         .byte 13, 0
 msg_error_unsupported_token:
         .text "unsupported token"
@@ -18988,7 +19004,10 @@ LBL_DOTOP       = 10
 LBL_DODONE      = 11
 
 ; label tables live in bank 4 at LBLTAB_BASE; these are offsets
-LBLTAB_BASE     = $E000
+LBLTAB_PAGE     = $E0
+LBLTAB_BASE     = LBLTAB_PAGE << 8
+.cerror STR_OFF_PAGE + 2 > BRANCH_TAB_PAGE, "string offset tables overrun branch target tables"
+.cerror BRANCH_TAB_PAGE + 2 > LBLTAB_PAGE, "branch target tables overrun generated label tables"
 lbloff_if        = 0
 lbloff_on        = lbloff_if + LBL_IF_IDS * 2
 lbloff_arrayok   = lbloff_on + LBL_ON_IDS * 2
@@ -19001,7 +19020,8 @@ lbloff_forcont   = lbloff_forinitneg + LBL_FORDO_MAX * 2
 lbloff_fordone   = lbloff_forcont + LBL_FORDO_MAX * 2
 lbloff_dotop     = lbloff_fordone + LBL_FORDO_MAX * 2
 lbloff_dodone    = lbloff_dotop + LBL_FORDO_MAX * 2
-.cerror LBLTAB_BASE + lbloff_dodone + LBL_FORDO_MAX * 2 > LINETAB_B4, "label tables overrun the bank-4 line records"
+LBLTAB_END        = LBLTAB_BASE + lbloff_dodone + LBL_FORDO_MAX * 2
+.cerror LBLTAB_END > LINETAB_B4, "label tables overrun the bank-4 line records"
 
 lbladdr_base_lo:
         .byte <(LBLTAB_BASE+lbloff_if), <(LBLTAB_BASE+lbloff_on)

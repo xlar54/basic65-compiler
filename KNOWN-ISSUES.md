@@ -23,13 +23,13 @@ retries up to 3x for the same reason, the harness does not retry.
 
 - **Runtime sections are page-rounded by need:** current section ends
   are core `$56D5`, FIO `$5B41`, math `$5EEA`, sound/sprite/graphics
-  `$7372`, and overlay `$7654`. Their generated program bases are
+  `$73A0`, and overlay `$7692`. Their generated program bases are
   `$5700`, `$5C00`, `$5F00`, `$7400`, and `$7700`, respectively. The
   tightest low-tier slack is math at 22 bytes; the heavy sound/graphics
-  tier has 142 bytes before `$7400`; the overlay tier has 172 bytes
+  tier has 96 bytes before `$7400`; the overlay tier has 110 bytes
   before `$7700`.
-- **Compiler resident bank:** valued compiler content ends at `$B30D`,
-  leaving 3314 bytes (`$0CF2`) below the `$C000` DOS/editor guard.
+- **Compiler resident bank:** valued compiler content ends at `$B364`,
+  leaving 3227 bytes (`$0C9B`) below the `$C000` DOS/editor guard.
   ASM text templates now live in the companion `+b65tpl` file and are
   loaded to bank 5 only when ASM export is enabled.
 - **Graphics blob:** the banked graphics helper ends at `$BB00`, leaving
