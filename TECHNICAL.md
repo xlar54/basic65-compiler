@@ -53,7 +53,7 @@ generated PRG on the same D81. If the ASM prompt is answered `Y`, it
 also writes the matching 64tass source as `<output>.ASM`. The native
 program is produced without any assembler: a size pass computes every
 address, then an emit pass streams the runtime image from
-`RUNTIME.PRG` and the compiled machine code (see
+`+b65rtm` and the compiled machine code (see
 `docs\native-backend.md`). When ASM export is enabled, the native PRG
 is byte-identical to what 64tass assembles from the emitted source,
 and the test harness verifies that on every run.

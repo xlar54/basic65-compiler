@@ -6,7 +6,7 @@ records the design the runtime extraction was shaped around.
 
 **Status: working.** The compiler runs pass 2 three times (size, text, emit)
 and writes a native `OUT.PRG` on the D81: runtime image streamed from
-`runtime.prg`, zero gap to `$4000`, header vectors, then the program with
+`+b65rtm` (the runtime image), zero gap, header vectors, then the program with
 all labels resolved from the size-pass tables. Verified byte-identical to
 the 64tass-assembled text output on endsub, strings, and the full
 `source.bas` suite (44,914 bytes); `tools\emu-test.ps1` byte-diffs every
